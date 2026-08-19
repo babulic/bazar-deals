@@ -6,7 +6,21 @@ domain:
   verticals: [retro, mineral, apple, network]
   conditions: [new, like_new, used, for_parts, unknown]
   actions: [buy, alert, skip]
-  item_kinds: [media, hardware, generic]
+  item_kinds:
+    - media
+    - books
+    - accessories
+    - clothing
+    - jewelry
+    - cosmetics
+    - toys
+    - sports
+    - photo
+    - phones
+    - musical
+    - tools
+    - hardware
+    - generic
   default_currency: EUR
 
 hunt:
@@ -57,53 +71,210 @@ identity:
     - sega
     - c64
     - c128
-  media_markers:
-    - kazeta
-    - cassette
-    - tape
-    - páska
-    - paska
-    - hra
-    - hry
-    - game
-    - games
-    - cartridge
-    - kartridž
-    - kartridz
-    - manual
-    - manuál
-    - kniha
-    - poster
-    - nálepka
-    - nalepka
-    - sticker
-    - stickers
-    - náhrada
-    - nahrada
-    - obal
-    - case
-    - cover
-    - pre c64
-    - pro c64
-    - for c64
-    - für c64
-    - fur c64
-    - c64/c128
-    - c64-c128
-    - c64 c128
-    - c64/128
-    - konami
-  hardware_markers:
-    - počítač
-    - pocitac
-    - computer
-    - motherboard
-    - základná doska
-    - zakladna doska
-    - disk drive
-    - mechanika
-    - unlocked
-    - breadbin
+  kind_priority:
+    - accessories
+    - media
+    - books
+    - clothing
+    - jewelry
+    - cosmetics
+    - toys
+    - sports
+    - photo
+    - phones
+    - musical
+    - tools
+    - hardware
+  loose_kinds: [media, accessories, books]
+  kind_markers:
+    accessories:
+      - obal
+      - case
+      - cover
+      - puzdro
+      - nabíjačka
+      - nabijacka
+      - charger
+      - kábel
+      - kabel
+      - cable
+      - adapter
+      - adaptér
+      - screen protector
+      - fólie
+      - folie
+    media:
+      - kazeta
+      - cassette
+      - tape
+      - páska
+      - paska
+      - cd
+      - dvd
+      - blu-ray
+      - vinyl
+      - hra
+      - hry
+      - game
+      - games
+      - cartridge
+      - kartridž
+      - kartridz
+      - manual
+      - manuál
+      - poster
+      - nálepka
+      - nalepka
+      - sticker
+      - stickers
+      - pre c64
+      - pro c64
+      - for c64
+      - für c64
+      - fur c64
+      - c64/c128
+      - c64-c128
+      - c64 c128
+      - c64/128
+      - konami
+    books:
+      - kniha
+      - knihy
+      - book
+      - román
+      - roman
+      - učebnica
+      - ucebnica
+      - komiks
+      - comic
+      - časopis
+      - casopis
+      - magazine
+    clothing:
+      - tričko
+      - tricko
+      - t-shirt
+      - košeľa
+      - kosela
+      - nohavice
+      - rifle
+      - jeans
+      - bunda
+      - kabát
+      - kabat
+      - šaty
+      - saty
+      - sukňa
+      - sukna
+      - mikina
+      - hoodie
+      - sveter
+      - topánky
+      - topanky
+      - tenisky
+      - sneakers
+      - kleid
+      - schuhe
+      - oblečenie
+      - oblecenie
+    jewelry:
+      - náušnice
+      - nausnice
+      - prsteň
+      - prsten
+      - retiazka
+      - náhrdelník
+      - nahrdelnik
+      - náramok
+      - naramok
+      - hodinky
+      - watch
+      - uhren
+      - šperky
+      - sperky
+      - jewelry
+    cosmetics:
+      - parfum
+      - parfém
+      - perfume
+      - krém
+      - krem
+      - makeup
+      - rúž
+      - ruz
+      - šampón
+      - sampon
+      - kozmetika
+    toys:
+      - lego
+      - puzzle
+      - barbie
+      - figúrka
+      - figurka
+      - plyš
+      - plys
+      - hračka
+      - hracka
+      - toy
+      - spielzeug
+    sports:
+      - činka
+      - cinka
+      - dumbbell
+      - tenis
+      - yoga
+      - turistika
+      - treking
+    photo:
+      - objektív
+      - objektiv
+      - dslr
+      - zrkadlovka
+      - foták
+      - fotak
+      - camera
+      - kamera
+      - statív
+      - stativ
+    phones:
+      - smartphone
+      - smartfón
+      - smartfon
+      - mobil
+      - telefón
+      - telefon
+      - handy
+      - iphone
+      - galaxy
+    musical:
+      - gitara
+      - ukulele
+      - husle
+      - flauta
+      - midi
+    tools:
+      - vŕtačka
+      - vrtacka
+      - skrutkovač
+      - skrutkovac
+      - aku
+    hardware:
+      - počítač
+      - pocitac
+      - computer
+      - notebook
+      - laptop
+      - motherboard
+      - základná doska
+      - zakladna doska
+      - disk drive
+      - mechanika
+      - unlocked
+      - breadbin
+      - grafická karta
+      - graficka karta
+      - ssd
+      - router
   stop_words:
     - the
     - and

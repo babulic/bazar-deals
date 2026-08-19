@@ -45,10 +45,10 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
 def classify_kind(text: str) -> ItemKind:
     hay = _fold(text)
     cfg = _id()
-    if any(marker in hay for marker in cfg["media_markers"]):
-        return ItemKind.MEDIA
-    if any(marker in hay for marker in cfg["hardware_markers"]):
-        return ItemKind.HARDWARE
+    markers = cfg["kind_markers"]
+    for kind in cfg["kind_priority"]:
+        if any(_has_marker(hay, marker) for marker in markers.get(kind, [])):
+            return ItemKind(kind)
     return ItemKind.GENERIC
 
 
@@ -58,7 +58,8 @@ def sold_query(text: str, kind: ItemKind | None = None) -> str | None:
     tokens = significant_tokens(text)
     brands = set(cfg["generic_brands"])
     take = int(cfg["sold_query_tokens"])
-    if kind is ItemKind.MEDIA:
+    loose = {ItemKind(name) for name in cfg.get("loose_kinds", ["media"])}
+    if kind in loose:
         distinctive = [tok for tok in tokens if tok not in brands]
         if len(distinctive) < int(cfg["min_media_distinctive"]):
             return None
@@ -99,9 +100,16 @@ def similar_titles(left: str, right: str) -> bool:
     jaccard = len(inter) / len(union)
     brands = set(cfg["generic_brands"])
     overlap = int(cfg["min_overlap"])
-    if classify_kind(left) is ItemKind.MEDIA:
+    if classify_kind(left).value in cfg.get("loose_kinds", ["media"]):
         return len(inter - brands) >= overlap and jaccard >= float(cfg["media_jaccard"])
     return len(inter) >= overlap and jaccard >= float(cfg["title_jaccard"])
+
+
+def _has_marker(hay: str, marker: str) -> bool:
+    token = _fold(marker)
+    if not token:
+        return False
+    return re.search(rf"(?<![\w]){re.escape(token)}(?![\w])", hay) is not None
 
 
 def _fold(text: str) -> str:

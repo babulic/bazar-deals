@@ -23,6 +23,16 @@ class _Source(ListingSource):
         return self._listings
 
 
+def test_kinds_cover_small_goods() -> None:
+    assert classify_kind(CASSETTE_TITLE) is ItemKind.MEDIA
+    assert classify_kind("Obal na iPhone 13") is ItemKind.ACCESSORIES
+    assert classify_kind("iPhone 13 128GB") is ItemKind.PHONES
+    assert classify_kind("Pánske rifle Levi's 32") is ItemKind.CLOTHING
+    assert classify_kind("Strieborné náušnice") is ItemKind.JEWELRY
+    assert classify_kind("Commodore 1541-II disk drive") is ItemKind.HARDWARE
+    assert classify_kind("Kniha Harry Potter") is ItemKind.BOOKS
+
+
 def test_konami_cassette_is_media_not_c64_computer() -> None:
     listing = Listing(
         marketplace=Marketplace.AUKRO,
