@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 
 from bazar_deals.adapters.aukro import AukroSellClient
@@ -17,6 +18,8 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rs
 
 
 def main(argv: list[str] | None = None) -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Marketplace mispricing hunter")
     parser.add_argument("command", choices=["hunt"], help="Run the deal pipeline")
     parser.add_argument(
