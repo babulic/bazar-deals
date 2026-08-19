@@ -33,8 +33,14 @@ def test_kinds_cover_small_goods() -> None:
     assert classify_kind("Kniha Harry Potter") is ItemKind.BOOKS
     assert classify_kind("Surový ametyst geóda") is ItemKind.MINERALS
     assert classify_kind("crystal cluster quartz") is ItemKind.MINERALS
+    assert classify_kind("Surový topás 12g") is ItemKind.MINERALS
+    assert classify_kind("Alexandrit crystal specimen") is ItemKind.MINERALS
+    assert classify_kind("Alexandrid surový kameň") is ItemKind.MINERALS
+    assert classify_kind("Brúsený diamant 0.2ct") is ItemKind.MINERALS
+    assert classify_kind("Surový rubín zafír smaragd") is ItemKind.MINERALS
     assert classify_kind("Ametystový prsteň striebro") is ItemKind.JEWELRY
     assert classify_kind("Ametystový náhrdelník") is ItemKind.JEWELRY
+    assert classify_kind("Topásový prsteň") is ItemKind.JEWELRY
 
 
 def test_konami_cassette_is_media_not_c64_computer() -> None:

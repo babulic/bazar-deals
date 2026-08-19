@@ -41,3 +41,5 @@ def test_cli_offline(capsys) -> None:
     assert "Commodore 1541-II" in out
     assert "BUY" in out
     assert "obvyklá" in out
+    assert "filter:" in out
+    assert "buy=" in out

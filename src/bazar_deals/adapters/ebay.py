@@ -58,7 +58,7 @@ class EbayBrowseClient(ListingSource):
             follow_redirects=True,
         )
         if response.status_code >= 400:
-            raise RuntimeError("eBay public search HTML returned no items")
+            raise RuntimeError(f"eBay public search HTML HTTP {response.status_code}")
         listings = [
             item
             for item in parse_ebay_html(response.text)

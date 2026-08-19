@@ -228,97 +228,221 @@ identity:
       - sperky
       - jewelry
     minerals:
-      - ametyst
-      - amethyst
+      - drahokam
+      - polodrahokam
+      - gemstone
+      - gemstones
+      - minerál
+      - mineral
       - kryštál
       - krystal
       - kristal
       - crystal
+      - crystals
+      - geóda
+      - geoda
+      - geode
+      - drúza
+      - druza
+      - specimen
+      - cluster
+      - surový kameň
+      - surovy kamen
+      - raw stone
+      - diamant
+      - diamond
+      - rubín
+      - rubin
+      - ruby
+      - zafír
+      - zafir
+      - safír
+      - safir
+      - sapphire
+      - smaragd
+      - emerald
+      - topás
+      - topas
+      - topaz
+      - alexandrit
+      - alexandrid
+      - alexandrite
+      - spinel
+      - tanzanit
+      - tanzanite
+      - akvamarín
+      - akvamarin
+      - aquamarine
+      - morganit
+      - morganite
+      - heliodor
+      - goshenit
+      - goshenite
+      - beryl
+      - beril
+      - padparadscha
+      - chryzoberyl
+      - chrysoberyl
+      - mačacie oko
+      - macacie oko
+      - cats eye
+      - cat's eye
+      - olivín
+      - olivin
+      - peridot
+      - chryzolit
+      - zirkón
+      - zirkon
+      - zircon
+      - turmalín
+      - turmalin
+      - tourmaline
+      - rubelit
+      - paraiba
+      - granát
+      - granat
+      - garnet
+      - pyrop
+      - pyrope
+      - almandín
+      - almandin
+      - spessartín
+      - spessartine
+      - hessonit
+      - hessonite
+      - tsavorit
+      - tsavorite
+      - demantoid
+      - rhodolit
+      - rhodolite
+      - uvarovit
+      - opál
+      - opal
+      - ametyst
+      - amethyst
+      - citrín
+      - citrin
+      - citrine
+      - záhneda
+      - zahneda
+      - ruženín
+      - ruzenin
       - kremeň
       - kremen
       - quartz
+      - smoky quartz
+      - rose quartz
       - achát
       - achat
       - agate
+      - jaspis
+      - jasper
+      - karneol
+      - carnelian
+      - chalcedón
+      - chalcedon
+      - chalcedony
+      - chryzopras
+      - chrysoprase
+      - ónyx
+      - onyx
+      - heliotrop
+      - bloodstone
+      - tigrie oko
+      - tiger eye
+      - tigers eye
+      - obsidián
+      - obsidian
+      - avanturín
+      - avanturin
+      - aventurine
+      - nefrit
+      - jadeit
+      - jade
+      - nephrite
+      - lapis
+      - tyrkys
+      - turquoise
+      - malachit
+      - malachite
+      - azurit
+      - azurite
+      - chrysokol
+      - chrysocolla
       - fluorit
       - fluorite
       - pyrit
       - pyrite
-      - malachit
-      - malachite
-      - drahokam
-      - gemstone
-      - geóda
-      - geoda
-      - geode
-      - záhneda
-      - zahneda
-      - citrín
-      - citrin
-      - citrine
-      - ruženín
-      - ruzenin
-      - granát
-      - granat
-      - garnet
-      - opál
-      - opal
-      - jaspis
-      - jasper
-      - obsidián
-      - obsidian
-      - surový kameň
-      - surovy kamen
-      - raw stone
-      - specimen
-      - cluster
-      - drúza
-      - druza
-      - minerál
-      - mineral
-      - polodrahokam
-      - karneol
-      - carnelian
-      - tigrie oko
-      - tiger eye
-      - tigers eye
-      - smoky quartz
-      - rose quartz
+      - hematit
+      - hematite
       - kalcit
       - calcite
+      - aragonit
+      - selenit
+      - selenite
+      - celestín
+      - celestin
+      - celestine
+      - labradorit
+      - labradorite
       - mesačný kameň
       - mesacny kamen
       - moonstone
+      - slnečný kameň
+      - slnecny kamen
+      - sunstone
+      - amazonit
+      - amazonite
       - sodalit
       - sodalite
       - howlit
       - howlite
-      - turmalín
-      - turmalin
-      - tourmaline
       - kyanit
       - kyanite
-      - lapis
-      - tyrkys
-      - turquoise
+      - iolit
+      - iolite
+      - kordierit
+      - andaluzit
+      - andalusite
+      - apatit
+      - apatite
+      - diopsid
+      - kunzit
+      - kunzite
+      - hiddenit
+      - hiddenite
+      - spodumen
+      - titanit
+      - sphene
+      - prehnit
+      - prehnite
+      - rhodonit
+      - rhodonite
+      - rhodochrozit
+      - rhodochrosite
+      - charoit
+      - charoite
+      - sugilit
+      - sugilite
+      - larimar
+      - shungit
+      - shungite
+      - unakit
+      - unakite
       - jantár
       - jantar
       - amber
       - vltavín
       - vltavin
       - moldavite
-      - labradorit
-      - labradorite
-      - selenit
-      - selenite
-      - hematit
-      - hematite
-      - avanturín
-      - avanturin
-      - aventurine
-      - akvamarín
-      - akvamarin
-      - aquamarine
+      - tektit
+      - moissanit
+      - moissanite
+      - perla
+      - pearl
+      - korál
+      - koral
+      - coral
     collectibles:
       - zberateľ
       - zberatel
@@ -656,36 +780,69 @@ catalog:
       - sfp
       - switch 48
     mineral:
-      - ametyst
-      - amethyst
-      - kristal
-      - krystal
-      - mineral
-      - achát
-      - achat
-      - fluorit
-      - pyrit
-      - malachit
-      - kremeň
-      - geóda
-      - záhneda
-      - citrín
-      - ruženín
-      - granát
-      - opál
-      - jaspis
-      - obsidián
       - drahokam
       - polodrahokam
-      - karneol
-      - tigrie oko
-      - quartz
       - gemstone
+      - minerál
+      - mineral
+      - kryštál
+      - krystal
+      - kristal
       - crystal
-      - selenit
-      - kalcit
-      - moonstone
+      - diamant
+      - diamond
+      - rubín
+      - ruby
+      - zafír
+      - safír
+      - sapphire
+      - smaragd
+      - emerald
+      - topás
+      - topaz
+      - alexandrit
+      - alexandrid
+      - alexandrite
+      - spinel
+      - tanzanit
+      - tanzanite
+      - akvamarín
+      - aquamarine
+      - morganit
+      - heliodor
+      - olivín
+      - peridot
+      - zirkón
       - turmalín
+      - granát
+      - opál
+      - ametyst
+      - amethyst
+      - citrín
+      - záhneda
+      - ruženín
+      - kremeň
+      - quartz
+      - achát
+      - jaspis
+      - karneol
+      - obsidián
+      - nefrit
+      - jadeit
+      - jade
+      - lapis
+      - tyrkys
+      - malachit
+      - fluorit
+      - pyrit
+      - geóda
+      - tigrie oko
+      - moonstone
+      - labradorit
+      - jantár
+      - vltavín
+      - moldavite
+      - surový kameň
       - raw stone
   bulky_keywords:
     - gauč

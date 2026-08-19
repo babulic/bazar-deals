@@ -24,3 +24,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "3213" in data["ebay"]["small_categories"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
     assert "du" in data["catalog"]["small_bazos_rubs"]
+    markers = data["identity"]["kind_markers"]["minerals"]
+    assert "topás" in markers
+    assert "alexandrit" in markers
+    assert "alexandrid" in markers
+    assert "diamant" in markers
+    assert "smaragd" in markers
+    assert "tanzanit" in markers

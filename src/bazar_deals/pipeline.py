@@ -1,16 +1,32 @@
 from __future__ import annotations
 
+from collections import Counter
 from decimal import Decimal
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.catalog import is_bulky
 from bazar_deals.config import Settings
-from bazar_deals.domain import Deal, Listing, Money, Vertical
+from bazar_deals.domain import Action, Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.working import is_working_listing
+
+_FUNNEL_KEYS = (
+    "fetched",
+    "not_buy_now",
+    "over_cap",
+    "damaged",
+    "bulky",
+    "usable",
+    "identity_weak",
+    "sold_lookup_cap",
+    "no_sold_comps",
+    "scored",
+    "buy",
+    "skip_typical",
+)
 
 
 def hunt(
@@ -39,9 +55,11 @@ def hunt_sources(
     listings: list[Listing] = []
     for source in sources:
         try:
-            listings.extend(source.fetch_new(vertical))
+            batch = source.fetch_new(vertical)
+            print(f"{source.marketplace}: fetched {len(batch)}")
+            listings.extend(batch)
         except RuntimeError as exc:
-            print(f"{source.marketplace}: {exc}")
+            print(f"{source.marketplace}: fetched 0 ({exc})")
     return score_listings(listings, settings, sold or SoldCompClient(settings))
 
 
@@ -51,45 +69,67 @@ def score_listings(
     sold: SoldCompClient,
 ) -> list[Deal]:
     cap = settings.max_buy_eur
+    funnel: Counter[str] = Counter()
+    funnel["fetched"] = len(listings)
     usable: list[Listing] = []
     for listing in listings:
         listing = _to_eur(listing, settings.eur_czk)
         if not listing.is_immediate_buy() or listing.price.amount <= 0:
+            funnel["not_buy_now"] += 1
             continue
         if listing.price.amount > cap:
+            funnel["over_cap"] += 1
             continue
         if not is_working_listing(listing):
+            funnel["damaged"] += 1
             continue
         if is_bulky(f"{listing.title} {listing.description}"):
+            funnel["bulky"] += 1
             continue
         usable.append(listing)
+    funnel["usable"] = len(usable)
     usable.sort(key=lambda item: item.price.amount)
 
     deals: list[Deal] = []
     lookups = 0
+    lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
+    min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for listing in usable:
         item = identify(listing)
-        if item.confidence < float(rules()["identity"]["confidence"]["min_to_hunt"]) or not item.search_query:
+        if item.confidence < min_conf or not item.search_query:
+            funnel["identity_weak"] += 1
             continue
-        if lookups >= int(rules()["hunt"]["max_sold_lookups"]):
-            break
+        if lookups >= lookup_cap:
+            funnel["sold_lookup_cap"] += 1
+            continue
         lookups += 1
         comp = sold.median_sold(listing)
         if comp is None:
+            funnel["no_sold_comps"] += 1
             continue
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
         )
-        deals.append(
-            score_deal(
-                item,
-                comp.median,
-                assumed_shipping(listing.price.amount, settings),
-                settings=settings,
-            )
+        deal = score_deal(
+            item,
+            comp.median,
+            assumed_shipping(listing.price.amount, settings),
+            settings=settings,
         )
+        funnel["scored"] += 1
+        if deal.action is Action.BUY:
+            funnel["buy"] += 1
+        else:
+            funnel["skip_typical"] += 1
+        deals.append(deal)
     deals.sort(key=lambda deal: deal.costs.net_profit, reverse=True)
+    print(_format_funnel(funnel))
     return deals
+
+
+def _format_funnel(funnel: Counter[str]) -> str:
+    parts = [f"{key}={funnel.get(key, 0)}" for key in _FUNNEL_KEYS]
+    return "filter: " + " ".join(parts)
 
 
 def _to_eur(listing: Listing, eur_czk: Decimal) -> Listing:
