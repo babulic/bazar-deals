@@ -15,8 +15,13 @@ _VINTED_ITEM = re.compile(
     re.I,
 )
 _EBAY_ITEM = re.compile(
-    r'href="(https://www\.ebay\.de/[^"]+/itm/[^"]+)"[^>]*>\s*<span[^>]*>([^<]{3,160})</span>',
+    r'href="(https://www\.ebay\.de/[^"]*?itm/[^"]+)"[^>]*>\s*<span[^>]*>([^<]{3,160})</span>',
     re.I,
+)
+_EBAY_CARD = re.compile(
+    r'href="(https://www\.ebay\.de/[^"]*?itm/(\d+)[^"]*)"[^>]*>\s*<span[^>]*>([^<]{3,160})</span>'
+    r".{0,1200}?s-item__price[^>]*>\s*(?:EUR\s*)?([\d]{1,5}(?:[.,]\d{2})?)",
+    re.I | re.S,
 )
 
 
@@ -112,8 +117,21 @@ def parse_vinted_items(html: str) -> list[Listing]:
 def parse_ebay_html(html: str) -> list[Listing]:
     listings: list[Listing] = []
     seen: set[str] = set()
+    for url, item_id, title, price in _EBAY_CARD.findall(html):
+        if url in seen or "Shop on eBay" in title or "Shop auf eBay" in title:
+            continue
+        seen.add(url)
+        listings.append(
+            Listing(
+                marketplace=Marketplace.EBAY,
+                external_id=item_id,
+                title=title.strip(),
+                url=url.split("?")[0],
+                price=Money(amount=_decimal(price), currency="EUR"),
+            )
+        )
     for url, title in _EBAY_ITEM.findall(html):
-        if url in seen or "Shop on eBay" in title:
+        if url in seen or "Shop on eBay" in title or "Shop auf eBay" in title:
             continue
         seen.add(url)
         listings.append(

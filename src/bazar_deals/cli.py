@@ -13,8 +13,10 @@ from bazar_deals.domain import Action, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources
+from bazar_deals.soldcomps import SoldCompClient
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rss.xml"
+SOLD_FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ebay_sold_1541.html"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -49,7 +51,8 @@ def main(argv: list[str] | None = None) -> int:
     settings = Settings()
     vertical = Vertical(args.vertical) if args.vertical else None
     sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
-    deals = hunt_sources(sources, vertical=vertical, settings=settings)
+    sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
+    deals = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
     actionable = [deal for deal in deals if deal.action is not Action.SKIP]
     if not actionable:
         print("No deals with a positive edge.")

@@ -5,19 +5,18 @@ import hmac
 import json
 import time
 from pathlib import Path
-from urllib.parse import quote, urlparse
+from urllib.parse import urlparse
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import SMALL_SEARCH_QUERIES, VERTICAL_KEYWORDS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_vinted_items
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
-_CATALOG = "https://www.vinted.sk/catalog?search_text={query}&order=newest_first"
+_CATALOG = "https://www.vinted.sk/catalog?order=newest_first&price_to=60"
 
 NO_PUBLIC_CATALOG = (
     "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
@@ -41,23 +40,17 @@ class VintedHuntClient(ListingSource):
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
             return parse_vinted_items(self.fixture_path.read_text(encoding="utf-8"))
-        listings: list[Listing] = []
-        queries = VERTICAL_KEYWORDS[vertical][:4] if vertical else SMALL_SEARCH_QUERIES[:6]
-        for query in queries:
-            url = _CATALOG.format(query=quote(query))
-            response = httpx.get(
-                url,
-                headers={
-                    "User-Agent": self.settings.bazos_user_agent,
-                    "Accept": "text/html",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
-            response.raise_for_status()
-            listings.extend(parse_vinted_items(response.text))
-            time.sleep(self.settings.bazos_request_gap_seconds)
-        return listings
+        response = httpx.get(
+            _CATALOG,
+            headers={
+                "User-Agent": self.settings.bazos_user_agent,
+                "Accept": "text/html",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        return parse_vinted_items(response.text)
 
 
 def sign_vinted_request(

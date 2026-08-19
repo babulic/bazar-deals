@@ -1,21 +1,24 @@
 from decimal import Decimal
+from pathlib import Path
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.ebay import is_ebay_buy_now
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 from bazar_deals.pipeline import hunt
+from bazar_deals.soldcomps import SoldCompClient
+
+SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
 
 
-def _commodore(*, buy_now: bool, bid_count: int | None = None) -> Listing:
+def _drive(*, buy_now: bool, external_id: str = "1", price: str = "38") -> Listing:
     return Listing(
         marketplace=Marketplace.EBAY,
-        external_id="1",
+        external_id=external_id,
         title="Commodore 1541-II disk drive",
-        url="https://www.ebay.de/itm/1",
-        price=Money(amount=Decimal("38"), currency="EUR"),
+        url=f"https://www.ebay.de/itm/{external_id}",
+        price=Money(amount=Decimal(price), currency="EUR"),
         buy_now=buy_now,
-        bid_count=bid_count,
     )
 
 
@@ -37,12 +40,14 @@ def test_ebay_drops_auction_even_with_bin() -> None:
 
 
 def test_hunt_skips_auctions() -> None:
-    deals = hunt(_Source([_commodore(buy_now=False)]))
+    sold = SoldCompClient(fixture_path=SOLD)
+    deals = hunt(_Source([_drive(buy_now=False)]), sold=sold)
     assert deals == []
 
 
 def test_hunt_keeps_buy_now() -> None:
-    deals = hunt(_Source([_commodore(buy_now=True)]))
+    sold = SoldCompClient(fixture_path=SOLD)
+    deals = hunt(_Source([_drive(buy_now=True)]), sold=sold)
     assert deals
     assert deals[0].item.listing.buy_now is True
 
@@ -56,3 +61,9 @@ def test_json_ld_auction_offer_is_not_buy_now() -> None:
     )
     listings = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
     assert listings[0].buy_now is False
+
+
+def test_price_cap_drops_over_60() -> None:
+    sold = SoldCompClient(fixture_path=SOLD)
+    deals = hunt(_Source([_drive(buy_now=True, price="90")]), sold=sold)
+    assert deals == []

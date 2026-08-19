@@ -10,10 +10,11 @@ def format_deal(deal: Deal) -> str:
     affiliate = ""
     if item.listing.affiliate_url:
         affiliate = f"\naffiliate: {item.listing.affiliate_url}"
+    query = item.sold_label or "ebay.de sold"
     return (
         f"{item.canonical_name}\n"
         f"{source}: {costs.buy_price} €\n"
-        f"odhad resale: {costs.estimated_resale} €\n"
+        f"{query}: {costs.estimated_resale} €\n"
         f"shipping + fees: {costs.shipping + costs.fees} €\n"
         f"estimated profit: {costs.net_profit} €{fire}\n"
         f"{item.listing.url}{affiliate}"

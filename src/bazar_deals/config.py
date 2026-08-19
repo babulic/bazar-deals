@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     min_net_profit_eur: Decimal = Decimal("20")
     min_margin: Decimal = Decimal("0.25")
     default_shipping_eur: Decimal = Decimal("8")
+    max_buy_eur: Decimal = Decimal("60")
     ebay_fee_rate: Decimal = Decimal("0.13")
     aukro_fee_rate: Decimal = Decimal("0.11")
     bazos_fee_rate: Decimal = Decimal("0")
@@ -42,6 +43,8 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_repository: str = ""
     github_alert_issue: int = 0
+    github_assignee: str = ""
+    keepa_api_key: str = ""
 
     @field_validator("github_alert_issue", mode="before")
     @classmethod

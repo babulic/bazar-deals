@@ -1,30 +1,35 @@
 from decimal import Decimal
+from pathlib import Path
 
-from bazar_deals.domain import IdentifiedItem, Listing, Marketplace, Money
-from bazar_deals.identity import identify
-from bazar_deals.valuation import estimate_resale
+from bazar_deals.domain import Listing, Marketplace, Money
+from bazar_deals.soldcomps import SoldCompClient
+
+ROOT = Path(__file__).parent / "fixtures"
 
 
-def _listing(title: str) -> Listing:
-    return Listing(
-        marketplace=Marketplace.EBAY,
+def test_sold_median_from_ebay_html() -> None:
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
         external_id="1",
-        title=title,
-        url="https://www.ebay.de/itm/1",
-        price=Money(amount=Decimal("40"), currency="EUR"),
+        title="Commodore 1541-II disk drive",
+        url="https://pc.bazos.sk/inzerat/1541/",
+        price=Money(amount=Decimal("38"), currency="EUR"),
     )
+    sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_1541.html")
+    comp = sold.median_sold(listing)
+    assert comp is not None
+    assert comp.sample == 6
+    assert comp.median == Decimal("89.00")
+    assert "ebay.de" in comp.label
 
 
-def test_generic_iphone_has_no_resale() -> None:
-    item = identify(_listing("Apple iPhone 13 128GB black"))
-    assert estimate_resale(item) is None
-
-
-def test_iphone_pro_does_not_inherit_a_base_seed() -> None:
-    item = identify(_listing("iPhone 13 Pro Max 256"))
-    assert estimate_resale(item) is None
-
-
-def test_specific_commodore_keeps_seed() -> None:
-    item = identify(_listing("Commodore 1541-II disk drive"))
-    assert estimate_resale(item) == Decimal("89")
+def test_sold_computers_do_not_price_a_cassette() -> None:
+    listing = Listing(
+        marketplace=Marketplace.AUKRO,
+        external_id="7089809337",
+        title="Vzlámavanie Konami Commodore 64/128 C64 C128",
+        url="https://aukro.sk/vzlamovanie-konami-commodore-64-128-c64-c128-7089809337",
+        price=Money(amount=Decimal("12.62"), currency="EUR"),
+    )
+    sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_c64_computers.html")
+    assert sold.median_sold(listing) is None

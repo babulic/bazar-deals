@@ -7,6 +7,7 @@ from bazar_deals.domain import Deal
 from bazar_deals.notify import format_deal
 
 ALERT_ISSUE_TITLE = "Deal alerts"
+ALERT_LABEL = "bazar-alert"
 _API = "https://api.github.com"
 
 
@@ -17,17 +18,17 @@ def listing_key(deal: Deal) -> str:
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in deals)
-    ping = f"@{mention} " if mention else ""
+    ping = f"@{mention}\n\n" if mention else ""
     blocks = "\n\n".join(f"```\n{format_deal(deal)}\n```" for deal in deals)
     return (
-        f"{markers}\n"
-        f"{ping}**{len(deals)} deal(s)** this hunt\n\n"
+        f"{ping}{markers}\n"
+        f"**{len(deals)} deal(s)** this hunt\n\n"
         f"{blocks}\n"
     )
 
 
 class GitHubIssueAlerts:
-    """One standing issue; one comment per hunt run (GitHub emails @mentions)."""
+    """Collector issue like polymarket-tracker #4: assign + bot comment with @user."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
@@ -44,39 +45,75 @@ class GitHubIssueAlerts:
         fresh = [deal for deal in deals if listing_key(deal) not in seen]
         if not fresh:
             return 0
-        owner = self.repo.split("/")[0]
         self._request(
             "POST",
             f"/repos/{self.repo}/issues/{issue}/comments",
-            json={"body": format_run_comment(fresh, mention=owner)},
+            json={"body": format_run_comment(fresh, mention=self._assignee())},
         )
         return 1
 
     def ensure_issue(self) -> int:
         self._require_auth()
-        if self._issue_number:
-            return self._issue_number
-        for issue in self._request("GET", f"/repos/{self.repo}/issues", params={"state": "open", "per_page": 100}):
-            if issue.get("pull_request"):
-                continue
-            if issue.get("title") == ALERT_ISSUE_TITLE:
-                self._issue_number = int(issue["number"])
-                return self._issue_number
-        owner = self.repo.split("/")[0]
-        created = self._request(
-            "POST",
-            f"/repos/{self.repo}/issues",
-            json={
-                "title": ALERT_ISSUE_TITLE,
-                "body": (
-                    f"@{owner} this issue is the deal inbox. Watch it and enable email for "
-                    "**mentions** + **issue comments** in GitHub notification settings.\n\n"
-                    "Each hunt run posts **one** comment with all new deals stacked."
-                ),
-            },
+        self._ensure_label()
+        number = self._issue_number
+        if not number:
+            for issue in self._request(
+                "GET",
+                f"/repos/{self.repo}/issues",
+                params={"state": "open", "labels": ALERT_LABEL, "per_page": 100},
+            ):
+                if issue.get("pull_request"):
+                    continue
+                if issue.get("title") == ALERT_ISSUE_TITLE:
+                    number = int(issue["number"])
+                    break
+        if not number:
+            created = self._request(
+                "POST",
+                f"/repos/{self.repo}/issues",
+                json={
+                    "title": ALERT_ISSUE_TITLE,
+                    "labels": [ALERT_LABEL],
+                    "assignees": [self._assignee()],
+                    "body": (
+                        "Collector issue for hunt alerts. "
+                        "`github-actions[bot]` comments here and mentions the assignee."
+                    ),
+                },
+            )
+            number = int(created["number"])
+        self._request(
+            "PATCH",
+            f"/repos/{self.repo}/issues/{number}",
+            json={"assignees": [self._assignee()], "state": "open", "labels": [ALERT_LABEL]},
         )
-        self._issue_number = int(created["number"])
-        return self._issue_number
+        self._issue_number = number
+        return number
+
+    def _assignee(self) -> str:
+        return (self.settings.github_assignee or self.repo.split("/")[0]).lstrip("@")
+
+    def _ensure_label(self) -> None:
+        path = f"/repos/{self.repo}/labels/{ALERT_LABEL}"
+        try:
+            self._request("GET", path)
+            return
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 404:
+                raise
+        try:
+            self._request(
+                "POST",
+                f"/repos/{self.repo}/labels",
+                json={
+                    "name": ALERT_LABEL,
+                    "color": "D93F0B",
+                    "description": "Automatické hunt alerty",
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code != 422:
+                raise
 
     def _seen_keys(self, issue: int) -> set[str]:
         keys: set[str] = set()

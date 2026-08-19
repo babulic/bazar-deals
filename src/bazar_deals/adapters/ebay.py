@@ -1,12 +1,10 @@
 from __future__ import annotations
 
 from decimal import Decimal
-from urllib.parse import quote
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import SMALL_SEARCH_QUERIES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_ebay_html
@@ -25,9 +23,20 @@ CONDITION_MAP = {
     "FOR_PARTS_OR_NOT_WORKING": Condition.FOR_PARTS,
 }
 
+# Small-goods categories (not a SKU list). Used only when Browse keys exist.
+_SMALL_CATEGORIES = (
+    "11450",  # Clothing
+    "267",  # Books
+    "220",  # Toys
+    "293",  # Consumer electronics
+    "625",  # Cameras
+    "1249",  # Video games
+    "281",  # Jewelry
+)
+
 
 class EbayBrowseClient(ListingSource):
-    """eBay Browse API: search + newly listed sort + EPN affiliate URLs."""
+    """Newest buy-now ebay.de listings under the price cap."""
 
     marketplace = Marketplace.EBAY.value
 
@@ -36,50 +45,45 @@ class EbayBrowseClient(ListingSource):
         self._token: str | None = None
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
-        queries = {
-            Vertical.RETRO: ("commodore", "amiga", "nintendo"),
-            Vertical.APPLE: ("macbook", "iphone", "ipad"),
-            Vertical.NETWORK: ("mikrotik", "unifi", "cisco switch"),
-            Vertical.MINERAL: ("mineral specimen", "amethyst"),
-        }.get(vertical, SMALL_SEARCH_QUERIES[:6])
+        cap = str(self.settings.max_buy_eur)
         if self.settings.ebay_client_id and self.settings.ebay_client_secret:
             listings: list[Listing] = []
-            for query in queries:
-                data = self.search(query, sort="newlyListed", limit=30)
-                listings.extend(
-                    self._to_listing(item) for item in data.get("itemSummaries", [])
-                )
+            for category in _SMALL_CATEGORIES:
+                data = self.search(category, limit=30)
+                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
             return [
                 item
                 for item in listings
-                if item.buy_now and "ebay.de" in str(item.url)
+                if item.buy_now and "ebay.de" in str(item.url) and item.price.amount > 0
             ]
-        return self._fetch_html(queries)
+        return self._fetch_html(cap)
 
-    def _fetch_html(self, queries: tuple[str, ...]) -> list[Listing]:
-        listings: list[Listing] = []
-        for query in queries:
-            url = (
-                "https://www.ebay.de/sch/i.html?_nkw="
-                f"{quote(query)}&_sop=10&_ipg=20&LH_BIN=1"
-            )
-            response = httpx.get(
-                url,
-                headers={
-                    "User-Agent": self.settings.bazos_user_agent,
-                    "Accept": "text/html",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
-            if response.status_code >= 400:
-                continue
-            listings.extend(item for item in parse_ebay_html(response.text) if "ebay.de" in str(item.url))
+    def _fetch_html(self, cap: str) -> list[Listing]:
+        url = (
+            "https://www.ebay.de/sch/i.html?_sop=10&LH_BIN=1"
+            f"&_udhi={cap}&_ipg=60"
+        )
+        response = httpx.get(
+            url,
+            headers={
+                "User-Agent": self.settings.bazos_user_agent,
+                "Accept": "text/html",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        if response.status_code >= 400:
+            raise RuntimeError("eBay public search HTML returned no items")
+        listings = [
+            item
+            for item in parse_ebay_html(response.text)
+            if "ebay.de" in str(item.url) and item.price.amount > 0
+        ]
         if not listings:
             raise RuntimeError("eBay Browse keys missing and public search HTML returned no items")
         return listings
 
-    def search(self, query: str, *, sort: str = "newlyListed", limit: int = 50) -> dict:
+    def search(self, category_id: str, *, limit: int = 50) -> dict:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
             "X-EBAY-C-MARKETPLACE-ID": "EBAY_DE",
@@ -89,10 +93,13 @@ class EbayBrowseClient(ListingSource):
                 f"affiliateCampaignId={self.settings.ebay_campaign_id}"
             )
         params = {
-            "q": query,
-            "sort": sort,
+            "category_ids": category_id,
+            "sort": "newlyListed",
             "limit": str(limit),
-            "filter": "buyingOptions:{FIXED_PRICE}",
+            "filter": (
+                "buyingOptions:{FIXED_PRICE},"
+                f"price:[1..{self.settings.max_buy_eur}]"
+            ),
         }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
         response.raise_for_status()
@@ -139,7 +146,6 @@ class EbayBrowseClient(ListingSource):
 
 
 def is_ebay_buy_now(item: dict) -> bool:
-    """Keep only fixed-price / classified ads. Auction (even with BIN) is out."""
     if item.get("bidCount") or item.get("currentBidPrice"):
         return False
     options = {str(opt).upper() for opt in item.get("buyingOptions") or []}

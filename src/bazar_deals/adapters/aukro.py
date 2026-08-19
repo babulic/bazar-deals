@@ -1,26 +1,20 @@
 from __future__ import annotations
 
-import time
 from pathlib import Path
-from urllib.parse import quote
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import SMALL_SEARCH_QUERIES, VERTICAL_KEYWORDS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 
-_SEARCH = (
-    "https://aukro.sk/vysledky-vyhladavania?text={query}"
-    "&order=newest&sellingMode.format=BUY_NOW"
-)
+_SEARCH = "https://aukro.sk/vysledky-vyhladavania?order=newest&sellingMode.format=BUY_NOW"
 _API = "https://api.aukro.cz"
 
 
 class AukroHuntClient(ListingSource):
-    """Public Aukro search pages (JSON-LD). Sell API stays on AukroSellClient."""
+    """Public Aukro newest buy-now pages (JSON-LD). Sell API stays on AukroSellClient."""
 
     marketplace = Marketplace.AUKRO.value
 
@@ -37,15 +31,8 @@ class AukroHuntClient(ListingSource):
         if self.fixture_path:
             html = self.fixture_path.read_text(encoding="utf-8")
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-        listings: list[Listing] = []
-        for query in _queries(vertical):
-            url = _SEARCH.format(query=quote(query))
-            html = _get(url, self.settings.bazos_user_agent)
-            listings.extend(
-                parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-            )
-            time.sleep(self.settings.bazos_request_gap_seconds)
-        return listings
+        html = _get(_SEARCH, self.settings.bazos_user_agent)
+        return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
 
 
 class AukroSellClient:
@@ -70,12 +57,6 @@ class AukroSellClient:
         )
         response.raise_for_status()
         return response.json()
-
-
-def _queries(vertical: Vertical | None) -> tuple[str, ...]:
-    if vertical:
-        return VERTICAL_KEYWORDS[vertical][:4]
-    return SMALL_SEARCH_QUERIES[:6]
 
 
 def _get(url: str, user_agent: str) -> str:

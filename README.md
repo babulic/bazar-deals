@@ -1,84 +1,49 @@
 # bazar-deals
 
-Marketplace mispricing hunter. The program does not guess market direction. It looks for a thing listed at 40 € that can be resold at 100 €.
+Hunter for **small shippable goods listed at ≤ 60 €** (buy-now) on ebay.de, vinted.sk, aukro.sk, bazos.sk. It is not a retro/PC catalog and it does not invent a resale number.
 
 ```
-new listing
+newest buy-now ads ≤ 60 €
      ↓
-identify item
+drop bulky / auctions / weak identity
      ↓
-normalize model
+tight query from the title (not “contains commodore 64”)
      ↓
-estimated resale value
+median of similar *sold* ebay.de listings
      ↓
-shipping / fees / condition / seller risk
+shipping / fees / condition
      ↓
-NET PROFIT  →  BUY | ALERT | SKIP
+NET PROFIT  →  BUY | WATCH | skip
 ```
 
-## Example
+## How typical price is computed
 
-```
-Commodore 1541-II
-Bazoš: 38 €
-odhad resale: 89 €
-shipping + fees: 18 €
-estimated profit: 33 €  🔥 BUY
-```
+**Source:** public eBay.de sold/completed search (`LH_Sold=1&LH_Complete=1`). That is realised used-goods prices, not live asking prices and not a hardcoded table.
 
-## Sources (deliberate constraints)
+Each hunt run:
 
-| Marketplace | Role | Integration |
-|---|---|---|
-| **eBay** | hunt + affiliate + later offers | Official Browse API (search, `newlyListed`, `itemAffiliateWebUrl` for EPN). Feed/Notification and Offer API only after eBay approves the app. |
-| **Aukro** | monitor later + **automated selling** | Official Public REST API is sell-side. It does not provide bid/buy automation. |
-| **Bazoš** | monitor public ads, **buy manually** | Official public RSS only (`rss.php`). No unofficial GitHub “private API”, no IP-block bypass. |
-| **Vinted** | **automated selling** + manual buy | Official Vinted Pro Integrations (allowlisted, HMAC). Own items / orders / webhooks only. No public catalog API; no undocumented `/api/v2` or DataDome bypass. |
+1. Pull newest buy-now ads under 60 € (Bazoš small-category RSS; eBay newest BIN; Aukro/Vinted newest buy-now).
+2. Skip furniture/appliances/cars/bikes and auctions.
+3. Build a **tight sold query** from distinctive title tokens. A Konami cassette that merely mentions C64 is **media**, not a C64 computer — it will not be priced as a 120 € PC.
+4. Fetch sold ebay.de hits for that query (in-memory cache per run). Keep only sold titles that are the **same kind** and similar tokens.
+5. Typical price = **median of those sold prices**, labeled `medián predaných na ebay.de (n=12)`.
+6. If identity is weak or `n < 5` → no alert. Never BUY on a seed like “C64 = 120 €”.
 
-Bazoš publishes on the order of tens of thousands of new ads per day. RSS is partial compared to a full listing page, which is an acceptable trade for a production-safe source.
+Nothing is stored on disk. Heureka/Idealo/Keepa/Terapeak are **not** used unless you later set a paid key. `KEEPA_API_KEY` is reserved; it does not change behaviour today because Keepa needs ASINs we do not have.
 
-## Second monetization
+eBay may 403 sold HTML from GitHub datacenter IPs or redirect sold search to sign-in. Then that listing is skipped — we do not fall back to fake numbers.
 
-Not every deal is bought. Personal alerts go to a single GitHub issue as **comments** (GitHub emails you; the latest comment is the latest deal). Later, ranked leftovers can still feed paid Telegram channels:
+## Alerts
 
-- RETRO DEALS SK/CZ
-- MINERAL DEALS
-- APPLE DEALS
-- NETWORK HARDWARE DEALS
+One digest comment per hunt on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1), label **`bazar-alert`**, assigned to `babulic`, first line `@babulic` (`github-actions[bot]` + `github.token`), same pattern as polymarket-tracker / peer-order-finder.
 
-eBay deals can also use Partner Network affiliate URLs so some edges pay without inventory.
-
-## Current MVP
-
-Runnable locally without API keys:
+## Run
 
 ```powershell
 python -m pip install -e ".[dev]"
 python -m pytest
 python -m bazar_deals hunt --offline --source bazos
-```
-
-Live Bazoš RSS (polite delay between requests):
-
-```powershell
 python -m bazar_deals hunt --notify
 ```
 
-Default hunt is **small shippable goods** on **ebay.de, vinted.sk, aukro.sk, bazos.sk** only. Auctions are skipped; only buy-now / listed-price ads.
-
-Hourly GitHub Action plus a run on every push to `main`. `--notify` posts **one comment per hunt** with all new BUY/WATCH deals stacked, and `@` the repo owner so GitHub emails a mention. Enable email for **Mentions** and **Issue comments** at https://github.com/settings/notifications. Inbox: [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
-
-Copy `.env.example` to `.env` before wiring eBay / Aukro / Vinted / GitHub / Telegram / LLM keys.
-
-What is in code today:
-
-- Domain model and net-profit scoring (Vinted Buyer Protection is buy-side: 5% + 0.70 €)
-- Bazoš public RSS adapter + vertical keyword filters
-- Seed catalog comps (expand with sold history later)
-- eBay Browse client skeleton (OAuth client-credentials + affiliate header)
-- Aukro sell client stub
-- Vinted Pro HMAC client for own inventory (catalog hunt refused)
-- CLI hunt output in the deal format above
-- GitHub issue comments as the alert channel (email via GitHub notifications)
-
-Not in this slice: Offer API bidding, live sold-comp valuation, Telegram posting, LLM identification, persistence.
+Hourly GitHub Action plus push to `main`.

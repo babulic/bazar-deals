@@ -10,7 +10,7 @@ import feedparser
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_KEYWORDS, VERTICAL_RSS, is_bulky
+from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_RSS, is_bulky
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 
@@ -49,8 +49,6 @@ class BazosRssClient(ListingSource):
                 listings.extend(self._parse(xml, site=site))
                 time.sleep(self.settings.bazos_request_gap_seconds)
         listings = [item for item in listings if not is_bulky(f"{item.title} {item.description}")]
-        if vertical:
-            listings = [item for item in listings if _matches_vertical(item.title, vertical)]
         return listings
 
     def _get(self, url: str) -> str:
@@ -82,11 +80,6 @@ class BazosRssClient(ListingSource):
                 )
             )
         return items
-
-
-def _matches_vertical(title: str, vertical: Vertical) -> bool:
-    hay = title.casefold()
-    return any(keyword in hay for keyword in VERTICAL_KEYWORDS[vertical])
 
 
 def _split_price(title: str) -> tuple[Decimal, str]:

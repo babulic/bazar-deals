@@ -63,6 +63,7 @@ class Listing(BaseModel):
     ends_at: datetime | None = None
     bid_count: int | None = None
     buy_now: bool = True
+    search_query: str = ""
     location: str | None = None
     affiliate_url: HttpUrl | None = None
     raw: dict = Field(default_factory=dict)
@@ -82,6 +83,10 @@ class IdentifiedItem(BaseModel):
     canonical_name: str
     brand: str | None = None
     model: str | None = None
+    search_query: str = ""
+    asking_sample: int = 0
+    kind: str = "generic"
+    sold_label: str = ""
     confidence: float = Field(ge=0, le=1)
 
 
