@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Bazoš test</title>
+    <item>
+      <title>Commodore 1541-II disk drive - 38</title>
+      <link>https://pc.bazos.sk/inzerat/1541/</link>
+      <guid>https://pc.bazos.sk/inzerat/1541/</guid>
+      <description>Funkčná mechanika, krabica.</description>
+      <pubDate>Wed, 19 Aug 2026 08:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Starý gauč - 20</title>
+      <link>https://nabytok.bazos.sk/inzerat/gauč/</link>
+      <guid>https://nabytok.bazos.sk/inzerat/gauč/</guid>
+      <description>Na vyhodenie.</description>
+    </item>
+  </channel>
+</rss>
