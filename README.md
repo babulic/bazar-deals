@@ -5,7 +5,7 @@ Hunter for **small shippable, working goods**. Sites: ebay.de, vinted.sk, aukro.
 ```
 newest buy-now ads
      ↓
-price ≤ MAX_BUY_EUR (default 60)
+price ≤ MAX_BUY_EUR (default 110) and ≥ MIN_BUY_EUR (default 10)
      ↓
 drop bulky, auctions, damaged / for-parts
      ↓
@@ -20,15 +20,15 @@ BUY only if price ≤ typical × MAX_PRICE_VS_TYPICAL (default 0.5)
 
 Alert when **all** of this is true:
 
-1. The listing is **buy-now**, **small**, **≤ max buy price**.
+1. The listing is **buy-now**, **small**, **≥ min buy** and **≤ max buy** (10–110 € by default).
 2. Text does not say damaged / for parts / not working. eBay `FOR_PARTS` is dropped.
-3. Identity is tight enough to search sold comps (a Konami C64 *cassette* is not a C64 computer).
-4. **BUY** only with enough **sold** ebay.de peers (`n ≥ 5`) and listed price **≤ usual sold median × max_price_vs_typical** (default 0.5).
-5. **ALERT** if price is still ≤ typical (`alert_price_vs_typical`, default 1.0), or if sold comps are missing (GitHub IPs often 403 eBay HTML). ALERT never invents a typical price. Cap: `max_no_comp_alerts` (default 5).
+3. Identity is tight enough to search comps (a Konami C64 *cassette* is not a C64 computer).
+4. Typical price exists because the item **circulates**: median of similar **sold** ebay.de peers (`n ≥ 5`), or if sold HTML is blocked, median of similar **asking** prices on Bazos/Aukro/eBay (`n ≥ 5`). Obscure one-offs with no market sample are skipped — we do not post “typická cena nedostupná”.
+5. **BUY** if listed price **≤ typical × max_price_vs_typical** (default 0.5). **ALERT** if still ≤ typical × `alert_price_vs_typical` (default 1.0).
 
-Default `MAX_PRICE_VS_TYPICAL=0.5` means listed price at most **half** the usual working-condition sold price. Set `1.0` for at-or-below typical. Set `MAX_BUY_EUR=40` to cap spend.
+Default `MAX_PRICE_VS_TYPICAL=0.5` means listed price at most **half** the usual working-condition market price. Set `1.0` for at-or-below typical. Set `MAX_BUY_EUR=40` to cap spend.
 
-Usual price is **not** a hardcoded table and **not** live asking prices. It is the median of recent **sold** ebay.de listings that pass the same working-condition + similarity check. Hunt reads a local SQLite cache first (`COMPS_DB`, default `.cache/bazar-comps.sqlite`). eBay sold HTML is fetched only when that query is missing, older than `COMPS_TTL_DAYS` (default 7), or the stored sample is below `min_sold_sample`. If eBay HTML 403s from GitHub, hunt uses the last stored median when one exists. If there is still no median, hunt posts an **ALERT** for manual check instead of dropping every listing. We do not invent a number.
+Usual price is **not** a hardcoded table. Sold ebay.de comps are preferred. Hunt reads SQLite first (`COMPS_DB`). If eBay sold HTML 403s from GitHub, hunt uses a stored sold median when one exists, otherwise the current circulating asking median from Bazos/Aukro (and eBay Browse when `EBAY_CLIENT_ID`/`SECRET` are set). We do not invent a number.
 
 GitHub Actions restores/saves `.cache/bazar-comps.sqlite` with `actions/cache@v4` (`sold-comps-v1-` prefix, `COMPS_DB=.cache/bazar-comps.sqlite`) so hourly hunts reuse sold comps across runs.
 
@@ -40,10 +40,10 @@ Secrets (tokens, API keys) stay in `.env`. Env still overrides hunt gates:
 
 | Env | YAML key | Meaning |
 |---|---|---|
-| `MAX_BUY_EUR` | `hunt.max_buy_eur` | Max listed price to consider |
+| `MAX_BUY_EUR` | `hunt.max_buy_eur` | Max listed price to consider (default 110) |
+| `MIN_BUY_EUR` | `hunt.min_buy_eur` | Min listed price to consider (default 10) |
 | `MAX_PRICE_VS_TYPICAL` | `hunt.max_price_vs_typical` | Buy if price ≤ typical × this |
 | `ALERT_PRICE_VS_TYPICAL` | `hunt.alert_price_vs_typical` | Alert if price ≤ typical × this (default 1.0) |
-| `MAX_NO_COMP_ALERTS` | `hunt.max_no_comp_alerts` | Manual-check alerts when sold comps are missing (default 5) |
 | `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Assumed postage when listed price ≥ 20 EUR (default 15) |
 | `CHEAP_BUY_EUR` | `hunt.cheap_buy_eur` | Listed-price cutoff for the cheaper postage cap (default 20) |
 | `MAX_SHIPPING_CHEAP_EUR` | `hunt.max_shipping_cheap_eur` | Assumed postage when listed price < 20 EUR (default 11) |

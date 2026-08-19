@@ -28,6 +28,7 @@ class EbayBrowseClient(ListingSource):
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         cap = str(self.settings.max_buy_eur)
+        floor = str(self.settings.min_buy_eur)
         if self.settings.ebay_client_id and self.settings.ebay_client_secret:
             listings: list[Listing] = []
             for category in _SMALL_CATEGORIES:
@@ -39,14 +40,15 @@ class EbayBrowseClient(ListingSource):
                 if item.buy_now
                 and item.condition is not Condition.FOR_PARTS
                 and "ebay.de" in str(item.url)
-                and item.price.amount > 0
+                and item.price.amount >= self.settings.min_buy_eur
+                and item.price.amount <= self.settings.max_buy_eur
             ]
-        return self._fetch_html(cap)
+        return self._fetch_html(floor, cap)
 
-    def _fetch_html(self, cap: str) -> list[Listing]:
+    def _fetch_html(self, floor: str, cap: str) -> list[Listing]:
         url = (
             "https://www.ebay.de/sch/i.html?_sop=10&LH_BIN=1"
-            f"&_udhi={cap}&_ipg=60"
+            f"&_udlo={floor}&_udhi={cap}&_ipg=60"
         )
         response = httpx.get(
             url,
@@ -62,7 +64,9 @@ class EbayBrowseClient(ListingSource):
         listings = [
             item
             for item in parse_ebay_html(response.text)
-            if "ebay.de" in str(item.url) and item.price.amount > 0
+            if "ebay.de" in str(item.url)
+            and item.price.amount >= self.settings.min_buy_eur
+            and item.price.amount <= self.settings.max_buy_eur
         ]
         if not listings:
             raise RuntimeError("eBay Browse keys missing and public search HTML returned no items")
@@ -84,7 +88,27 @@ class EbayBrowseClient(ListingSource):
             "filter": (
                 "buyingOptions:{FIXED_PRICE},"
                 "conditions:{NEW|USED},"
-                f"price:[1..{self.settings.max_buy_eur}]"
+                f"price:[{self.settings.min_buy_eur}..{self.settings.max_buy_eur}]"
+            ),
+        }
+        response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
+        response.raise_for_status()
+        return response.json()
+
+    def search_query(self, query: str, *, limit: int = 50) -> dict:
+        headers = {
+            "Authorization": f"Bearer {self._access_token()}",
+            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
+        }
+        hi = self.settings.max_buy_eur * 3
+        params = {
+            "q": query,
+            "sort": "newlyListed",
+            "limit": str(limit),
+            "filter": (
+                "buyingOptions:{FIXED_PRICE},"
+                "conditions:{NEW|USED},"
+                f"price:[{self.settings.min_buy_eur}..{hi}]"
             ),
         }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)

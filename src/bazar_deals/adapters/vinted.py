@@ -16,7 +16,6 @@ from bazar_deals.htmlparse import parse_vinted_items
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
-_CATALOG = "https://www.vinted.sk/catalog?order=newest_first&price_to=60"
 
 NO_PUBLIC_CATALOG = (
     "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
@@ -40,8 +39,14 @@ class VintedHuntClient(ListingSource):
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
             return parse_vinted_items(self.fixture_path.read_text(encoding="utf-8"))
+        lo = int(self.settings.min_buy_eur)
+        hi = int(self.settings.max_buy_eur)
+        url = (
+            "https://www.vinted.sk/catalog?order=newest_first"
+            f"&price_from={lo}&price_to={hi}"
+        )
         response = httpx.get(
-            _CATALOG,
+            url,
             headers={
                 "User-Agent": self.settings.bazos_user_agent,
                 "Accept": "text/html",

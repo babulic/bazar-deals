@@ -9,7 +9,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.rules import rules
-from bazar_deals.scoring import alert_without_comps, assumed_shipping, score_deal
+from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.working import is_working_listing
 
@@ -17,6 +17,7 @@ _FUNNEL_KEYS = (
     "fetched",
     "not_buy_now",
     "over_cap",
+    "under_min",
     "damaged",
     "bulky",
     "usable",
@@ -27,7 +28,6 @@ _FUNNEL_KEYS = (
     "buy",
     "alert",
     "skip_typical",
-    "alert_no_comps",
 )
 
 
@@ -71,6 +71,7 @@ def score_listings(
     sold: SoldCompClient,
 ) -> list[Deal]:
     cap = settings.max_buy_eur
+    floor = settings.min_buy_eur
     funnel: Counter[str] = Counter()
     funnel["fetched"] = len(listings)
     usable: list[Listing] = []
@@ -78,6 +79,9 @@ def score_listings(
         listing = _to_eur(listing, settings.eur_czk)
         if not listing.is_immediate_buy() or listing.price.amount <= 0:
             funnel["not_buy_now"] += 1
+            continue
+        if listing.price.amount < floor:
+            funnel["under_min"] += 1
             continue
         if listing.price.amount > cap:
             funnel["over_cap"] += 1
@@ -93,11 +97,9 @@ def score_listings(
     usable.sort(key=lambda item: item.price.amount)
 
     deals: list[Deal] = []
-    pending_no_comp: list = []
     lookups = 0
     lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
-    loose = set(rules()["identity"].get("loose_kinds", []))
     for listing in usable:
         item = identify(listing)
         if item.confidence < min_conf or not item.search_query:
@@ -110,7 +112,6 @@ def score_listings(
         comp = sold.median_sold(listing)
         if comp is None:
             funnel["no_sold_comps"] += 1
-            pending_no_comp.append(item)
             continue
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
@@ -129,24 +130,9 @@ def score_listings(
         else:
             funnel["skip_typical"] += 1
         deals.append(deal)
-    for deal in _no_comp_alerts(pending_no_comp, settings, loose):
-        funnel["alert_no_comps"] += 1
-        deals.append(deal)
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, deal.costs.buy_price))
     print(_format_funnel(funnel))
     return deals
-
-
-def _no_comp_alerts(pending: list, settings: Settings, loose: set[str]) -> list[Deal]:
-    if not pending:
-        return []
-    cap = max(0, int(settings.max_no_comp_alerts))
-    if cap == 0:
-        return []
-    preferred = [item for item in pending if item.kind not in loose]
-    pool = preferred or list(pending)
-    pool.sort(key=lambda item: item.listing.price.amount)
-    return [alert_without_comps(item, settings) for item in pool[:cap]]
 
 
 def _format_funnel(funnel: Counter[str]) -> str:

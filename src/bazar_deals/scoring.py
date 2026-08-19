@@ -70,6 +70,8 @@ def score_deal(
     )
     if buy > cap:
         return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"over max buy {cap} EUR")
+    if buy < settings.min_buy_eur:
+        return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"under min buy {settings.min_buy_eur} EUR")
     if buy <= buy_ceiling:
         return Deal(
             item=item,
@@ -89,28 +91,4 @@ def score_deal(
         costs=costs,
         action=Action.SKIP,
         reason=f"above typical ({buy} > {alert_ceiling})",
-    )
-
-
-def alert_without_comps(item: IdentifiedItem, settings: Settings | None = None) -> Deal:
-    """Manual-check ALERT when eBay sold comps are missing. Never a BUY."""
-    settings = settings or Settings()
-    listing = item.listing
-    buy = listing.price.amount
-    postage = assumed_shipping(buy, settings)
-    costs = CostBreakdown(
-        buy_price=buy,
-        estimated_resale=Decimal("0"),
-        shipping=postage,
-        fees=Decimal("0"),
-        condition_haircut=Decimal("0"),
-        seller_risk=Decimal("0"),
-        net_profit=Decimal("0"),
-    )
-    labeled = item.model_copy(update={"sold_label": "typická cena nedostupná (ebay.de sold)"})
-    return Deal(
-        item=labeled,
-        costs=costs,
-        action=Action.ALERT,
-        reason="no sold comps; check manually",
     )

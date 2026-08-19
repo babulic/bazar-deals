@@ -63,7 +63,7 @@ def test_json_ld_auction_offer_is_not_buy_now() -> None:
     assert listings[0].buy_now is False
 
 
-def test_price_cap_drops_over_60() -> None:
+def test_price_cap_drops_over_110() -> None:
     sold = SoldCompClient(fixture_path=SOLD)
-    deals = hunt(_Source([_drive(buy_now=True, price="90")]), sold=sold)
+    deals = hunt(_Source([_drive(buy_now=True, price="200")]), sold=sold)
     assert deals == []

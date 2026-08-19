@@ -7,13 +7,15 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterator
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 import httpx
 
+from bazar_deals.adapters.bazos import BazosRssClient
+from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing
-from bazar_deals.htmlparse import parse_ebay_html
+from bazar_deals.domain import Listing, Marketplace
+from bazar_deals.htmlparse import parse_ebay_html, parse_json_ld_products
 from bazar_deals.identity import similar_titles, sold_query
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
@@ -96,19 +98,23 @@ def _median(amounts: list[Decimal]) -> Decimal:
     return ((ordered[mid - 1] + ordered[mid]) / 2).quantize(Decimal("0.01"))
 
 
-def _comp_label(n: int) -> str:
+def _comp_label(n: int, source: str = "ebay") -> str:
+    if source == "market":
+        return f"obvyklá cena, rýchloobrátkový trh (n={n})"
     return f"obvyklá cena, funkčný kus, ebay.de sold (n={n})"
 
 
+def _url_key(url: object) -> str:
+    return str(url).split("?")[0].rstrip("/")
+
+
 class SoldCompClient:
-    """Median of recent eBay.de *sold* prices for a tight query.
+    """Typical price for goods that actually circulate.
 
-    Hunt reads SQLite first. eBay sold HTML is fetched only to fill a miss,
-    a stale row, or a sample below min_sold_sample. A 403/fail falls back to
-    the last stored median when one exists — never invent a price.
-
-    Default path is public sold-search HTML (`LH_Sold=1&LH_Complete=1`).
-    Keepa/Terapeak need paid keys — optional hook only, never required.
+    Prefer eBay.de *sold* median. If that HTML is blocked (common from GitHub)
+    or the sold sample is too small, fall back to current asking prices on
+    Bazos + Aukro (+ eBay Browse when keys exist). Need n ≥ min_sold_sample
+    similar working listings — obscure one-offs stay out. Never invent a price.
     """
 
     def __init__(
@@ -132,35 +138,79 @@ class SoldCompClient:
             self._init_db()
 
     def median_sold(self, listing: Listing) -> SoldComp | None:
-        query = sold_query(f"{listing.title} {listing.description}")
+        query = sold_query(listing.title) or sold_query(f"{listing.title} {listing.description}")
         if not query:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        hay = f"{listing.title} {listing.description}"
-        summary = self._db_summary(query)
-        if summary and self._is_fresh(summary.fetched_at) and summary.n >= min_n:
-            return SoldComp(median=summary.median, sample=summary.n, label=_comp_label(summary.n))
+        hay = listing.title
+        self_key = _url_key(listing.url)
+        ask_key = f"ask:{query}"
+
+        sold_summary = self._db_summary(query)
+        if sold_summary and self._is_fresh(sold_summary.fetched_at) and sold_summary.n >= min_n:
+            return SoldComp(
+                median=sold_summary.median,
+                sample=sold_summary.n,
+                label=_comp_label(sold_summary.n, sold_summary.source),
+            )
 
         hits, status, failed = self._sold_hits(query)
-        if failed:
-            if summary and summary.n >= min_n:
-                return SoldComp(median=summary.median, sample=summary.n, label=_comp_label(summary.n))
+        if not failed:
+            sold = [
+                item
+                for item in hits
+                if item.price.amount > 0
+                and not is_damaged_text(item.title)
+                and _url_key(item.url) != self_key
+            ]
+            peers = [item for item in sold if similar_titles(hay, item.title)]
+            fetched_at = _utc_now()
+            if self._db_path is not None:
+                self._store_fetch(query, sold, peers, status, fetched_at, source="ebay")
+            if len(peers) >= min_n:
+                n = len(peers)
+                return SoldComp(
+                    median=_median([item.price.amount for item in peers]),
+                    sample=n,
+                    label=_comp_label(n, "ebay"),
+                )
+        elif sold_summary and sold_summary.n >= min_n:
+            return SoldComp(
+                median=sold_summary.median,
+                sample=sold_summary.n,
+                label=_comp_label(sold_summary.n, sold_summary.source),
+            )
+
+        ask_summary = self._db_summary(ask_key)
+        if ask_summary and self._is_fresh(ask_summary.fetched_at) and ask_summary.n >= min_n:
+            return SoldComp(
+                median=ask_summary.median,
+                sample=ask_summary.n,
+                label=_comp_label(ask_summary.n, "market"),
+            )
+
+        if self._fixture_html is not None:
             return None
 
-        sold = [
+        market = self._market_hits(query)
+        asking = [
             item
-            for item in hits
-            if item.price.amount > 0 and not is_damaged_text(item.title)
+            for item in market
+            if item.price.amount > 0
+            and not is_damaged_text(item.title)
+            and _url_key(item.url) != self_key
         ]
-        peers = [item for item in sold if similar_titles(hay, item.title)]
-        fetched_at = _utc_now()
-        if self._db_path is not None and not failed:
-            self._store_fetch(query, sold, peers, status, fetched_at)
-
+        peers = [item for item in asking if similar_titles(hay, item.title)]
+        if self._db_path is not None:
+            self._store_fetch(ask_key, asking, peers, 200, _utc_now(), source="market")
         if len(peers) < min_n:
             return None
         n = len(peers)
-        return SoldComp(median=_median([item.price.amount for item in peers]), sample=n, label=_comp_label(n))
+        return SoldComp(
+            median=_median([item.price.amount for item in peers]),
+            sample=n,
+            label=_comp_label(n, "market"),
+        )
 
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
         if query in self._cache:
@@ -194,6 +244,70 @@ class SoldCompClient:
         hits = parse_ebay_html(response.text)
         self._cache[query] = hits
         return hits, status, False
+
+    def _market_hits(self, query: str) -> list[Listing]:
+        seen: set[str] = set()
+        hits: list[Listing] = []
+        for item in (
+            *self._bazos_search(query),
+            *self._aukro_search(query),
+            *self._ebay_browse_search(query),
+        ):
+            key = _url_key(item.url)
+            if key in seen:
+                continue
+            seen.add(key)
+            hits.append(item)
+        return hits
+
+    def _bazos_search(self, query: str) -> list[Listing]:
+        url = f"{BAZOS_RSS['sk']}?{urlencode({'hledat': query})}"
+        try:
+            xml = self._get_text(url, accept="application/rss+xml")
+        except httpx.HTTPError:
+            return []
+        return BazosRssClient(self.settings)._parse(xml, site="sk")
+
+    def _aukro_search(self, query: str) -> list[Listing]:
+        url = (
+            "https://aukro.sk/vysledky-vyhladavania?"
+            f"{urlencode({'text': query, 'order': 'newest', 'sellingMode.format': 'BUY_NOW'})}"
+        )
+        try:
+            html = self._get_text(url, accept="text/html")
+        except httpx.HTTPError:
+            return []
+        return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
+
+    def _ebay_browse_search(self, query: str) -> list[Listing]:
+        if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
+            return []
+        from bazar_deals.adapters.ebay import EbayBrowseClient
+
+        try:
+            client = EbayBrowseClient(self.settings)
+            data = client.search_query(query)
+        except (httpx.HTTPError, RuntimeError):
+            return []
+        return [
+            client._to_listing(item)
+            for item in data.get("itemSummaries", [])
+            if item.get("itemWebUrl") or item.get("itemHref")
+        ]
+
+    def _get_text(self, url: str, *, accept: str) -> str:
+        response = httpx.get(
+            url,
+            headers={
+                "User-Agent": self.settings.bazos_user_agent,
+                "Accept": accept,
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        if response.status_code >= 400:
+            raise httpx.HTTPError(f"HTTP {response.status_code}")
+        return response.text
 
     def _is_fresh(self, fetched_at: datetime) -> bool:
         ttl = timedelta(days=max(0, int(self.settings.comps_ttl_days)))
@@ -254,6 +368,8 @@ class SoldCompClient:
         peers: list[Listing],
         status: int | None,
         fetched_at: datetime,
+        *,
+        source: str = "ebay",
     ) -> None:
         if self._db_path is None:
             return
@@ -287,7 +403,7 @@ class SoldCompClient:
                     "ON CONFLICT(query_key) DO UPDATE SET "
                     "n = excluded.n, median_eur = excluded.median_eur, fetched_at = excluded.fetched_at, "
                     "source = excluded.source, http_status = excluded.http_status",
-                    (query_key, len(peers), str(median), stamp, "ebay", status),
+                    (query_key, len(peers), str(median), stamp, source, status),
                 )
             else:
                 existing = conn.execute(
@@ -298,7 +414,7 @@ class SoldCompClient:
                     conn.execute(
                         "INSERT INTO sold_queries (query_key, n, median_eur, fetched_at, source, http_status) "
                         "VALUES (?, ?, ?, ?, ?, ?)",
-                        (query_key, 0, "0", stamp, "ebay", status),
+                        (query_key, 0, "0", stamp, source, status),
                     )
                 else:
                     conn.execute(

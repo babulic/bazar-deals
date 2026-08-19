@@ -45,21 +45,62 @@ def test_cli_offline(capsys) -> None:
     assert "buy=" in out
 
 
-def test_hunt_alerts_when_sold_comps_missing(tmp_path) -> None:
+def test_under_min_price_is_dropped() -> None:
+    from decimal import Decimal
+
+    from bazar_deals.adapters.base import ListingSource
+    from bazar_deals.domain import Listing, Marketplace, Money, Vertical
+
+    class _Cheap(ListingSource):
+        marketplace = Marketplace.BAZOS.value
+
+        def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+            return [
+                Listing(
+                    marketplace=Marketplace.BAZOS,
+                    external_id="lv",
+                    title="LOUIS VUITTON BLACK EDITION",
+                    url="https://oblecenie.bazos.sk/inzerat/lv/",
+                    price=Money(amount=Decimal("0.15"), currency="EUR"),
+                )
+            ]
+
+    deals = hunt(_Cheap(), sold=SoldCompClient(fixture_path=SOLD))
+    assert deals == []
+
+
+def test_market_asking_comps_when_ebay_sold_blocked(tmp_path) -> None:
     from unittest.mock import patch
 
     from bazar_deals.config import Settings
 
     class _Resp:
-        status_code = 403
-        text = "blocked"
-        url = "https://www.ebay.de/sch/i.html"
+        def __init__(self, status: int, text: str = "", url: str = "https://example.com") -> None:
+            self.status_code = status
+            self.text = text
+            self.url = url
 
-    settings = Settings(comps_db=str(tmp_path / "comps.sqlite"), max_no_comp_alerts=5)
+        def raise_for_status(self) -> None:
+            if self.status_code >= 400:
+                raise RuntimeError(f"HTTP {self.status_code}")
+
+    rss = FIXTURE.read_text(encoding="utf-8")
+
+    def fake_get(url, **kwargs):
+        target = str(url)
+        if "ebay.de" in target:
+            return _Resp(403, "blocked", target)
+        if "bazos" in target:
+            return _Resp(200, rss, target)
+        return _Resp(200, "<html></html>", target)
+
+    settings = Settings(comps_db=str(tmp_path / "comps.sqlite"))
     sold = SoldCompClient(settings)
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp()):
+    with patch("bazar_deals.soldcomps.httpx.get", side_effect=fake_get):
         deals = hunt(BazosRssClient(fixture_path=FIXTURE), settings=settings, sold=sold)
-    alerts = [deal for deal in deals if deal.action is Action.ALERT]
-    assert alerts
-    assert all(deal.action is not Action.BUY for deal in deals)
-    assert alerts[0].costs.estimated_resale == 0
+    cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
+    assert cheap
+    assert cheap[0].action is Action.BUY
+    assert cheap[0].costs.estimated_resale > 0
+    assert "nedostupná" not in (cheap[0].item.sold_label or "")
+    assert "trh" in cheap[0].item.sold_label

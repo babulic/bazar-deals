@@ -89,7 +89,9 @@ def significant_tokens(text: str) -> list[str]:
 
 def similar_titles(left: str, right: str) -> bool:
     cfg = _id()
-    if classify_kind(left) != classify_kind(right):
+    left_kind = classify_kind(left)
+    right_kind = classify_kind(right)
+    if left_kind != right_kind and left_kind is not ItemKind.GENERIC and right_kind is not ItemKind.GENERIC:
         return False
     a = set(significant_tokens(left))
     b = set(significant_tokens(right))
@@ -100,7 +102,8 @@ def similar_titles(left: str, right: str) -> bool:
     jaccard = len(inter) / len(union)
     brands = set(cfg["generic_brands"])
     overlap = int(cfg["min_overlap"])
-    if classify_kind(left).value in cfg.get("loose_kinds", ["media"]):
+    kind = left_kind if left_kind is not ItemKind.GENERIC else right_kind
+    if kind.value in cfg.get("loose_kinds", ["media"]):
         return len(inter - brands) >= overlap and jaccard >= float(cfg["media_jaccard"])
     return len(inter) >= overlap and jaccard >= float(cfg["title_jaccard"])
 
