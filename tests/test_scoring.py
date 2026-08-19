@@ -43,7 +43,7 @@ def test_skip_when_buy_price_is_above_typical() -> None:
 
 def test_equal_to_typical_is_buy() -> None:
     item = identify(_listing("50"), Vertical.RETRO)
-    assert score_deal(item, Decimal("50")).action.value == "buy"
+    assert score_deal(item, Decimal("50"), max_price_vs_typical=Decimal("1.0")).action.value == "buy"
 
 
 def test_price_vs_typical_ratio_is_configurable() -> None:

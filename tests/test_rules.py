@@ -9,4 +9,5 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "gauč" in data["catalog"]["bulky_keywords"]
     assert "kazeta" in data["identity"]["media_markers"]
     assert data["hunt"]["max_buy_eur"] == 60
+    assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["min_sold_sample"] == 5

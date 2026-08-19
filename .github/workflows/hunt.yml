@@ -37,7 +37,7 @@ jobs:
           GITHUB_ALERT_ISSUE: "1"
           GITHUB_ASSIGNEE: babulic
           MAX_BUY_EUR: "60"
-          MAX_PRICE_VS_TYPICAL: "1.0"
+          MAX_PRICE_VS_TYPICAL: "0.5"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_CAMPAIGN_ID: ${{ secrets.EBAY_CAMPAIGN_ID }}

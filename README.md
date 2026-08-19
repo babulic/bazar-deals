@@ -13,7 +13,7 @@ identify the listing (weak title → skip)
      ↓
 typical price = median of similar *sold* ebay.de working items
      ↓
-BUY only if price ≤ typical × MAX_PRICE_VS_TYPICAL (default 1.0)
+BUY only if price ≤ typical × MAX_PRICE_VS_TYPICAL (default 0.5)
 ```
 
 ## Decision (the only BUY rule)
@@ -26,7 +26,7 @@ Alert when **all** of this is true:
 4. There are enough **sold** ebay.de peers of the same kind (`n ≥ 5`).
 5. Listed price **≤ usual sold median × max_price_vs_typical**.
 
-Default `MAX_PRICE_VS_TYPICAL=1.0` means **at or below** the usual working-condition sold price. Set `0.8` if you only want 20 % under typical. Set `MAX_BUY_EUR=40` to cap spend.
+Default `MAX_PRICE_VS_TYPICAL=0.5` means listed price at most **half** the usual working-condition sold price. Set `1.0` for at-or-below typical. Set `MAX_BUY_EUR=40` to cap spend.
 
 Usual price is **not** a hardcoded table and **not** live asking prices. It is the median of recent **sold** ebay.de listings that pass the same working-condition + similarity check. If eBay HTML 403s from GitHub, that listing is skipped — we do not invent a number.
 
