@@ -11,11 +11,11 @@ _LD_JSON = re.compile(
     re.I | re.S,
 )
 _VINTED_ITEM = re.compile(
-    r'href="(https://www\.vinted\.[a-z.]+/items/(\d+)[^"]*)"[^>]*>([^<]{3,120})<',
+    r'href="(https://www\.vinted\.sk/items/(\d+)[^"]*)"[^>]*>([^<]{3,120})<',
     re.I,
 )
 _EBAY_ITEM = re.compile(
-    r'href="(https://www\.ebay\.[^"]+/itm/[^"]+)"[^>]*>\s*<span[^>]*>([^<]{3,160})</span>',
+    r'href="(https://www\.ebay\.de/[^"]+/itm/[^"]+)"[^>]*>\s*<span[^>]*>([^<]{3,160})</span>',
     re.I,
 )
 

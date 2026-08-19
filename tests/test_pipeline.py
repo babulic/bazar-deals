@@ -9,6 +9,10 @@ from bazar_deals.pipeline import hunt
 FIXTURE = Path(__file__).parent / "fixtures" / "bazos_rss.xml"
 
 
+def test_bazos_hunts_slovakia_only() -> None:
+    assert BazosRssClient().sites == ("sk",)
+
+
 def test_rss_parses_price_from_title() -> None:
     listings = BazosRssClient(fixture_path=FIXTURE).fetch_new()
     assert listings[0].title == "Commodore 1541-II disk drive"

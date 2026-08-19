@@ -47,7 +47,7 @@ class EbayBrowseClient(ListingSource):
             for query in queries:
                 data = self.search(query, sort="newlyListed", limit=30)
                 listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
-            return listings
+            return [item for item in listings if "ebay.de" in str(item.url)]
         return self._fetch_html(queries)
 
     def _fetch_html(self, queries: tuple[str, ...]) -> list[Listing]:
@@ -68,7 +68,7 @@ class EbayBrowseClient(ListingSource):
             )
             if response.status_code >= 400:
                 continue
-            listings.extend(parse_ebay_html(response.text))
+            listings.extend(item for item in parse_ebay_html(response.text) if "ebay.de" in str(item.url))
         if not listings:
             raise RuntimeError("eBay Browse keys missing and public search HTML returned no items")
         return listings
@@ -76,7 +76,7 @@ class EbayBrowseClient(ListingSource):
     def search(self, query: str, *, sort: str = "newlyListed", limit: int = 50) -> dict:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
+            "X-EBAY-C-MARKETPLACE-ID": "EBAY_DE",
         }
         if self.settings.ebay_campaign_id:
             headers["X-EBAY-C-ENDUSERCTX"] = (
@@ -113,7 +113,7 @@ class EbayBrowseClient(ListingSource):
             marketplace=Marketplace.EBAY,
             external_id=item.get("itemId", ""),
             title=item.get("title", ""),
-            url=item.get("itemWebUrl") or item.get("itemHref") or "https://www.ebay.com/",
+            url=item.get("itemWebUrl") or item.get("itemHref") or "https://www.ebay.de/",
             price=Money(
                 amount=Decimal(str(price.get("value", "0"))),
                 currency=str(price.get("currency") or "EUR"),

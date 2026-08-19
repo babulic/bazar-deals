@@ -3,7 +3,6 @@ from bazar_deals.domain import Vertical
 # Official public RSS only. Never unofficial private Bazos APIs.
 BAZOS_RSS = {
     "sk": "https://www.bazos.sk/rss.php",
-    "cz": "https://www.bazos.cz/rss.php",
 }
 
 # Small, shippable categories. No cars, realty, bulky household.

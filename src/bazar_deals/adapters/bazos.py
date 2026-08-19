@@ -24,7 +24,7 @@ class BazosRssClient(ListingSource):
         self,
         settings: Settings | None = None,
         *,
-        sites: tuple[str, ...] = ("sk", "cz"),
+        sites: tuple[str, ...] = ("sk",),
         fixture_path: Path | None = None,
     ) -> None:
         self.settings = settings or Settings()

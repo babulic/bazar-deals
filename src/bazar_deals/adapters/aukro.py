@@ -12,7 +12,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 
-_SEARCH = "https://aukro.cz/vysledky-vyhledavani?text={query}&order=newest"
+_SEARCH = "https://aukro.sk/vysledky-vyhledavani?text={query}&order=newest"
 _API = "https://api.aukro.cz"
 
 
@@ -33,13 +33,13 @@ class AukroHuntClient(ListingSource):
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
             html = self.fixture_path.read_text(encoding="utf-8")
-            return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="CZK")
+            return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
         listings: list[Listing] = []
         for query in _queries(vertical):
             url = _SEARCH.format(query=quote(query))
             html = _get(url, self.settings.bazos_user_agent)
             listings.extend(
-                parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="CZK")
+                parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
             )
             time.sleep(self.settings.bazos_request_gap_seconds)
         return listings
