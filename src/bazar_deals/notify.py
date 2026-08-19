@@ -18,6 +18,7 @@ def format_deal(deal: Deal) -> str:
         f"{item.canonical_name}\n"
         f"{source}: {costs.buy_price} €\n"
         f"{label}: {typical} €\n"
+        f"poštovné (predpoklad): {costs.shipping} €\n"
         f"pomer k obvyklej: {ratio} %{fire}\n"
         f"{item.listing.url}{affiliate}"
     )

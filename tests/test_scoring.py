@@ -2,7 +2,7 @@ from decimal import Decimal
 
 from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.identity import identify
-from bazar_deals.scoring import score_deal
+from bazar_deals.scoring import assumed_shipping, score_deal
 
 
 def _listing(price: str = "38") -> Listing:
@@ -50,3 +50,12 @@ def test_price_vs_typical_ratio_is_configurable() -> None:
     item = identify(_listing("50"), Vertical.RETRO)
     deal = score_deal(item, Decimal("89"), max_price_vs_typical=Decimal("0.5"))
     assert deal.action.value == "skip"
+
+
+def test_cheap_buy_uses_cheaper_shipping_cap() -> None:
+    assert assumed_shipping(Decimal("18")) == Decimal("11")
+    assert assumed_shipping(Decimal("38")) == Decimal("15")
+    cheap = score_deal(identify(_listing("18"), Vertical.RETRO), Decimal("89"))
+    pricey = score_deal(identify(_listing("38"), Vertical.RETRO), Decimal("89"))
+    assert cheap.costs.shipping == Decimal("11")
+    assert pricey.costs.shipping == Decimal("15")

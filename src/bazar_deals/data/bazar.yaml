@@ -12,6 +12,11 @@ domain:
     - accessories
     - clothing
     - jewelry
+    - minerals
+    - collectibles
+    - bags
+    - kitchen
+    - stationery
     - cosmetics
     - toys
     - sports
@@ -29,12 +34,17 @@ hunt:
   min_sold_sample: 5
   max_sold_lookups: 40
   default_shipping_eur: 8
+  max_shipping_eur: 15
+  cheap_buy_eur: 20
+  max_shipping_cheap_eur: 11
   min_net_profit_eur: 20
   min_margin: 0.25
   eur_czk: 24.5
   eur_usd: 1.08
   user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
   request_gap_seconds: 2.0
+  comps_db: .cache/bazar-comps.sqlite
+  comps_ttl_days: 7
 
 github:
   alert_issue_title: Deal alerts
@@ -71,12 +81,36 @@ identity:
     - sega
     - c64
     - c128
+    - lego
+    - barbie
+    - adidas
+    - nike
+    - puma
+    - hp
+    - dell
+    - lenovo
+    - asus
+    - acer
+    - logitech
+    - bosch
+    - makita
+    - panasonic
+    - philips
+    - lg
+    - google
+    - motorola
+    - disney
   kind_priority:
     - accessories
     - media
     - books
     - clothing
     - jewelry
+    - minerals
+    - collectibles
+    - bags
+    - kitchen
+    - stationery
     - cosmetics
     - toys
     - sports
@@ -193,6 +227,193 @@ identity:
       - šperky
       - sperky
       - jewelry
+    minerals:
+      - ametyst
+      - amethyst
+      - kryštál
+      - krystal
+      - kristal
+      - crystal
+      - kremeň
+      - kremen
+      - quartz
+      - achát
+      - achat
+      - agate
+      - fluorit
+      - fluorite
+      - pyrit
+      - pyrite
+      - malachit
+      - malachite
+      - drahokam
+      - gemstone
+      - geóda
+      - geoda
+      - geode
+      - záhneda
+      - zahneda
+      - citrín
+      - citrin
+      - citrine
+      - ruženín
+      - ruzenin
+      - granát
+      - granat
+      - garnet
+      - opál
+      - opal
+      - jaspis
+      - jasper
+      - obsidián
+      - obsidian
+      - surový kameň
+      - surovy kamen
+      - raw stone
+      - specimen
+      - cluster
+      - drúza
+      - druza
+      - minerál
+      - mineral
+      - polodrahokam
+      - karneol
+      - carnelian
+      - tigrie oko
+      - tiger eye
+      - tigers eye
+      - smoky quartz
+      - rose quartz
+      - kalcit
+      - calcite
+      - mesačný kameň
+      - mesacny kamen
+      - moonstone
+      - sodalit
+      - sodalite
+      - howlit
+      - howlite
+      - turmalín
+      - turmalin
+      - tourmaline
+      - kyanit
+      - kyanite
+      - lapis
+      - tyrkys
+      - turquoise
+      - jantár
+      - jantar
+      - amber
+      - vltavín
+      - vltavin
+      - moldavite
+      - labradorit
+      - labradorite
+      - selenit
+      - selenite
+      - hematit
+      - hematite
+      - avanturín
+      - avanturin
+      - aventurine
+      - akvamarín
+      - akvamarin
+      - aquamarine
+    collectibles:
+      - zberateľ
+      - zberatel
+      - collectible
+      - collector
+      - numizmatika
+      - mince
+      - minca
+      - coin
+      - coins
+      - známka
+      - znamka
+      - stamp
+      - postage stamp
+      - pohľadnica
+      - pohlednice
+      - postcard
+      - odznak
+      - badge
+      - pin
+      - bankovka
+      - autogram
+      - autograph
+      - filatelia
+      - trading card
+    bags:
+      - taška
+      - taska
+      - kabelka
+      - handbag
+      - batoh
+      - backpack
+      - ruksak
+      - rucksack
+      - peňaženka
+      - penazenka
+      - wallet
+      - ľadvinka
+      - ladvinka
+      - crossbody
+      - tasche
+    kitchen:
+      - hrnček
+      - hrncek
+      - šálka
+      - salka
+      - mug
+      - termoska
+      - termo
+      - thermos
+      - fľaša
+      - flasa
+      - bottle
+      - mlynček
+      - mlyncek
+      - príbor
+      - pribor
+      - cutlery
+      - strúhadlo
+      - struhadlo
+      - odmerka
+      - naberačka
+      - naberacka
+      - kanvica
+      - kettle
+      - obedár
+      - obedar
+      - krabička na jedlo
+      - krabicka na jedlo
+    stationery:
+      - ceruzka
+      - pencil
+      - zápisník
+      - zapisnik
+      - zošit
+      - zosit
+      - diár
+      - diar
+      - zvýrazňovač
+      - zvyraznovac
+      - highlighter
+      - pravítko
+      - ruler
+      - zošívačka
+      - zosivacka
+      - stapler
+      - kancelárske
+      - kancelarske
+      - stationery
+      - pastelky
+      - pero
+      - pečiatka
+      - peciatka
+      - poznámkový blok
+      - poznamkovy blok
     cosmetics:
       - parfum
       - parfém
@@ -202,8 +423,13 @@ identity:
       - makeup
       - rúž
       - ruz
+      - riasenka
+      - mascara
       - šampón
       - sampon
+      - deodorant
+      - sprchový gél
+      - sprchovy gel
       - kozmetika
     toys:
       - lego
@@ -223,8 +449,17 @@ identity:
       - dumbbell
       - tenis
       - yoga
+      - jóga
+      - joga
       - turistika
       - treking
+      - švihadlo
+      - svihadlo
+      - expander
+      - odporová guma
+      - odporova guma
+      - prilba
+      - helma
     photo:
       - objektív
       - objektiv
@@ -252,11 +487,26 @@ identity:
       - husle
       - flauta
       - midi
+      - klávesy
+      - klavesy
+      - struny
+      - capo
+      - sláčik
+      - slacik
+      - fúkacia harmonika
+      - fukacia harmonika
+      - harmonica
     tools:
       - vŕtačka
       - vrtacka
       - skrutkovač
       - skrutkovac
+      - kliešte
+      - klieste
+      - kladivo
+      - imbus
+      - vodováha
+      - vodovaha
       - aku
     hardware:
       - počítač
@@ -364,7 +614,7 @@ working:
 catalog:
   bazos_rss:
     sk: https://www.bazos.sk/rss.php
-  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn]
+  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn, os, du]
   vertical_rss:
     retro: [pc, el, hu, fo]
     apple: [pc, mo]
@@ -416,6 +666,27 @@ catalog:
       - fluorit
       - pyrit
       - malachit
+      - kremeň
+      - geóda
+      - záhneda
+      - citrín
+      - ruženín
+      - granát
+      - opál
+      - jaspis
+      - obsidián
+      - drahokam
+      - polodrahokam
+      - karneol
+      - tigrie oko
+      - quartz
+      - gemstone
+      - crystal
+      - selenit
+      - kalcit
+      - moonstone
+      - turmalín
+      - raw stone
   bulky_keywords:
     - gauč
     - gauce
@@ -447,20 +718,32 @@ catalog:
     - osobné auto
     - osobne auto
     - karavan
+    - šatník
+    - satnik
 
 ebay:
   marketplace_id: EBAY_DE
   token_url: https://api.ebay.com/identity/v1/oauth2/token
   search_url: https://api.ebay.com/buy/browse/v1/item_summary/search
   oauth_scope: https://api.ebay.com/oauth/api_scope
+  # Browse API category IDs (quoted so they stay strings).
   small_categories:
-    - "11450"
-    - "267"
-    - "220"
-    - "293"
-    - "625"
-    - "1249"
-    - "281"
+    - "11450"  # Clothing, Shoes & Accessories
+    - "267"    # Books, Movies & Music / Magazines
+    - "220"    # Toys & Hobbies
+    - "293"    # Consumer Electronics
+    - "625"    # Cameras & Photo
+    - "1249"   # Video Games & Consoles
+    - "281"    # Jewelry & Watches
+    - "1"      # Collectibles
+    - "3213"   # Rocks, Fossils & Minerals
+    - "11116"  # Coins & Paper Money
+    - "260"    # Stamps
+    - "26395"  # Health & Beauty
+    - "619"    # Musical Instruments & Gear
+    - "888"    # Sporting Goods
+    - "15032"  # Cell Phones & Accessories
+    - "58058"  # Computers/Tablets & Networking
   condition_map:
     NEW: new
     NEW_OTHER: like_new

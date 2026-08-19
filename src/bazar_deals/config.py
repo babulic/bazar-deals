@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     min_net_profit_eur: Decimal = Decimal(str(_HUNT["min_net_profit_eur"]))
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
+    max_shipping_eur: Decimal = Decimal(str(_HUNT["max_shipping_eur"]))
+    cheap_buy_eur: Decimal = Decimal(str(_HUNT["cheap_buy_eur"]))
+    max_shipping_cheap_eur: Decimal = Decimal(str(_HUNT["max_shipping_cheap_eur"]))
     max_buy_eur: Decimal = Decimal(str(_HUNT["max_buy_eur"]))
     max_price_vs_typical: Decimal = Decimal(str(_HUNT["max_price_vs_typical"]))
     ebay_fee_rate: Decimal = Decimal(str(_FEES["rates"]["ebay"]))
@@ -53,6 +56,8 @@ class Settings(BaseSettings):
     github_alert_issue: int = int(_GITHUB["alert_issue"])
     github_assignee: str = str(_GITHUB["assignee"])
     keepa_api_key: str = ""
+    comps_db: str = str(_HUNT.get("comps_db", ".cache/bazar-comps.sqlite"))
+    comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
 
     @field_validator("github_alert_issue", mode="before")
     @classmethod

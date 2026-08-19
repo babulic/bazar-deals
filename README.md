@@ -28,7 +28,9 @@ Alert when **all** of this is true:
 
 Default `MAX_PRICE_VS_TYPICAL=0.5` means listed price at most **half** the usual working-condition sold price. Set `1.0` for at-or-below typical. Set `MAX_BUY_EUR=40` to cap spend.
 
-Usual price is **not** a hardcoded table and **not** live asking prices. It is the median of recent **sold** ebay.de listings that pass the same working-condition + similarity check. If eBay HTML 403s from GitHub, that listing is skipped — we do not invent a number.
+Usual price is **not** a hardcoded table and **not** live asking prices. It is the median of recent **sold** ebay.de listings that pass the same working-condition + similarity check. Hunt reads a local SQLite cache first (`COMPS_DB`, default `.cache/bazar-comps.sqlite`). eBay sold HTML is fetched only when that query is missing, older than `COMPS_TTL_DAYS` (default 7), or the stored sample is below `min_sold_sample`. If eBay HTML 403s from GitHub, hunt uses the last stored median when one exists — otherwise that listing is skipped. We do not invent a number.
+
+GitHub Actions restores/saves `.cache/bazar-comps.sqlite` with `actions/cache@v4` (`sold-comps-v1-` prefix, `COMPS_DB=.cache/bazar-comps.sqlite`) so hourly hunts reuse sold comps across runs.
 
 ## Config
 
@@ -40,6 +42,11 @@ Secrets (tokens, API keys) stay in `.env`. Env still overrides hunt gates:
 |---|---|---|
 | `MAX_BUY_EUR` | `hunt.max_buy_eur` | Max listed price to consider |
 | `MAX_PRICE_VS_TYPICAL` | `hunt.max_price_vs_typical` | Buy if price ≤ typical × this |
+| `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Assumed postage when listed price ≥ 20 EUR (default 15) |
+| `CHEAP_BUY_EUR` | `hunt.cheap_buy_eur` | Listed-price cutoff for the cheaper postage cap (default 20) |
+| `MAX_SHIPPING_CHEAP_EUR` | `hunt.max_shipping_cheap_eur` | Assumed postage when listed price < 20 EUR (default 11) |
+| `COMPS_DB` | `hunt.comps_db` | SQLite path for sold comps (default `.cache/bazar-comps.sqlite`) |
+| `COMPS_TTL_DAYS` | `hunt.comps_ttl_days` | Reuse cached median this many days (default 7) |
 
 ## Alerts
 

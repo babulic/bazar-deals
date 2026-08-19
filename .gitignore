@@ -10,3 +10,6 @@ dist/
 *.egg-info/
 .coverage
 htmlcov/
+.cache/*.sqlite
+.cache/*.sqlite-wal
+.cache/*.sqlite-shm

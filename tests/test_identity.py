@@ -31,6 +31,10 @@ def test_kinds_cover_small_goods() -> None:
     assert classify_kind("Strieborné náušnice") is ItemKind.JEWELRY
     assert classify_kind("Commodore 1541-II disk drive") is ItemKind.HARDWARE
     assert classify_kind("Kniha Harry Potter") is ItemKind.BOOKS
+    assert classify_kind("Surový ametyst geóda") is ItemKind.MINERALS
+    assert classify_kind("crystal cluster quartz") is ItemKind.MINERALS
+    assert classify_kind("Ametystový prsteň striebro") is ItemKind.JEWELRY
+    assert classify_kind("Ametystový náhrdelník") is ItemKind.JEWELRY
 
 
 def test_konami_cassette_is_media_not_c64_computer() -> None:

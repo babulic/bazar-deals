@@ -35,7 +35,17 @@ jobs:
             --description "Automatické hunt alerty" \
             --color D93F0B \
             --force
+      - uses: actions/cache@v4
+        with:
+          path: .cache/bazar-comps.sqlite
+          key: sold-comps-v1-${{ github.run_id }}
+          restore-keys: |
+            sold-comps-v1-
       - run: python -m pip install -e .
+      - name: Ensure sold comps SQLite exists
+        env:
+          COMPS_DB: .cache/bazar-comps.sqlite
+        run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
       - run: python -m bazar_deals hunt --source all --notify
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -44,6 +54,11 @@ jobs:
           GITHUB_ASSIGNEE: babulic
           MAX_BUY_EUR: "60"
           MAX_PRICE_VS_TYPICAL: "0.5"
+          MAX_SHIPPING_EUR: "15"
+          CHEAP_BUY_EUR: "20"
+          MAX_SHIPPING_CHEAP_EUR: "11"
+          COMPS_DB: .cache/bazar-comps.sqlite
+          COMPS_TTL_DAYS: "7"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_CAMPAIGN_ID: ${{ secrets.EBAY_CAMPAIGN_ID }}

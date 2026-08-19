@@ -8,7 +8,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.rules import rules
-from bazar_deals.scoring import score_deal
+from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.working import is_working_listing
 
@@ -84,7 +84,7 @@ def score_listings(
             score_deal(
                 item,
                 comp.median,
-                settings.default_shipping_eur,
+                assumed_shipping(listing.price.amount, settings),
                 settings=settings,
             )
         )
