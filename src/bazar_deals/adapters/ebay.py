@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from decimal import Decimal
+from urllib.parse import quote
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.catalog import SMALL_SEARCH_QUERIES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
+from bazar_deals.htmlparse import parse_ebay_html
 
 _TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
 _SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
@@ -21,19 +24,6 @@ CONDITION_MAP = {
     "USED_ACCEPTABLE": Condition.USED,
     "FOR_PARTS_OR_NOT_WORKING": Condition.FOR_PARTS,
 }
-
-
-SMALL_EBAY_QUERIES = (
-    "smartphone",
-    "laptop",
-    "tablet",
-    "camera",
-    "smartwatch",
-    "game console",
-    "graphics card",
-    "wifi router",
-    "headphones",
-)
 
 
 class EbayBrowseClient(ListingSource):
@@ -51,11 +41,36 @@ class EbayBrowseClient(ListingSource):
             Vertical.APPLE: ("macbook", "iphone", "ipad"),
             Vertical.NETWORK: ("mikrotik", "unifi", "cisco switch"),
             Vertical.MINERAL: ("mineral specimen", "amethyst"),
-        }.get(vertical, SMALL_EBAY_QUERIES)
+        }.get(vertical, SMALL_SEARCH_QUERIES[:6])
+        if self.settings.ebay_client_id and self.settings.ebay_client_secret:
+            listings: list[Listing] = []
+            for query in queries:
+                data = self.search(query, sort="newlyListed", limit=30)
+                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+            return listings
+        return self._fetch_html(queries)
+
+    def _fetch_html(self, queries: tuple[str, ...]) -> list[Listing]:
         listings: list[Listing] = []
         for query in queries:
-            data = self.search(query, sort="newlyListed", limit=30)
-            listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+            url = (
+                "https://www.ebay.de/sch/i.html?_nkw="
+                f"{quote(query)}&_sop=10&_ipg=20"
+            )
+            response = httpx.get(
+                url,
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            if response.status_code >= 400:
+                continue
+            listings.extend(parse_ebay_html(response.text))
+        if not listings:
+            raise RuntimeError("eBay Browse keys missing and public search HTML returned no items")
         return listings
 
     def search(self, query: str, *, sort: str = "newlyListed", limit: int = 50) -> dict:

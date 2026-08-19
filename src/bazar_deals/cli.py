@@ -4,10 +4,10 @@ import argparse
 import sys
 from pathlib import Path
 
-from bazar_deals.adapters.aukro import AukroSellClient
+from bazar_deals.adapters.aukro import AukroHuntClient
 from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.adapters.ebay import EbayBrowseClient
-from bazar_deals.adapters.vinted import VintedProClient
+from bazar_deals.adapters.vinted import VintedHuntClient
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts
@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
         "--source",
         choices=["all", "bazos", "ebay", "aukro", "vinted"],
         default="all",
-        help="Where to hunt. all = Bazos + eBay (Aukro/Vinted catalog APIs are sell-side only).",
+        help="Hunt Bazos + eBay + Aukro + Vinted public listings (default: all).",
     )
     parser.add_argument(
         "--vertical",
@@ -67,18 +67,20 @@ def main(argv: list[str] | None = None) -> int:
 
 def _sources(name: str, settings: Settings, *, fixture: Path | None):
     bazos = BazosRssClient(settings, fixture_path=fixture)
+    ebay = EbayBrowseClient(settings)
+    aukro = AukroHuntClient(settings)
+    vinted = VintedHuntClient(settings)
     if name == "bazos":
         return [bazos]
     if name == "ebay":
-        return [EbayBrowseClient(settings)]
+        return [ebay]
     if name == "aukro":
-        return [AukroSellClient(settings)]
+        return [aukro]
     if name == "vinted":
-        return [VintedProClient(settings)]
-    sources = [bazos, EbayBrowseClient(settings)]
-    if fixture is None:
-        sources.extend([AukroSellClient(settings), VintedProClient(settings)])
-    return sources
+        return [vinted]
+    if fixture is not None:
+        return [bazos]
+    return [bazos, ebay, aukro, vinted]
 
 
 if __name__ == "__main__":

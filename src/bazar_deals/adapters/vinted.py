@@ -4,22 +4,60 @@ import hashlib
 import hmac
 import json
 import time
-from urllib.parse import urlparse
+from pathlib import Path
+from urllib.parse import quote, urlparse
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.catalog import SMALL_SEARCH_QUERIES, VERTICAL_KEYWORDS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
+from bazar_deals.htmlparse import parse_vinted_items
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
+_CATALOG = "https://www.vinted.sk/catalog?search_text={query}&order=newest_first"
 
 NO_PUBLIC_CATALOG = (
-    "Vinted has no public catalog API. Official Vinted Pro Integrations is "
-    "allowlisted and sell-side (own items, orders, webhooks). "
-    "Do not use the undocumented /api/v2 catalog endpoints or DataDome bypasses."
+    "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
 )
+
+
+class VintedHuntClient(ListingSource):
+    """Public Vinted catalog pages. No DataDome bypass — polite GET only."""
+
+    marketplace = Marketplace.VINTED.value
+
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        fixture_path: Path | None = None,
+    ) -> None:
+        self.settings = settings or Settings()
+        self.fixture_path = fixture_path
+
+    def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+        if self.fixture_path:
+            return parse_vinted_items(self.fixture_path.read_text(encoding="utf-8"))
+        listings: list[Listing] = []
+        queries = VERTICAL_KEYWORDS[vertical][:4] if vertical else SMALL_SEARCH_QUERIES[:6]
+        for query in queries:
+            url = _CATALOG.format(query=quote(query))
+            response = httpx.get(
+                url,
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            listings.extend(parse_vinted_items(response.text))
+            time.sleep(self.settings.bazos_request_gap_seconds)
+        return listings
 
 
 def sign_vinted_request(

@@ -133,6 +133,21 @@ CATALOG_COMPS: dict[str, tuple[str, float]] = {
 }
 
 
+SMALL_SEARCH_QUERIES = (
+    "iphone",
+    "macbook",
+    "ipad",
+    "airpods",
+    "nintendo",
+    "playstation",
+    "commodore",
+    "mikrotik",
+    "unifi",
+    "canon",
+    "sony a7",
+)
+
+
 def is_bulky(text: str) -> bool:
     hay = text.casefold()
     return any(keyword in hay for keyword in BULKY_KEYWORDS)

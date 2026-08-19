@@ -64,7 +64,7 @@ Live Bazoš RSS (polite delay between requests):
 python -m bazar_deals hunt --notify
 ```
 
-Default hunt is **all small shippable goods** (phones, PCs, electronics, photo, music, clothes, books) across Bazos RSS + eBay Browse when keys exist. Furniture, appliances, and cars are dropped. Aukro/Vinted have no public catalog API, so those clients log and skip.
+Default hunt is **all small shippable goods** across **Bazoš, eBay, Aukro, and Vinted** public listings. Furniture/cars dropped. Aukro/Vinted selling APIs stay separate; hunt uses public search HTML/JSON-LD (no bot-bypass).
 
 Hourly GitHub Action plus a run on every push to `main`. `--notify` posts BUY/WATCH as comments on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
 

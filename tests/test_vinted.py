@@ -1,7 +1,6 @@
 import pytest
 
 from bazar_deals.adapters.vinted import VintedProClient, sign_vinted_request
-from bazar_deals.cli import main
 from bazar_deals.domain import Vertical
 
 
@@ -30,10 +29,5 @@ def test_sign_header_follows_vinted_spec() -> None:
 
 
 def test_catalog_hunt_is_refused() -> None:
-    with pytest.raises(RuntimeError, match="no public catalog API"):
+    with pytest.raises(RuntimeError, match="sell-side"):
         VintedProClient().fetch_new(Vertical.APPLE)
-
-
-def test_cli_vinted_hunt_exits_without_scraping(capsys) -> None:
-    assert main(["hunt", "--source", "vinted", "--vertical", "apple"]) == 0
-    assert "no public catalog API" in capsys.readouterr().out
