@@ -62,9 +62,18 @@ class Listing(BaseModel):
     created_at: datetime | None = None
     ends_at: datetime | None = None
     bid_count: int | None = None
+    buy_now: bool = True
     location: str | None = None
     affiliate_url: HttpUrl | None = None
     raw: dict = Field(default_factory=dict)
+
+    def is_immediate_buy(self) -> bool:
+        """True when the listed price can be paid now, not an auction start/current bid."""
+        if not self.buy_now:
+            return False
+        if self.bid_count:
+            return False
+        return True
 
 
 class IdentifiedItem(BaseModel):

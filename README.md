@@ -64,7 +64,7 @@ Live Bazoš RSS (polite delay between requests):
 python -m bazar_deals hunt --notify
 ```
 
-Default hunt is **small shippable goods** on **ebay.de, vinted.sk, aukro.sk, bazos.sk** only.
+Default hunt is **small shippable goods** on **ebay.de, vinted.sk, aukro.sk, bazos.sk** only. Auctions are skipped; only buy-now / listed-price ads.
 
 Hourly GitHub Action plus a run on every push to `main`. `--notify` posts BUY/WATCH as comments on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
 

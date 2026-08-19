@@ -19,6 +19,8 @@ def hunt(
     deals: list[Deal] = []
     for listing in source.fetch_new(vertical):
         listing = _to_eur(listing, settings.eur_czk)
+        if not listing.is_immediate_buy():
+            continue
         if listing.price.amount <= 0:
             continue
         if is_bulky(f"{listing.title} {listing.description}"):

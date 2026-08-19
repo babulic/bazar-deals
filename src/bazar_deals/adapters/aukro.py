@@ -12,7 +12,10 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 
-_SEARCH = "https://aukro.sk/vysledky-vyhledavani?text={query}&order=newest"
+_SEARCH = (
+    "https://aukro.sk/vysledky-vyhladavania?text={query}"
+    "&order=newest&sellingMode.format=BUY_NOW"
+)
 _API = "https://api.aukro.cz"
 
 

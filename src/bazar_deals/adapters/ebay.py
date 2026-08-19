@@ -46,8 +46,14 @@ class EbayBrowseClient(ListingSource):
             listings: list[Listing] = []
             for query in queries:
                 data = self.search(query, sort="newlyListed", limit=30)
-                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
-            return [item for item in listings if "ebay.de" in str(item.url)]
+                listings.extend(
+                    self._to_listing(item) for item in data.get("itemSummaries", [])
+                )
+            return [
+                item
+                for item in listings
+                if item.buy_now and "ebay.de" in str(item.url)
+            ]
         return self._fetch_html(queries)
 
     def _fetch_html(self, queries: tuple[str, ...]) -> list[Listing]:
@@ -55,7 +61,7 @@ class EbayBrowseClient(ListingSource):
         for query in queries:
             url = (
                 "https://www.ebay.de/sch/i.html?_nkw="
-                f"{quote(query)}&_sop=10&_ipg=20"
+                f"{quote(query)}&_sop=10&_ipg=20&LH_BIN=1"
             )
             response = httpx.get(
                 url,
@@ -82,7 +88,12 @@ class EbayBrowseClient(ListingSource):
             headers["X-EBAY-C-ENDUSERCTX"] = (
                 f"affiliateCampaignId={self.settings.ebay_campaign_id}"
             )
-        params = {"q": query, "sort": sort, "limit": str(limit)}
+        params = {
+            "q": query,
+            "sort": sort,
+            "limit": str(limit),
+            "filter": "buyingOptions:{FIXED_PRICE}",
+        }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
         response.raise_for_status()
         return response.json()
@@ -121,5 +132,19 @@ class EbayBrowseClient(ListingSource):
             condition=CONDITION_MAP.get(condition_id, Condition.UNKNOWN),
             seller_id=(item.get("seller") or {}).get("username"),
             affiliate_url=affiliate,
+            bid_count=item.get("bidCount"),
+            buy_now=is_ebay_buy_now(item),
             raw=item,
         )
+
+
+def is_ebay_buy_now(item: dict) -> bool:
+    """Keep only fixed-price / classified ads. Auction (even with BIN) is out."""
+    if item.get("bidCount") or item.get("currentBidPrice"):
+        return False
+    options = {str(opt).upper() for opt in item.get("buyingOptions") or []}
+    if "AUCTION" in options:
+        return False
+    if options and "FIXED_PRICE" not in options and "CLASSIFIED_AD" not in options:
+        return False
+    return True

@@ -61,12 +61,15 @@ def _product_listing(node: dict, marketplace: Marketplace, currency: str) -> Lis
         offers = offers[0] if offers else {}
     amount = _decimal(offers.get("price") or node.get("price"))
     offer_currency = offers.get("priceCurrency") or currency
+    offer_type = str(offers.get("@type") or "")
+    buy_now = "Auction" not in offer_type
     return Listing(
         marketplace=marketplace,
         external_id=str(url).rstrip("/").split("/")[-1],
         title=name,
         url=str(url),
         price=Money(amount=amount, currency=str(offer_currency)),
+        buy_now=buy_now,
     )
 
 
