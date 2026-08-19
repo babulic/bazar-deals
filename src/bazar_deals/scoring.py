@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 
 
@@ -10,65 +11,60 @@ FEE_RATES = {
     Marketplace.VINTED: Decimal("0.05"),
 }
 
-# Buyer Protection is charged on the purchase, not on later resale.
 BUY_SIDE_FEE = {Marketplace.VINTED}
-
-CONDITION_HAIRCUT = {
-    "new": Decimal("0"),
-    "like_new": Decimal("0.05"),
-    "used": Decimal("0.12"),
-    "for_parts": Decimal("0.55"),
-    "unknown": Decimal("0.18"),
-}
 
 
 def score_deal(
     item: IdentifiedItem,
-    estimated_resale: Decimal,
-    shipping: Decimal,
+    typical: Decimal,
+    shipping: Decimal = Decimal("0"),
     *,
-    min_net_profit: Decimal = Decimal("20"),
-    min_margin: Decimal = Decimal("0.25"),
+    settings: Settings | None = None,
+    min_net_profit: Decimal | None = None,
+    min_margin: Decimal | None = None,
     fee_rate: Decimal | None = None,
+    max_price_vs_typical: Decimal | None = None,
+    max_buy_eur: Decimal | None = None,
 ) -> Deal:
+    """BUY only when listed price is at or below typical * max_price_vs_typical.
+
+    `typical` must be a real sold-comp median for the same working item.
+    min_net_profit / min_margin are ignored for the decision (kept for call compatibility).
+    """
+    del min_net_profit, min_margin
+    settings = settings or Settings()
+    ratio = max_price_vs_typical if max_price_vs_typical is not None else settings.max_price_vs_typical
+    cap = max_buy_eur if max_buy_eur is not None else settings.max_buy_eur
     listing = item.listing
     buy = listing.price.amount
     fee_rate = FEE_RATES[listing.marketplace] if fee_rate is None else fee_rate
-    fee_base = buy if listing.marketplace in BUY_SIDE_FEE else estimated_resale
+    fee_base = buy if listing.marketplace in BUY_SIDE_FEE else typical
     fees = (fee_base * fee_rate).quantize(Decimal("0.01"))
     if listing.marketplace is Marketplace.VINTED:
         fees = (fees + Decimal("0.70")).quantize(Decimal("0.01"))
-    haircut = (estimated_resale * CONDITION_HAIRCUT[listing.condition.value]).quantize(
-        Decimal("0.01")
-    )
-    seller_risk = Decimal("0")
-    if listing.seller_score is None:
-        seller_risk = (estimated_resale * Decimal("0.04")).quantize(Decimal("0.01"))
-    elif listing.seller_score < 0.9:
-        seller_risk = (estimated_resale * Decimal("0.08")).quantize(Decimal("0.01"))
-
-    net = (estimated_resale - buy - shipping - fees - haircut - seller_risk).quantize(
-        Decimal("0.01")
-    )
+    ceiling = (typical * ratio).quantize(Decimal("0.01"))
+    delta = (typical - buy).quantize(Decimal("0.01"))
     costs = CostBreakdown(
         buy_price=buy,
-        estimated_resale=estimated_resale,
+        estimated_resale=typical,
         shipping=shipping,
         fees=fees,
-        condition_haircut=haircut,
-        seller_risk=seller_risk,
-        net_profit=net,
+        condition_haircut=Decimal("0"),
+        seller_risk=Decimal("0"),
+        net_profit=delta,
     )
-
-    margin = net / buy if buy else Decimal("0")
-    if net >= min_net_profit and margin >= min_margin:
-        action = Action.BUY
-        reason = f"estimated profit: {net} EUR"
-    elif net > 0:
-        action = Action.ALERT
-        reason = f"thin edge: {net} EUR"
-    else:
-        action = Action.SKIP
-        reason = f"no edge: {net} EUR"
-
-    return Deal(item=item, costs=costs, action=action, reason=reason)
+    if buy > cap:
+        return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"over max buy {cap} EUR")
+    if buy > ceiling:
+        return Deal(
+            item=item,
+            costs=costs,
+            action=Action.SKIP,
+            reason=f"above typical ({buy} > {ceiling})",
+        )
+    return Deal(
+        item=item,
+        costs=costs,
+        action=Action.BUY,
+        reason=f"at or below typical ({buy} <= {ceiling})",
+    )

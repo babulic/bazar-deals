@@ -1,41 +1,45 @@
 # bazar-deals
 
-Hunter for **small shippable goods listed at ≤ 60 €** (buy-now) on ebay.de, vinted.sk, aukro.sk, bazos.sk. It is not a retro/PC catalog and it does not invent a resale number.
+Hunter for **small shippable, working goods**. Sites: ebay.de, vinted.sk, aukro.sk, bazos.sk. Buy-now only. Auctions are out.
 
 ```
-newest buy-now ads ≤ 60 €
+newest buy-now ads
      ↓
-drop bulky / auctions / weak identity
+price ≤ MAX_BUY_EUR (default 60)
      ↓
-tight query from the title (not “contains commodore 64”)
+drop bulky, auctions, damaged / for-parts
      ↓
-median of similar *sold* ebay.de listings
+identify the listing (weak title → skip)
      ↓
-shipping / fees / condition
+typical price = median of similar *sold* ebay.de working items
      ↓
-NET PROFIT  →  BUY | WATCH | skip
+BUY only if price ≤ typical × MAX_PRICE_VS_TYPICAL (default 1.0)
 ```
 
-## How typical price is computed
+## Decision (the only BUY rule)
 
-**Source:** public eBay.de sold/completed search (`LH_Sold=1&LH_Complete=1`). That is realised used-goods prices, not live asking prices and not a hardcoded table.
+Alert when **all** of this is true:
 
-Each hunt run:
+1. The listing is **buy-now**, **small**, **≤ max buy price**.
+2. Text does not say damaged / for parts / not working. eBay `FOR_PARTS` is dropped.
+3. Identity is tight enough to search sold comps (a Konami C64 *cassette* is not a C64 computer).
+4. There are enough **sold** ebay.de peers of the same kind (`n ≥ 5`).
+5. Listed price **≤ usual sold median × max_price_vs_typical**.
 
-1. Pull newest buy-now ads under 60 € (Bazoš small-category RSS; eBay newest BIN; Aukro/Vinted newest buy-now).
-2. Skip furniture/appliances/cars/bikes and auctions.
-3. Build a **tight sold query** from distinctive title tokens. A Konami cassette that merely mentions C64 is **media**, not a C64 computer — it will not be priced as a 120 € PC.
-4. Fetch sold ebay.de hits for that query (in-memory cache per run). Keep only sold titles that are the **same kind** and similar tokens.
-5. Typical price = **median of those sold prices**, labeled `medián predaných na ebay.de (n=12)`.
-6. If identity is weak or `n < 5` → no alert. Never BUY on a seed like “C64 = 120 €”.
+Default `MAX_PRICE_VS_TYPICAL=1.0` means **at or below** the usual working-condition sold price. Set `0.8` if you only want 20 % under typical. Set `MAX_BUY_EUR=40` to cap spend.
 
-Nothing is stored on disk. Heureka/Idealo/Keepa/Terapeak are **not** used unless you later set a paid key. `KEEPA_API_KEY` is reserved; it does not change behaviour today because Keepa needs ASINs we do not have.
+Usual price is **not** a hardcoded table and **not** live asking prices. It is the median of recent **sold** ebay.de listings that pass the same working-condition + similarity check. If eBay HTML 403s from GitHub, that listing is skipped — we do not invent a number.
 
-eBay may 403 sold HTML from GitHub datacenter IPs or redirect sold search to sign-in. Then that listing is skipped — we do not fall back to fake numbers.
+## Config
+
+| Env | Default | Meaning |
+|---|---|---|
+| `MAX_BUY_EUR` | `60` | Max listed price to even consider |
+| `MAX_PRICE_VS_TYPICAL` | `1.0` | Buy if price ≤ typical × this |
 
 ## Alerts
 
-One digest comment per hunt on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1), label **`bazar-alert`**, assigned to `babulic`, first line `@babulic` (`github-actions[bot]` + `github.token`), same pattern as polymarket-tracker / peer-order-finder.
+One digest comment per hunt on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1), label **`bazar-alert`**, assigned to `babulic`, first line `@babulic`.
 
 ## Run
 
@@ -45,5 +49,3 @@ python -m pytest
 python -m bazar_deals hunt --offline --source bazos
 python -m bazar_deals hunt --notify
 ```
-
-Hourly GitHub Action plus push to `main`.

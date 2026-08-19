@@ -58,4 +58,4 @@ def test_1541_drive_can_buy_when_sold_comps_match() -> None:
     assert cheap
     assert cheap[0].action is Action.BUY
     assert cheap[0].costs.estimated_resale >= Decimal("80")
-    assert "predaných" in cheap[0].item.sold_label
+    assert "predaných" in cheap[0].item.sold_label or "sold" in cheap[0].item.sold_label

@@ -40,4 +40,4 @@ def test_cli_offline(capsys) -> None:
     out = capsys.readouterr().out
     assert "Commodore 1541-II" in out
     assert "BUY" in out
-    assert "predaných" in out
+    assert "obvyklá" in out

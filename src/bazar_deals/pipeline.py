@@ -9,7 +9,8 @@ from bazar_deals.domain import Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.scoring import score_deal
 from bazar_deals.soldcomps import SoldCompClient
-from bazar_deals.watchlist import MAX_BUY_EUR, MAX_SOLD_LOOKUPS
+from bazar_deals.watchlist import MAX_SOLD_LOOKUPS
+from bazar_deals.working import is_working_listing
 
 
 def hunt(
@@ -57,6 +58,8 @@ def score_listings(
             continue
         if listing.price.amount > cap:
             continue
+        if not is_working_listing(listing):
+            continue
         if is_bulky(f"{listing.title} {listing.description}"):
             continue
         usable.append(listing)
@@ -82,8 +85,7 @@ def score_listings(
                 item,
                 comp.median,
                 settings.default_shipping_eur,
-                min_net_profit=settings.min_net_profit_eur,
-                min_margin=settings.min_margin,
+                settings=settings,
             )
         )
     deals.sort(key=lambda deal: deal.costs.net_profit, reverse=True)

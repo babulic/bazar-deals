@@ -5,6 +5,7 @@ import unicodedata
 from enum import StrEnum
 
 from bazar_deals.domain import IdentifiedItem, Listing, Vertical
+from bazar_deals.working import is_damaged_text
 
 _GENERIC_BRANDS = frozenset(
     {
@@ -123,6 +124,13 @@ class ItemKind(StrEnum):
 
 def identify(listing: Listing, vertical_hint: Vertical | None = None) -> IdentifiedItem:
     hay = f"{listing.title} {listing.description}"
+    if is_damaged_text(hay) or listing.condition.value == "for_parts":
+        return IdentifiedItem(
+            listing=listing,
+            vertical=vertical_hint,
+            canonical_name=listing.title.strip(),
+            confidence=0.1,
+        )
     kind = classify_kind(hay)
     query = sold_query(hay, kind)
     weak = query is None

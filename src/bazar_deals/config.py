@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     min_margin: Decimal = Decimal("0.25")
     default_shipping_eur: Decimal = Decimal("8")
     max_buy_eur: Decimal = Decimal("60")
+    max_price_vs_typical: Decimal = Decimal("1.0")
     ebay_fee_rate: Decimal = Decimal("0.13")
     aukro_fee_rate: Decimal = Decimal("0.11")
     bazos_fee_rate: Decimal = Decimal("0")

@@ -54,7 +54,10 @@ class EbayBrowseClient(ListingSource):
             return [
                 item
                 for item in listings
-                if item.buy_now and "ebay.de" in str(item.url) and item.price.amount > 0
+                if item.buy_now
+                and item.condition is not Condition.FOR_PARTS
+                and "ebay.de" in str(item.url)
+                and item.price.amount > 0
             ]
         return self._fetch_html(cap)
 
@@ -98,6 +101,7 @@ class EbayBrowseClient(ListingSource):
             "limit": str(limit),
             "filter": (
                 "buyingOptions:{FIXED_PRICE},"
+                "conditions:{NEW|USED},"
                 f"price:[1..{self.settings.max_buy_eur}]"
             ),
         }

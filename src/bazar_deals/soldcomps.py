@@ -12,6 +12,7 @@ from bazar_deals.domain import Listing
 from bazar_deals.htmlparse import parse_ebay_html
 from bazar_deals.identity import similar_titles, sold_query
 from bazar_deals.watchlist import MIN_SOLD_SAMPLE
+from bazar_deals.working import is_damaged_text
 
 
 @dataclass(frozen=True)
@@ -45,12 +46,13 @@ class SoldCompClient:
         query = sold_query(f"{listing.title} {listing.description}")
         if not query:
             return None
-        sold = [item for item in self._sold_hits(query) if item.price.amount > 0]
-        peers = [
+        hay = f"{listing.title} {listing.description}"
+        sold = [
             item
-            for item in sold
-            if similar_titles(f"{listing.title} {listing.description}", item.title)
+            for item in self._sold_hits(query)
+            if item.price.amount > 0 and not is_damaged_text(item.title)
         ]
+        peers = [item for item in sold if similar_titles(hay, item.title)]
         if len(peers) < MIN_SOLD_SAMPLE:
             return None
         amounts = sorted(item.price.amount for item in peers)
@@ -63,7 +65,7 @@ class SoldCompClient:
         return SoldComp(
             median=median,
             sample=n,
-            label=f"medián predaných na ebay.de (n={n})",
+            label=f"obvyklá cena, funkčný kus, ebay.de sold (n={n})"
         )
 
     def _sold_hits(self, query: str) -> list[Listing]:
@@ -78,7 +80,7 @@ class SoldCompClient:
             pass
         url = (
             "https://www.ebay.de/sch/i.html?_nkw="
-            f"{quote(query)}&LH_Sold=1&LH_Complete=1&LH_BIN=1&_ipg=60"
+            f"{quote(query)}&LH_Sold=1&LH_Complete=1&_ipg=60"
         )
         response = httpx.get(
             url,

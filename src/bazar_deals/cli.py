@@ -55,7 +55,7 @@ def main(argv: list[str] | None = None) -> int:
     deals = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
     actionable = [deal for deal in deals if deal.action is not Action.SKIP]
     if not actionable:
-        print("No deals with a positive edge.")
+        print("No deals at or below typical working-condition price.")
         return 0
     print("\n\n".join(format_deal(deal) for deal in actionable))
     if args.notify:
