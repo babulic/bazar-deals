@@ -54,6 +54,8 @@ jobs:
           GITHUB_ASSIGNEE: babulic
           MAX_BUY_EUR: "60"
           MAX_PRICE_VS_TYPICAL: "0.5"
+          ALERT_PRICE_VS_TYPICAL: "1.0"
+          MAX_NO_COMP_ALERTS: "5"
           MAX_SHIPPING_EUR: "15"
           CHEAP_BUY_EUR: "20"
           MAX_SHIPPING_CHEAP_EUR: "11"

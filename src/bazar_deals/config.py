@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     max_shipping_cheap_eur: Decimal = Decimal(str(_HUNT["max_shipping_cheap_eur"]))
     max_buy_eur: Decimal = Decimal(str(_HUNT["max_buy_eur"]))
     max_price_vs_typical: Decimal = Decimal(str(_HUNT["max_price_vs_typical"]))
+    alert_price_vs_typical: Decimal = Decimal(str(_HUNT.get("alert_price_vs_typical", "1.0")))
+    max_no_comp_alerts: int = int(_HUNT.get("max_no_comp_alerts", 5))
     ebay_fee_rate: Decimal = Decimal(str(_FEES["rates"]["ebay"]))
     aukro_fee_rate: Decimal = Decimal(str(_FEES["rates"]["aukro"]))
     bazos_fee_rate: Decimal = Decimal(str(_FEES["rates"]["bazos"]))

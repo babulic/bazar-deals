@@ -67,8 +67,10 @@ def test_cassette_does_not_buy_against_c64_computer_sold_comps() -> None:
     )
     sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_c64_computers.html")
     deals = hunt(_Source([listing]), sold=sold)
-    assert deals == []
     assert all(deal.action is not Action.BUY for deal in deals)
+    assert deals
+    assert deals[0].action is Action.ALERT
+    assert "sold" in deals[0].reason
 
 
 def test_1541_drive_can_buy_when_sold_comps_match() -> None:

@@ -43,3 +43,23 @@ def test_cli_offline(capsys) -> None:
     assert "obvyklá" in out
     assert "filter:" in out
     assert "buy=" in out
+
+
+def test_hunt_alerts_when_sold_comps_missing(tmp_path) -> None:
+    from unittest.mock import patch
+
+    from bazar_deals.config import Settings
+
+    class _Resp:
+        status_code = 403
+        text = "blocked"
+        url = "https://www.ebay.de/sch/i.html"
+
+    settings = Settings(comps_db=str(tmp_path / "comps.sqlite"), max_no_comp_alerts=5)
+    sold = SoldCompClient(settings)
+    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp()):
+        deals = hunt(BazosRssClient(fixture_path=FIXTURE), settings=settings, sold=sold)
+    alerts = [deal for deal in deals if deal.action is Action.ALERT]
+    assert alerts
+    assert all(deal.action is not Action.BUY for deal in deals)
+    assert alerts[0].costs.estimated_resale == 0

@@ -31,6 +31,8 @@ domain:
 hunt:
   max_buy_eur: 60
   max_price_vs_typical: 0.5
+  alert_price_vs_typical: 1.0
+  max_no_comp_alerts: 5
   min_sold_sample: 5
   max_sold_lookups: 40
   default_shipping_eur: 8

@@ -12,14 +12,20 @@ def format_deal(deal: Deal) -> str:
     if item.listing.affiliate_url:
         affiliate = f"\naffiliate: {item.listing.affiliate_url}"
     typical = costs.estimated_resale
-    ratio = (costs.buy_price / typical * 100).quantize(Decimal("1")) if typical else Decimal("0")
     label = item.sold_label or "obvyklá cena"
+    if typical > 0:
+        ratio = (costs.buy_price / typical * 100).quantize(Decimal("1"))
+        typical_line = f"{label}: {typical} €\n"
+        ratio_line = f"pomer k obvyklej: {ratio} %{fire}\n"
+    else:
+        typical_line = f"{label}\n"
+        ratio_line = f"{fire.strip()}\n"
     return (
         f"{item.canonical_name}\n"
         f"{source}: {costs.buy_price} €\n"
-        f"{label}: {typical} €\n"
+        f"{typical_line}"
         f"poštovné (predpoklad): {costs.shipping} €\n"
-        f"pomer k obvyklej: {ratio} %{fire}\n"
+        f"{ratio_line}"
         f"{item.listing.url}{affiliate}"
     )
 

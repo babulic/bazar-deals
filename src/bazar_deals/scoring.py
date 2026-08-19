@@ -30,17 +30,21 @@ def score_deal(
     min_margin: Decimal | None = None,
     fee_rate: Decimal | None = None,
     max_price_vs_typical: Decimal | None = None,
+    alert_price_vs_typical: Decimal | None = None,
     max_buy_eur: Decimal | None = None,
 ) -> Deal:
-    """BUY only when listed price is at or below typical * max_price_vs_typical.
+    """BUY at typical × max_price_vs_typical; ALERT at typical × alert_price_vs_typical.
 
     `typical` must be a real sold-comp median for the same working item.
     min_net_profit / min_margin are ignored for the decision (kept for call compatibility).
-    Assumed postage is stored on the cost breakdown; it does not change BUY vs SKIP.
+    Assumed postage is stored on the cost breakdown; it does not change BUY vs ALERT vs SKIP.
     """
     del min_net_profit, min_margin
     settings = settings or Settings()
-    ratio = max_price_vs_typical if max_price_vs_typical is not None else settings.max_price_vs_typical
+    buy_ratio = max_price_vs_typical if max_price_vs_typical is not None else settings.max_price_vs_typical
+    alert_ratio = (
+        alert_price_vs_typical if alert_price_vs_typical is not None else settings.alert_price_vs_typical
+    )
     cap = max_buy_eur if max_buy_eur is not None else settings.max_buy_eur
     listing = item.listing
     buy = listing.price.amount
@@ -52,7 +56,8 @@ def score_deal(
     fees = (fee_base * fee_rate).quantize(Decimal("0.01"))
     if listing.marketplace in buy_side:
         fees = (fees + Decimal(str(fees_cfg["vinted_fixed_eur"]))).quantize(Decimal("0.01"))
-    ceiling = (typical * ratio).quantize(Decimal("0.01"))
+    buy_ceiling = (typical * buy_ratio).quantize(Decimal("0.01"))
+    alert_ceiling = (typical * alert_ratio).quantize(Decimal("0.01"))
     delta = (typical - buy).quantize(Decimal("0.01"))
     costs = CostBreakdown(
         buy_price=buy,
@@ -65,16 +70,47 @@ def score_deal(
     )
     if buy > cap:
         return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"over max buy {cap} EUR")
-    if buy > ceiling:
+    if buy <= buy_ceiling:
         return Deal(
             item=item,
             costs=costs,
-            action=Action.SKIP,
-            reason=f"above typical ({buy} > {ceiling})",
+            action=Action.BUY,
+            reason=f"at or below typical × {buy_ratio} ({buy} <= {buy_ceiling})",
+        )
+    if buy <= alert_ceiling:
+        return Deal(
+            item=item,
+            costs=costs,
+            action=Action.ALERT,
+            reason=f"above buy threshold but at or below typical × {alert_ratio} ({buy} <= {alert_ceiling})",
         )
     return Deal(
         item=item,
         costs=costs,
-        action=Action.BUY,
-        reason=f"at or below typical ({buy} <= {ceiling})",
+        action=Action.SKIP,
+        reason=f"above typical ({buy} > {alert_ceiling})",
+    )
+
+
+def alert_without_comps(item: IdentifiedItem, settings: Settings | None = None) -> Deal:
+    """Manual-check ALERT when eBay sold comps are missing. Never a BUY."""
+    settings = settings or Settings()
+    listing = item.listing
+    buy = listing.price.amount
+    postage = assumed_shipping(buy, settings)
+    costs = CostBreakdown(
+        buy_price=buy,
+        estimated_resale=Decimal("0"),
+        shipping=postage,
+        fees=Decimal("0"),
+        condition_haircut=Decimal("0"),
+        seller_risk=Decimal("0"),
+        net_profit=Decimal("0"),
+    )
+    labeled = item.model_copy(update={"sold_label": "typická cena nedostupná (ebay.de sold)"})
+    return Deal(
+        item=labeled,
+        costs=costs,
+        action=Action.ALERT,
+        reason="no sold comps; check manually",
     )

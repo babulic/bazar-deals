@@ -49,7 +49,13 @@ def test_equal_to_typical_is_buy() -> None:
 def test_price_vs_typical_ratio_is_configurable() -> None:
     item = identify(_listing("50"), Vertical.RETRO)
     deal = score_deal(item, Decimal("89"), max_price_vs_typical=Decimal("0.5"))
-    assert deal.action.value == "skip"
+    assert deal.action.value == "alert"
+
+
+def test_half_typical_is_buy() -> None:
+    item = identify(_listing("38"), Vertical.RETRO)
+    deal = score_deal(item, Decimal("89"), max_price_vs_typical=Decimal("0.5"))
+    assert deal.action.value == "buy"
 
 
 def test_cheap_buy_uses_cheaper_shipping_cap() -> None:

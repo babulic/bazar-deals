@@ -9,7 +9,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.rules import rules
-from bazar_deals.scoring import assumed_shipping, score_deal
+from bazar_deals.scoring import alert_without_comps, assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.working import is_working_listing
 
@@ -25,7 +25,9 @@ _FUNNEL_KEYS = (
     "no_sold_comps",
     "scored",
     "buy",
+    "alert",
     "skip_typical",
+    "alert_no_comps",
 )
 
 
@@ -91,9 +93,11 @@ def score_listings(
     usable.sort(key=lambda item: item.price.amount)
 
     deals: list[Deal] = []
+    pending_no_comp: list = []
     lookups = 0
     lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+    loose = set(rules()["identity"].get("loose_kinds", []))
     for listing in usable:
         item = identify(listing)
         if item.confidence < min_conf or not item.search_query:
@@ -106,6 +110,7 @@ def score_listings(
         comp = sold.median_sold(listing)
         if comp is None:
             funnel["no_sold_comps"] += 1
+            pending_no_comp.append(item)
             continue
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
@@ -119,12 +124,29 @@ def score_listings(
         funnel["scored"] += 1
         if deal.action is Action.BUY:
             funnel["buy"] += 1
+        elif deal.action is Action.ALERT:
+            funnel["alert"] += 1
         else:
             funnel["skip_typical"] += 1
         deals.append(deal)
-    deals.sort(key=lambda deal: deal.costs.net_profit, reverse=True)
+    for deal in _no_comp_alerts(pending_no_comp, settings, loose):
+        funnel["alert_no_comps"] += 1
+        deals.append(deal)
+    deals.sort(key=lambda deal: (deal.action is not Action.BUY, deal.costs.buy_price))
     print(_format_funnel(funnel))
     return deals
+
+
+def _no_comp_alerts(pending: list, settings: Settings, loose: set[str]) -> list[Deal]:
+    if not pending:
+        return []
+    cap = max(0, int(settings.max_no_comp_alerts))
+    if cap == 0:
+        return []
+    preferred = [item for item in pending if item.kind not in loose]
+    pool = preferred or list(pending)
+    pool.sort(key=lambda item: item.listing.price.amount)
+    return [alert_without_comps(item, settings) for item in pool[:cap]]
 
 
 def _format_funnel(funnel: Counter[str]) -> str:
