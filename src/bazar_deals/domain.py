@@ -20,6 +20,7 @@ Marketplace = _str_enum("Marketplace", _DOMAIN["marketplaces"])
 Vertical = _str_enum("Vertical", _DOMAIN["verticals"])
 Condition = _str_enum("Condition", _DOMAIN["conditions"])
 Action = _str_enum("Action", _DOMAIN["actions"])
+ItemKind = _str_enum("ItemKind", _DOMAIN["item_kinds"])
 
 
 class Money(BaseModel):

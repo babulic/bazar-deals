@@ -11,3 +11,4 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["max_buy_eur"] == 60
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["min_sold_sample"] == 5
+    assert data["domain"]["item_kinds"] == ["media", "hardware", "generic"]

@@ -6,6 +6,7 @@ domain:
   verticals: [retro, mineral, apple, network]
   conditions: [new, like_new, used, for_parts, unknown]
   actions: [buy, alert, skip]
+  item_kinds: [media, hardware, generic]
   default_currency: EUR
 
 hunt:

@@ -2,17 +2,10 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from enum import StrEnum
 
-from bazar_deals.domain import IdentifiedItem, Listing, Vertical
+from bazar_deals.domain import IdentifiedItem, ItemKind, Listing, Vertical
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
-
-
-class ItemKind(StrEnum):
-    MEDIA = "media"
-    HARDWARE = "hardware"
-    GENERIC = "generic"
 
 
 def _id() -> dict:
