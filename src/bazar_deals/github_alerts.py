@@ -4,7 +4,7 @@ import httpx
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Deal
-from bazar_deals.notify import format_deal
+from bazar_deals.notify import format_github_deal
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
@@ -20,7 +20,7 @@ def listing_key(deal: Deal) -> str:
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in deals)
     ping = f"@{mention}\n\n" if mention else ""
-    blocks = "\n\n".join(f"```\n{format_deal(deal)}\n```" for deal in deals)
+    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in deals)
     return (
         f"{ping}{markers}\n"
         f"**{len(deals)} deal(s)** this hunt\n\n"
