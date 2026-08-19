@@ -66,7 +66,7 @@ python -m bazar_deals hunt --notify
 
 Default hunt is **small shippable goods** on **ebay.de, vinted.sk, aukro.sk, bazos.sk** only. Auctions are skipped; only buy-now / listed-price ads.
 
-Hourly GitHub Action plus a run on every push to `main`. `--notify` posts BUY/WATCH as comments on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
+Hourly GitHub Action plus a run on every push to `main`. `--notify` posts **one comment per hunt** with all new BUY/WATCH deals stacked, and `@` the repo owner so GitHub emails a mention. Enable email for **Mentions** and **Issue comments** at https://github.com/settings/notifications. Inbox: [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
 
 Copy `.env.example` to `.env` before wiring eBay / Aukro / Vinted / GitHub / Telegram / LLM keys.
 

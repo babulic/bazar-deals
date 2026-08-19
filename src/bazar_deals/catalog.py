@@ -1,3 +1,7 @@
+from __future__ import annotations
+
+import re
+
 from bazar_deals.domain import Vertical
 
 # Official public RSS only. Never unofficial private Bazos APIs.
@@ -121,32 +125,37 @@ BULKY_KEYWORDS = (
 )
 
 # Seed comps until sold-history APIs are wired. Amounts are EUR.
+# Only distinctive models — a generic "iphone 13" seed was tagging every listing 280 €.
 CATALOG_COMPS: dict[str, tuple[str, float]] = {
     "commodore 1541-ii": ("Commodore 1541-II", 89),
     "commodore 1541": ("Commodore 1541", 79),
     "commodore 64": ("Commodore 64", 120),
     "macbook air m1": ("MacBook Air M1", 420),
-    "iphone 13": ("iPhone 13", 280),
     "mikrotik hex": ("MikroTik hEX", 55),
     "unifi 6 lite": ("Ubiquiti UniFi 6 Lite", 70),
 }
 
+# Tokens that mean a more specific SKU than the seed (do not reuse the seed price).
+_MODEL_UPGRADES = frozenset({"pro", "max", "mini", "plus", "ultra"})
 
-SMALL_SEARCH_QUERIES = (
-    "iphone",
-    "macbook",
-    "ipad",
-    "airpods",
-    "nintendo",
-    "playstation",
-    "commodore",
-    "mikrotik",
-    "unifi",
-    "canon",
-    "sony a7",
-)
+SMALL_SEARCH_QUERIES = tuple(CATALOG_COMPS.keys())
 
 
 def is_bulky(text: str) -> bool:
     hay = text.casefold()
     return any(keyword in hay for keyword in BULKY_KEYWORDS)
+
+
+def match_catalog_key(text: str) -> str | None:
+    """Longest phrase match. Rejects Pro/Max/Mini variants of a base seed."""
+    hay = " ".join(text.casefold().split())
+    for key in sorted(CATALOG_COMPS, key=len, reverse=True):
+        if not re.search(rf"(?<![\w]){re.escape(key)}(?![\w])", hay):
+            continue
+        after = hay.split(key, 1)[1].strip()
+        nxt = re.split(r"[\s,;/()]+", after, maxsplit=1)[0] if after else ""
+        nxt = nxt.strip("-")
+        if nxt in _MODEL_UPGRADES:
+            continue
+        return key
+    return None

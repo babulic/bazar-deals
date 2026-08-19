@@ -61,7 +61,7 @@ def main(argv: list[str] | None = None) -> int:
         except RuntimeError as exc:
             print(exc)
             return 2
-        print(f"Posted {posted} new comment(s) to the Deal alerts issue.")
+        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     return 0
 
 

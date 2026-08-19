@@ -15,17 +15,19 @@ def listing_key(deal: Deal) -> str:
     return f"{listing.marketplace.value}:{listing.external_id}"
 
 
-def format_issue_comment(deal: Deal) -> str:
-    key = listing_key(deal)
+def format_run_comment(deals: list[Deal], *, mention: str) -> str:
+    markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in deals)
+    ping = f"@{mention} " if mention else ""
+    blocks = "\n\n".join(f"```\n{format_deal(deal)}\n```" for deal in deals)
     return (
-        f"<!-- listing:{key} -->\n"
-        f"**{deal.action.value.upper()}** · {deal.item.vertical.value if deal.item.vertical else 'unclassified'}\n\n"
-        f"```\n{format_deal(deal)}\n```\n"
+        f"{markers}\n"
+        f"{ping}**{len(deals)} deal(s)** this hunt\n\n"
+        f"{blocks}\n"
     )
 
 
 class GitHubIssueAlerts:
-    """One standing issue; each deal is a comment (GitHub emails subscribers)."""
+    """One standing issue; one comment per hunt run (GitHub emails @mentions)."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
@@ -39,19 +41,16 @@ class GitHubIssueAlerts:
             return 0
         issue = self.ensure_issue()
         seen = self._seen_keys(issue)
-        posted = 0
-        for deal in deals:
-            key = listing_key(deal)
-            if key in seen:
-                continue
-            self._request(
-                "POST",
-                f"/repos/{self.repo}/issues/{issue}/comments",
-                json={"body": format_issue_comment(deal)},
-            )
-            seen.add(key)
-            posted += 1
-        return posted
+        fresh = [deal for deal in deals if listing_key(deal) not in seen]
+        if not fresh:
+            return 0
+        owner = self.repo.split("/")[0]
+        self._request(
+            "POST",
+            f"/repos/{self.repo}/issues/{issue}/comments",
+            json={"body": format_run_comment(fresh, mention=owner)},
+        )
+        return 1
 
     def ensure_issue(self) -> int:
         self._require_auth()
@@ -70,8 +69,9 @@ class GitHubIssueAlerts:
             json={
                 "title": ALERT_ISSUE_TITLE,
                 "body": (
-                    f"@{owner} subscribe to this issue (Watch → Custom → Issues, or the Subscribe button).\n\n"
-                    "Each mispricing alert is a **new comment**. GitHub emails you; the last comment is the latest deal."
+                    f"@{owner} this issue is the deal inbox. Watch it and enable email for "
+                    "**mentions** + **issue comments** in GitHub notification settings.\n\n"
+                    "Each hunt run posts **one** comment with all new deals stacked."
                 ),
             },
         )
