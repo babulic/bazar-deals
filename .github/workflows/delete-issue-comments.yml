@@ -1,0 +1,47 @@
+name: Delete issue comments
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Issue number to clean"
+        required: false
+        default: "1"
+  workflow_call:
+    inputs:
+      issue_number:
+        type: string
+        required: false
+        default: "1"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  delete-comments:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete all comments from issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ inputs.issue_number || '1' }}
+        run: |
+          REPO="${{ github.repository }}"
+          echo "Deleting comments from issue #$ISSUE in $REPO ..."
+
+          PAGE=1
+          DELETED=0
+          while true; do
+            COMMENTS=$(gh api "repos/$REPO/issues/$ISSUE/comments?per_page=100&page=$PAGE" --jq '.[].id')
+            if [ -z "$COMMENTS" ]; then
+              break
+            fi
+            for ID in $COMMENTS; do
+              gh api -X DELETE "repos/$REPO/issues/comments/$ID" 2>/dev/null && DELETED=$((DELETED + 1))
+            done
+            PAGE=$((PAGE + 1))
+          done
+
+          echo "Deleted $DELETED comments from issue #$ISSUE"
