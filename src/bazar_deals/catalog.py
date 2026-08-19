@@ -6,6 +6,17 @@ BAZOS_RSS = {
     "cz": "https://www.bazos.cz/rss.php",
 }
 
+# Small, shippable categories. No cars, realty, bulky household.
+SMALL_BAZOS_RUBS = (
+    {"rub": "pc"},
+    {"rub": "mo"},
+    {"rub": "el"},
+    {"rub": "fo"},
+    {"rub": "hu"},
+    {"rub": "ob"},
+    {"rub": "kn"},
+)
+
 # Category codes used by Bazos public RSS (?rub=&cat=).
 VERTICAL_RSS = {
     Vertical.RETRO: (
@@ -77,6 +88,39 @@ VERTICAL_KEYWORDS = {
     ),
 }
 
+BULKY_KEYWORDS = (
+    "gauč",
+    "gauce",
+    "pohovka",
+    "sedačka",
+    "sedacka",
+    "kreslo",
+    "postel",
+    "posteľ",
+    "matrac",
+    "skriňa",
+    "skrina",
+    "práčka",
+    "pracka",
+    "chladnička",
+    "chladnicka",
+    "mrazák",
+    "mrazak",
+    "umývačka",
+    "umyvacka",
+    "sporák",
+    "sporak",
+    "kosačka",
+    "kosacka",
+    "bicykel",
+    "elektrokolobežka",
+    "kolobezka",
+    "automobil",
+    "osobné auto",
+    "osobne auto",
+    "karavan",
+)
+
 # Seed comps until sold-history APIs are wired. Amounts are EUR.
 CATALOG_COMPS: dict[str, tuple[str, float]] = {
     "commodore 1541-ii": ("Commodore 1541-II", 89),
@@ -87,3 +131,8 @@ CATALOG_COMPS: dict[str, tuple[str, float]] = {
     "mikrotik hex": ("MikroTik hEX", 55),
     "unifi 6 lite": ("Ubiquiti UniFi 6 Lite", 70),
 }
+
+
+def is_bulky(text: str) -> bool:
+    hay = text.casefold()
+    return any(keyword in hay for keyword in BULKY_KEYWORDS)

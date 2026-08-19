@@ -12,7 +12,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts
 from bazar_deals.notify import format_deal
-from bazar_deals.pipeline import hunt
+from bazar_deals.pipeline import hunt_sources
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rss.xml"
 
@@ -24,11 +24,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("command", choices=["hunt"], help="Run the deal pipeline")
     parser.add_argument(
         "--source",
-        choices=["bazos", "ebay", "aukro", "vinted"],
-        default="bazos",
-        help="Hunt source. Vinted/Aukro catalog hunt is blocked by official API scope.",
+        choices=["all", "bazos", "ebay", "aukro", "vinted"],
+        default="all",
+        help="Where to hunt. all = Bazos + eBay (Aukro/Vinted catalog APIs are sell-side only).",
     )
-    parser.add_argument("--vertical", choices=[v.value for v in Vertical], default="retro")
+    parser.add_argument(
+        "--vertical",
+        choices=[v.value for v in Vertical],
+        default=None,
+        help="Optional niche filter. Default: all small shippable goods.",
+    )
     parser.add_argument(
         "--offline",
         action="store_true",
@@ -42,23 +47,9 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     settings = Settings()
-    vertical = Vertical(args.vertical)
-    if args.source == "bazos":
-        source = BazosRssClient(
-            settings,
-            fixture_path=FIXTURE if args.offline else None,
-        )
-    elif args.source == "ebay":
-        source = EbayBrowseClient(settings)
-    elif args.source == "aukro":
-        source = AukroSellClient(settings)
-    else:
-        source = VintedProClient(settings)
-    try:
-        deals = hunt(source, vertical=vertical, settings=settings)
-    except RuntimeError as exc:
-        print(exc)
-        return 2
+    vertical = Vertical(args.vertical) if args.vertical else None
+    sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
+    deals = hunt_sources(sources, vertical=vertical, settings=settings)
     actionable = [deal for deal in deals if deal.action is not Action.SKIP]
     if not actionable:
         print("No deals with a positive edge.")
@@ -72,6 +63,22 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"Posted {posted} new comment(s) to the Deal alerts issue.")
     return 0
+
+
+def _sources(name: str, settings: Settings, *, fixture: Path | None):
+    bazos = BazosRssClient(settings, fixture_path=fixture)
+    if name == "bazos":
+        return [bazos]
+    if name == "ebay":
+        return [EbayBrowseClient(settings)]
+    if name == "aukro":
+        return [AukroSellClient(settings)]
+    if name == "vinted":
+        return [VintedProClient(settings)]
+    sources = [bazos, EbayBrowseClient(settings)]
+    if fixture is None:
+        sources.extend([AukroSellClient(settings), VintedProClient(settings)])
+    return sources
 
 
 if __name__ == "__main__":

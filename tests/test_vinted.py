@@ -34,5 +34,6 @@ def test_catalog_hunt_is_refused() -> None:
         VintedProClient().fetch_new(Vertical.APPLE)
 
 
-def test_cli_vinted_hunt_exits_without_scraping() -> None:
-    assert main(["hunt", "--source", "vinted", "--vertical", "apple"]) == 2
+def test_cli_vinted_hunt_exits_without_scraping(capsys) -> None:
+    assert main(["hunt", "--source", "vinted", "--vertical", "apple"]) == 0
+    assert "no public catalog API" in capsys.readouterr().out

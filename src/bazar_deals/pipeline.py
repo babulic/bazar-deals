@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.catalog import is_bulky
 from bazar_deals.config import Settings
 from bazar_deals.domain import Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
@@ -20,6 +21,8 @@ def hunt(
         listing = _to_eur(listing, settings.eur_czk)
         if listing.price.amount <= 0:
             continue
+        if is_bulky(f"{listing.title} {listing.description}"):
+            continue
         item = identify(listing, vertical)
         resale = estimate_resale(item)
         if resale is None:
@@ -33,6 +36,22 @@ def hunt(
                 min_margin=settings.min_margin,
             )
         )
+    deals.sort(key=lambda deal: deal.costs.net_profit, reverse=True)
+    return deals
+
+
+def hunt_sources(
+    sources: list[ListingSource],
+    *,
+    vertical: Vertical | None = None,
+    settings: Settings | None = None,
+) -> list[Deal]:
+    deals: list[Deal] = []
+    for source in sources:
+        try:
+            deals.extend(hunt(source, vertical=vertical, settings=settings))
+        except RuntimeError as exc:
+            print(f"{source.marketplace}: {exc}")
     deals.sort(key=lambda deal: deal.costs.net_profit, reverse=True)
     return deals
 

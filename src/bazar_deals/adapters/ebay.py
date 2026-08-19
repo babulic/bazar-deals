@@ -23,6 +23,19 @@ CONDITION_MAP = {
 }
 
 
+SMALL_EBAY_QUERIES = (
+    "smartphone",
+    "laptop",
+    "tablet",
+    "camera",
+    "smartwatch",
+    "game console",
+    "graphics card",
+    "wifi router",
+    "headphones",
+)
+
+
 class EbayBrowseClient(ListingSource):
     """eBay Browse API: search + newly listed sort + EPN affiliate URLs."""
 
@@ -33,14 +46,17 @@ class EbayBrowseClient(ListingSource):
         self._token: str | None = None
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
-        query = {
-            Vertical.RETRO: "commodore,amiga,atari,nintendo",
-            Vertical.APPLE: "macbook,iphone,ipad",
-            Vertical.NETWORK: "mikrotik,unifi,cisco switch",
-            Vertical.MINERAL: "mineral specimen amethyst",
-        }.get(vertical, "vintage computer")
-        data = self.search(query, sort="newlyListed", limit=50)
-        return [self._to_listing(item) for item in data.get("itemSummaries", [])]
+        queries = {
+            Vertical.RETRO: ("commodore", "amiga", "nintendo"),
+            Vertical.APPLE: ("macbook", "iphone", "ipad"),
+            Vertical.NETWORK: ("mikrotik", "unifi", "cisco switch"),
+            Vertical.MINERAL: ("mineral specimen", "amethyst"),
+        }.get(vertical, SMALL_EBAY_QUERIES)
+        listings: list[Listing] = []
+        for query in queries:
+            data = self.search(query, sort="newlyListed", limit=30)
+            listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+        return listings
 
     def search(self, query: str, *, sort: str = "newlyListed", limit: int = 50) -> dict:
         headers = {

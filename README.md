@@ -55,18 +55,18 @@ Runnable locally without API keys:
 ```powershell
 python -m pip install -e ".[dev]"
 python -m pytest
-python -m bazar_deals hunt --offline --vertical retro
+python -m bazar_deals hunt --offline --source bazos
 ```
 
 Live Bazoš RSS (polite delay between requests):
 
 ```powershell
-python -m bazar_deals hunt --source bazos --vertical retro --notify
+python -m bazar_deals hunt --notify
 ```
 
-`--notify` creates or reuses the open issue titled **Deal alerts** and posts each BUY/WATCH listing as a comment (duplicates skipped). Subscribe to that issue so GitHub mails you.
+Default hunt is **all small shippable goods** (phones, PCs, electronics, photo, music, clothes, books) across Bazos RSS + eBay Browse when keys exist. Furniture, appliances, and cars are dropped. Aukro/Vinted have no public catalog API, so those clients log and skip.
 
-Hourly GitHub Action: `.github/workflows/hunt.yml` (`workflow_dispatch` + cron). Optional repo variable `GITHUB_ALERT_ISSUE` pins the issue number.
+Hourly GitHub Action plus a run on every push to `main`. `--notify` posts BUY/WATCH as comments on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1).
 
 Copy `.env.example` to `.env` before wiring eBay / Aukro / Vinted / GitHub / Telegram / LLM keys.
 

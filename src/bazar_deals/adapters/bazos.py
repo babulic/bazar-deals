@@ -10,7 +10,7 @@ import feedparser
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import BAZOS_RSS, VERTICAL_KEYWORDS, VERTICAL_RSS
+from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_KEYWORDS, VERTICAL_RSS, is_bulky
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 
@@ -33,10 +33,14 @@ class BazosRssClient(ListingSource):
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
-            return self._parse(self.fixture_path.read_text(encoding="utf-8"), site="sk")
+            parsed = self._parse(self.fixture_path.read_text(encoding="utf-8"), site="sk")
+            return [item for item in parsed if not is_bulky(f"{item.title} {item.description}")]
 
         listings: list[Listing] = []
-        params_list = VERTICAL_RSS.get(vertical, ({},)) if vertical else ({},)
+        if vertical:
+            params_list = VERTICAL_RSS.get(vertical, SMALL_BAZOS_RUBS)
+        else:
+            params_list = SMALL_BAZOS_RUBS
         for site in self.sites:
             base = BAZOS_RSS[site]
             for params in params_list:
@@ -44,6 +48,7 @@ class BazosRssClient(ListingSource):
                 xml = self._get(url)
                 listings.extend(self._parse(xml, site=site))
                 time.sleep(self.settings.bazos_request_gap_seconds)
+        listings = [item for item in listings if not is_bulky(f"{item.title} {item.description}")]
         if vertical:
             listings = [item for item in listings if _matches_vertical(item.title, vertical)]
         return listings
