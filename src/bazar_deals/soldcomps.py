@@ -11,7 +11,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Listing
 from bazar_deals.htmlparse import parse_ebay_html
 from bazar_deals.identity import similar_titles, sold_query
-from bazar_deals.watchlist import MIN_SOLD_SAMPLE
+from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
 
@@ -53,7 +53,7 @@ class SoldCompClient:
             if item.price.amount > 0 and not is_damaged_text(item.title)
         ]
         peers = [item for item in sold if similar_titles(hay, item.title)]
-        if len(peers) < MIN_SOLD_SAMPLE:
+        if len(peers) < int(rules()["hunt"]["min_sold_sample"]):
             return None
         amounts = sorted(item.price.amount for item in peers)
         mid = len(amounts) // 2

@@ -7,9 +7,9 @@ from bazar_deals.catalog import is_bulky
 from bazar_deals.config import Settings
 from bazar_deals.domain import Deal, Listing, Money, Vertical
 from bazar_deals.identity import identify
+from bazar_deals.rules import rules
 from bazar_deals.scoring import score_deal
 from bazar_deals.soldcomps import SoldCompClient
-from bazar_deals.watchlist import MAX_SOLD_LOOKUPS
 from bazar_deals.working import is_working_listing
 
 
@@ -69,9 +69,9 @@ def score_listings(
     lookups = 0
     for listing in usable:
         item = identify(listing)
-        if item.confidence < 0.5 or not item.search_query:
+        if item.confidence < float(rules()["identity"]["confidence"]["min_to_hunt"]) or not item.search_query:
             continue
-        if lookups >= MAX_SOLD_LOOKUPS:
+        if lookups >= int(rules()["hunt"]["max_sold_lookups"]):
             break
         lookups += 1
         comp = sold.median_sold(listing)

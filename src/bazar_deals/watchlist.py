@@ -1,4 +1,6 @@
-"""Hunt limits. Typical value is eBay.de sold comps, not this file."""
+"""Hunt numeric limits — values live in data/bazar.yaml."""
 
-MIN_SOLD_SAMPLE = 5
-MAX_SOLD_LOOKUPS = 40
+from bazar_deals.rules import rules
+
+MIN_SOLD_SAMPLE = int(rules()["hunt"]["min_sold_sample"])
+MAX_SOLD_LOOKUPS = int(rules()["hunt"]["max_sold_lookups"])

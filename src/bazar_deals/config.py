@@ -3,13 +3,20 @@ from decimal import Decimal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from bazar_deals.rules import rules
+
+_HUNT = rules()["hunt"]
+_FEES = rules()["fees"]
+_GITHUB = rules()["github"]
+_EBAY = rules()["ebay"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     ebay_client_id: str = ""
     ebay_client_secret: str = ""
-    ebay_marketplace: str = "EBAY_DE"
+    ebay_marketplace: str = str(_EBAY["marketplace_id"])
     ebay_campaign_id: str = ""
 
     aukro_api_token: str = ""
@@ -27,24 +34,24 @@ class Settings(BaseSettings):
     telegram_chat_apple: str = ""
     telegram_chat_network: str = ""
 
-    eur_czk: Decimal = Decimal("24.5")
-    min_net_profit_eur: Decimal = Decimal("20")
-    min_margin: Decimal = Decimal("0.25")
-    default_shipping_eur: Decimal = Decimal("8")
-    max_buy_eur: Decimal = Decimal("60")
-    max_price_vs_typical: Decimal = Decimal("1.0")
-    ebay_fee_rate: Decimal = Decimal("0.13")
-    aukro_fee_rate: Decimal = Decimal("0.11")
-    bazos_fee_rate: Decimal = Decimal("0")
-    vinted_fee_rate: Decimal = Decimal("0.05")
+    eur_czk: Decimal = Decimal(str(_HUNT["eur_czk"]))
+    min_net_profit_eur: Decimal = Decimal(str(_HUNT["min_net_profit_eur"]))
+    min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
+    default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
+    max_buy_eur: Decimal = Decimal(str(_HUNT["max_buy_eur"]))
+    max_price_vs_typical: Decimal = Decimal(str(_HUNT["max_price_vs_typical"]))
+    ebay_fee_rate: Decimal = Decimal(str(_FEES["rates"]["ebay"]))
+    aukro_fee_rate: Decimal = Decimal(str(_FEES["rates"]["aukro"]))
+    bazos_fee_rate: Decimal = Decimal(str(_FEES["rates"]["bazos"]))
+    vinted_fee_rate: Decimal = Decimal(str(_FEES["rates"]["vinted"]))
 
-    bazos_user_agent: str = "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
-    bazos_request_gap_seconds: float = 2.0
+    bazos_user_agent: str = str(_HUNT["user_agent"])
+    bazos_request_gap_seconds: float = float(_HUNT["request_gap_seconds"])
 
     github_token: str = ""
     github_repository: str = ""
-    github_alert_issue: int = 0
-    github_assignee: str = ""
+    github_alert_issue: int = int(_GITHUB["alert_issue"])
+    github_assignee: str = str(_GITHUB["assignee"])
     keepa_api_key: str = ""
 
     @field_validator("github_alert_issue", mode="before")

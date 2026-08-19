@@ -1,0 +1,300 @@
+# All hunt lists, maps, and numeric defaults.
+# Secrets stay in .env (tokens, API keys). Optional overlay: ./bazar.yaml or BAZAR_CONFIG.
+
+domain:
+  marketplaces: [ebay, aukro, bazos, vinted]
+  verticals: [retro, mineral, apple, network]
+  conditions: [new, like_new, used, for_parts, unknown]
+  actions: [buy, alert, skip]
+  default_currency: EUR
+
+hunt:
+  max_buy_eur: 60
+  max_price_vs_typical: 1.0
+  min_sold_sample: 5
+  max_sold_lookups: 40
+  default_shipping_eur: 8
+  min_net_profit_eur: 20
+  min_margin: 0.25
+  eur_czk: 24.5
+  eur_usd: 1.08
+  user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
+  request_gap_seconds: 2.0
+
+github:
+  alert_issue_title: Deal alerts
+  alert_label: bazar-alert
+  alert_issue: 0
+  assignee: ""
+
+fees:
+  rates:
+    ebay: 0.13
+    aukro: 0.11
+    bazos: 0
+    vinted: 0.05
+  buy_side: [vinted]
+  vinted_fixed_eur: 0.70
+
+identity:
+  generic_brands:
+    - commodore
+    - nintendo
+    - sony
+    - apple
+    - samsung
+    - xiaomi
+    - huawei
+    - canon
+    - nikon
+    - iphone
+    - ipad
+    - macbook
+    - playstation
+    - xbox
+    - atari
+    - sega
+    - c64
+    - c128
+  media_markers:
+    - kazeta
+    - cassette
+    - tape
+    - páska
+    - paska
+    - hra
+    - hry
+    - game
+    - games
+    - cartridge
+    - kartridž
+    - kartridz
+    - manual
+    - manuál
+    - kniha
+    - poster
+    - nálepka
+    - nalepka
+    - sticker
+    - stickers
+    - náhrada
+    - nahrada
+    - obal
+    - case
+    - cover
+    - pre c64
+    - pro c64
+    - for c64
+    - für c64
+    - fur c64
+    - c64/c128
+    - c64-c128
+    - c64 c128
+    - c64/128
+    - konami
+  hardware_markers:
+    - počítač
+    - pocitac
+    - computer
+    - motherboard
+    - základná doska
+    - zakladna doska
+    - disk drive
+    - mechanika
+    - unlocked
+    - breadbin
+  stop_words:
+    - the
+    - and
+    - und
+    - der
+    - die
+    - das
+    - ein
+    - mit
+    - für
+    - fur
+    - von
+    - pre
+    - pri
+    - na
+    - zo
+    - za
+    - od
+    - do
+    - ako
+    - new
+    - neu
+    - novy
+    - nový
+    - used
+    - gebraucht
+    - ebay
+    - aukro
+    - vinted
+    - bazos
+  min_token_len: 3
+  min_digit_len: 2
+  sold_query_tokens: 6
+  min_media_distinctive: 2
+  min_tokens: 2
+  media_jaccard: 0.25
+  title_jaccard: 0.3
+  min_overlap: 2
+  confidence:
+    damaged: 0.1
+    weak: 0.15
+    generic: 0.62
+    known: 0.78
+    min_to_hunt: 0.5
+
+working:
+  always_damage:
+    - for parts
+    - na diely
+    - ersatzteil
+  damage_phrases:
+    - na diely
+    - na suciastky
+    - for parts
+    - not working
+    - does not work
+    - doesn't work
+    - nefunkcny
+    - nefunkcne
+    - nefunkcna
+    - k oprave
+    - na opravu
+    - defektne
+    - defective
+    - beschadigt
+    - ersatzteil
+    - poskodene
+    - poskodeny
+    - poskodena
+    - rozbite
+    - rozbity
+    - broken screen
+    - cracked screen
+    - water damage
+    - nestartuje
+    - as-is
+    - " as is "
+  negated_phrases:
+    - bez defekt
+    - bez poskod
+    - no damage
+    - undamaged
+    - fully working
+    - tested working
+    - 100% working
+
+catalog:
+  bazos_rss:
+    sk: https://www.bazos.sk/rss.php
+  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn]
+  vertical_rss:
+    retro: [pc, el, hu, fo]
+    apple: [pc, mo]
+    network: [pc]
+    mineral: [os, du]
+  vertical_keywords:
+    retro:
+      - commodore
+      - amiga
+      - atari
+      - zx spectrum
+      - c64
+      - "1541"
+      - nintendo
+      - gameboy
+      - playstation 1
+      - ps1
+      - walkman
+      - reel to reel
+    apple:
+      - macbook
+      - iphone
+      - ipad
+      - imac
+      - mac mini
+      - mac pro
+      - airpods
+      - apple watch
+    network:
+      - mikrotik
+      - unifi
+      - ubiquiti
+      - cisco
+      - juniper
+      - aruba
+      - fortigate
+      - synology
+      - qnap
+      - sfp
+      - switch 48
+    mineral:
+      - ametyst
+      - amethyst
+      - kristal
+      - krystal
+      - mineral
+      - achát
+      - achat
+      - fluorit
+      - pyrit
+      - malachit
+  bulky_keywords:
+    - gauč
+    - gauce
+    - pohovka
+    - sedačka
+    - sedacka
+    - kreslo
+    - postel
+    - posteľ
+    - matrac
+    - skriňa
+    - skrina
+    - práčka
+    - pracka
+    - chladnička
+    - chladnicka
+    - mrazák
+    - mrazak
+    - umývačka
+    - umyvacka
+    - sporák
+    - sporak
+    - kosačka
+    - kosacka
+    - bicykel
+    - elektrokolobežka
+    - kolobezka
+    - automobil
+    - osobné auto
+    - osobne auto
+    - karavan
+
+ebay:
+  marketplace_id: EBAY_DE
+  token_url: https://api.ebay.com/identity/v1/oauth2/token
+  search_url: https://api.ebay.com/buy/browse/v1/item_summary/search
+  oauth_scope: https://api.ebay.com/oauth/api_scope
+  small_categories:
+    - "11450"
+    - "267"
+    - "220"
+    - "293"
+    - "625"
+    - "1249"
+    - "281"
+  condition_map:
+    NEW: new
+    NEW_OTHER: like_new
+    CERTIFIED_REFURBISHED: like_new
+    USED_EXCELLENT: like_new
+    USED_VERY_GOOD: used
+    USED_GOOD: used
+    USED_ACCEPTABLE: used
+    FOR_PARTS_OR_NOT_WORKING: for_parts

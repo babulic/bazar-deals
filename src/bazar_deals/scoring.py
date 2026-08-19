@@ -2,16 +2,14 @@ from decimal import Decimal
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
+from bazar_deals.rules import rules
 
 
-FEE_RATES = {
-    Marketplace.EBAY: Decimal("0.13"),
-    Marketplace.AUKRO: Decimal("0.11"),
-    Marketplace.BAZOS: Decimal("0"),
-    Marketplace.VINTED: Decimal("0.05"),
-}
-
-BUY_SIDE_FEE = {Marketplace.VINTED}
+def _fee_rates() -> dict:
+    return {
+        Marketplace(name): Decimal(str(rate))
+        for name, rate in rules()["fees"]["rates"].items()
+    }
 
 
 def score_deal(
@@ -37,11 +35,13 @@ def score_deal(
     cap = max_buy_eur if max_buy_eur is not None else settings.max_buy_eur
     listing = item.listing
     buy = listing.price.amount
-    fee_rate = FEE_RATES[listing.marketplace] if fee_rate is None else fee_rate
-    fee_base = buy if listing.marketplace in BUY_SIDE_FEE else typical
+    fees_cfg = rules()["fees"]
+    fee_rate = _fee_rates()[listing.marketplace] if fee_rate is None else fee_rate
+    buy_side = {Marketplace(name) for name in fees_cfg["buy_side"]}
+    fee_base = buy if listing.marketplace in buy_side else typical
     fees = (fee_base * fee_rate).quantize(Decimal("0.01"))
-    if listing.marketplace is Marketplace.VINTED:
-        fees = (fees + Decimal("0.70")).quantize(Decimal("0.01"))
+    if listing.marketplace in buy_side:
+        fees = (fees + Decimal(str(fees_cfg["vinted_fixed_eur"]))).quantize(Decimal("0.01"))
     ceiling = (typical * ratio).quantize(Decimal("0.01"))
     delta = (typical - buy).quantize(Decimal("0.01"))
     costs = CostBreakdown(

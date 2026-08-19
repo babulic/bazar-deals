@@ -5,115 +5,8 @@ import unicodedata
 from enum import StrEnum
 
 from bazar_deals.domain import IdentifiedItem, Listing, Vertical
+from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
-
-_GENERIC_BRANDS = frozenset(
-    {
-        "commodore",
-        "nintendo",
-        "sony",
-        "apple",
-        "samsung",
-        "xiaomi",
-        "huawei",
-        "canon",
-        "nikon",
-        "iphone",
-        "ipad",
-        "macbook",
-        "playstation",
-        "xbox",
-        "atari",
-        "sega",
-        "c64",
-        "c128",
-    }
-)
-
-_MEDIA = (
-    "kazeta",
-    "cassette",
-    "tape",
-    "páska",
-    "paska",
-    "hra",
-    "hry",
-    "game",
-    "games",
-    "cartridge",
-    "kartridž",
-    "kartridz",
-    "manual",
-    "manuál",
-    "kniha",
-    "poster",
-    "nálepka",
-    "nalepka",
-    "sticker",
-    "stickers",
-    "náhrada",
-    "nahrada",
-    "obal",
-    "case",
-    "cover",
-    "pre c64",
-    "pro c64",
-    "for c64",
-    "für c64",
-    "fur c64",
-    "c64/c128",
-    "c64-c128",
-    "c64 c128",
-    "c64/128",
-    "konami",
-)
-
-_HARDWARE = (
-    "počítač",
-    "pocitac",
-    "computer",
-    "motherboard",
-    "základná doska",
-    "zakladna doska",
-    "disk drive",
-    "mechanika",
-    "unlocked",
-    "breadbin",
-)
-
-_STOP = frozenset(
-    {
-        "the",
-        "and",
-        "und",
-        "der",
-        "die",
-        "das",
-        "ein",
-        "mit",
-        "für",
-        "fur",
-        "von",
-        "pre",
-        "pri",
-        "na",
-        "zo",
-        "za",
-        "od",
-        "do",
-        "ako",
-        "new",
-        "neu",
-        "novy",
-        "nový",
-        "used",
-        "gebraucht",
-        "ebay",
-        "aukro",
-        "vinted",
-        "bazos",
-    }
-)
 
 
 class ItemKind(StrEnum):
@@ -122,18 +15,29 @@ class ItemKind(StrEnum):
     GENERIC = "generic"
 
 
+def _id() -> dict:
+    return rules()["identity"]
+
+
 def identify(listing: Listing, vertical_hint: Vertical | None = None) -> IdentifiedItem:
     hay = f"{listing.title} {listing.description}"
+    conf = _id()["confidence"]
     if is_damaged_text(hay) or listing.condition.value == "for_parts":
         return IdentifiedItem(
             listing=listing,
             vertical=vertical_hint,
             canonical_name=listing.title.strip(),
-            confidence=0.1,
+            confidence=float(conf["damaged"]),
         )
     kind = classify_kind(hay)
     query = sold_query(hay, kind)
     weak = query is None
+    if weak:
+        score = float(conf["weak"])
+    elif kind is ItemKind.GENERIC:
+        score = float(conf["generic"])
+    else:
+        score = float(conf["known"])
     return IdentifiedItem(
         listing=listing,
         vertical=vertical_hint,
@@ -141,50 +45,56 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
         model=query,
         search_query=query or "",
         kind=kind.value,
-        confidence=0.15 if weak else (0.62 if kind is ItemKind.GENERIC else 0.78),
+        confidence=score,
     )
 
 
 def classify_kind(text: str) -> ItemKind:
     hay = _fold(text)
-    media = any(marker in hay for marker in _MEDIA)
-    hardware = any(marker in hay for marker in _HARDWARE)
-    if media:
+    cfg = _id()
+    if any(marker in hay for marker in cfg["media_markers"]):
         return ItemKind.MEDIA
-    if hardware:
+    if any(marker in hay for marker in cfg["hardware_markers"]):
         return ItemKind.HARDWARE
     return ItemKind.GENERIC
 
 
 def sold_query(text: str, kind: ItemKind | None = None) -> str | None:
-    """Tight sold-search phrase. Weak titles return None → no BUY."""
+    cfg = _id()
     kind = kind or classify_kind(text)
     tokens = significant_tokens(text)
+    brands = set(cfg["generic_brands"])
+    take = int(cfg["sold_query_tokens"])
     if kind is ItemKind.MEDIA:
-        distinctive = [tok for tok in tokens if tok not in _GENERIC_BRANDS]
-        if len(distinctive) < 2:
+        distinctive = [tok for tok in tokens if tok not in brands]
+        if len(distinctive) < int(cfg["min_media_distinctive"]):
             return None
-        return " ".join(distinctive[:6])
-    if len(tokens) < 2:
+        return " ".join(distinctive[:take])
+    if len(tokens) < int(cfg["min_tokens"]):
         return None
-    return " ".join(tokens[:6])
+    return " ".join(tokens[:take])
 
 
 def significant_tokens(text: str) -> list[str]:
+    cfg = _id()
+    stop = set(cfg["stop_words"])
+    min_len = int(cfg["min_token_len"])
+    min_digit = int(cfg["min_digit_len"])
     folded = _fold(text)
     raw = re.findall(r"[a-z0-9]+", folded)
     out: list[str] = []
     seen: set[str] = set()
     for token in raw:
-        if token in _STOP or token in seen:
+        if token in stop or token in seen:
             continue
-        if len(token) >= 3 or (token.isdigit() and len(token) >= 2):
+        if len(token) >= min_len or (token.isdigit() and len(token) >= min_digit):
             seen.add(token)
             out.append(token)
     return out
 
 
 def similar_titles(left: str, right: str) -> bool:
+    cfg = _id()
     if classify_kind(left) != classify_kind(right):
         return False
     a = set(significant_tokens(left))
@@ -194,9 +104,11 @@ def similar_titles(left: str, right: str) -> bool:
     inter = a & b
     union = a | b
     jaccard = len(inter) / len(union)
+    brands = set(cfg["generic_brands"])
+    overlap = int(cfg["min_overlap"])
     if classify_kind(left) is ItemKind.MEDIA:
-        return len(inter - _GENERIC_BRANDS) >= 2 and jaccard >= 0.25
-    return len(inter) >= 2 and jaccard >= 0.3
+        return len(inter - brands) >= overlap and jaccard >= float(cfg["media_jaccard"])
+    return len(inter) >= overlap and jaccard >= float(cfg["title_jaccard"])
 
 
 def _fold(text: str) -> str:

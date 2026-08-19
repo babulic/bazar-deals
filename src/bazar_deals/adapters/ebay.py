@@ -8,31 +8,13 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_ebay_html
+from bazar_deals.rules import rules
 
-_TOKEN_URL = "https://api.ebay.com/identity/v1/oauth2/token"
-_SEARCH_URL = "https://api.ebay.com/buy/browse/v1/item_summary/search"
-
-CONDITION_MAP = {
-    "NEW": Condition.NEW,
-    "NEW_OTHER": Condition.LIKE_NEW,
-    "CERTIFIED_REFURBISHED": Condition.LIKE_NEW,
-    "USED_EXCELLENT": Condition.LIKE_NEW,
-    "USED_VERY_GOOD": Condition.USED,
-    "USED_GOOD": Condition.USED,
-    "USED_ACCEPTABLE": Condition.USED,
-    "FOR_PARTS_OR_NOT_WORKING": Condition.FOR_PARTS,
-}
-
-# Small-goods categories (not a SKU list). Used only when Browse keys exist.
-_SMALL_CATEGORIES = (
-    "11450",  # Clothing
-    "267",  # Books
-    "220",  # Toys
-    "293",  # Consumer electronics
-    "625",  # Cameras
-    "1249",  # Video games
-    "281",  # Jewelry
-)
+_EBAY = rules()["ebay"]
+_TOKEN_URL = _EBAY["token_url"]
+_SEARCH_URL = _EBAY["search_url"]
+CONDITION_MAP = {key: Condition(value) for key, value in _EBAY["condition_map"].items()}
+_SMALL_CATEGORIES = tuple(_EBAY["small_categories"])
 
 
 class EbayBrowseClient(ListingSource):
@@ -89,7 +71,7 @@ class EbayBrowseClient(ListingSource):
     def search(self, category_id: str, *, limit: int = 50) -> dict:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": "EBAY_DE",
+            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
         }
         if self.settings.ebay_campaign_id:
             headers["X-EBAY-C-ENDUSERCTX"] = (
@@ -119,7 +101,7 @@ class EbayBrowseClient(ListingSource):
             auth=(self.settings.ebay_client_id, self.settings.ebay_client_secret),
             data={
                 "grant_type": "client_credentials",
-                "scope": "https://api.ebay.com/oauth/api_scope",
+                "scope": _EBAY["oauth_scope"],
             },
             timeout=20.0,
         )

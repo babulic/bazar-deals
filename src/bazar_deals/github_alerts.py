@@ -5,9 +5,10 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.domain import Deal
 from bazar_deals.notify import format_deal
+from bazar_deals.rules import rules
 
-ALERT_ISSUE_TITLE = "Deal alerts"
-ALERT_LABEL = "bazar-alert"
+ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
+ALERT_LABEL = rules()["github"]["alert_label"]
 _API = "https://api.github.com"
 
 

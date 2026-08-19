@@ -3,49 +3,38 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+
 from pydantic import BaseModel, Field, HttpUrl
 
-
-class Marketplace(StrEnum):
-    EBAY = "ebay"
-    AUKRO = "aukro"
-    BAZOS = "bazos"
-    VINTED = "vinted"
+from bazar_deals.rules import rules
 
 
-class Vertical(StrEnum):
-    RETRO = "retro"
-    MINERAL = "mineral"
-    APPLE = "apple"
-    NETWORK = "network"
+def _str_enum(name: str, values: list[str]) -> type[StrEnum]:
+    return StrEnum(name, {item.upper(): item for item in values})
 
 
-class Condition(StrEnum):
-    NEW = "new"
-    LIKE_NEW = "like_new"
-    USED = "used"
-    FOR_PARTS = "for_parts"
-    UNKNOWN = "unknown"
+_DOMAIN = rules()["domain"]
+_HUNT = rules()["hunt"]
 
-
-class Action(StrEnum):
-    BUY = "buy"
-    ALERT = "alert"
-    SKIP = "skip"
+Marketplace = _str_enum("Marketplace", _DOMAIN["marketplaces"])
+Vertical = _str_enum("Vertical", _DOMAIN["verticals"])
+Condition = _str_enum("Condition", _DOMAIN["conditions"])
+Action = _str_enum("Action", _DOMAIN["actions"])
 
 
 class Money(BaseModel):
     amount: Decimal
-    currency: str = "EUR"
+    currency: str = _DOMAIN["default_currency"]
 
-    def to_eur(self, eur_czk: Decimal, eur_usd: Decimal = Decimal("1.08")) -> Decimal:
+    def to_eur(self, eur_czk: Decimal, eur_usd: Decimal | None = None) -> Decimal:
+        usd = eur_usd if eur_usd is not None else Decimal(str(_HUNT["eur_usd"]))
         code = self.currency.upper()
         if code == "EUR":
             return self.amount
         if code == "CZK":
             return (self.amount / eur_czk).quantize(Decimal("0.01"))
         if code in {"USD", "GBP"}:
-            return (self.amount / eur_usd).quantize(Decimal("0.01"))
+            return (self.amount / usd).quantize(Decimal("0.01"))
         return self.amount
 
 
@@ -69,7 +58,6 @@ class Listing(BaseModel):
     raw: dict = Field(default_factory=dict)
 
     def is_immediate_buy(self) -> bool:
-        """True when the listed price can be paid now, not an auction start/current bid."""
         if not self.buy_now:
             return False
         if self.bid_count:
@@ -98,7 +86,7 @@ class CostBreakdown(BaseModel):
     condition_haircut: Decimal
     seller_risk: Decimal
     net_profit: Decimal
-    currency: str = "EUR"
+    currency: str = _DOMAIN["default_currency"]
 
 
 class Deal(BaseModel):

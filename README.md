@@ -32,10 +32,14 @@ Usual price is **not** a hardcoded table and **not** live asking prices. It is t
 
 ## Config
 
-| Env | Default | Meaning |
+Lists, maps, and numeric defaults live in [`src/bazar_deals/data/bazar.yaml`](src/bazar_deals/data/bazar.yaml): bulky words, identity markers, damage phrases, Bazoš categories, hunt caps, fees, GitHub label. Optional overlay: `bazar.yaml` in the project root, or `BAZAR_CONFIG=/path/to.yaml`.
+
+Secrets (tokens, API keys) stay in `.env`. Env still overrides hunt gates:
+
+| Env | YAML key | Meaning |
 |---|---|---|
-| `MAX_BUY_EUR` | `60` | Max listed price to even consider |
-| `MAX_PRICE_VS_TYPICAL` | `1.0` | Buy if price ≤ typical × this |
+| `MAX_BUY_EUR` | `hunt.max_buy_eur` | Max listed price to consider |
+| `MAX_PRICE_VS_TYPICAL` | `hunt.max_price_vs_typical` | Buy if price ≤ typical × this |
 
 ## Alerts
 

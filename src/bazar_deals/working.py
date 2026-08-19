@@ -1,49 +1,11 @@
-"""Only functional, undamaged goods. For-parts / broken listings are out."""
+"""Only functional, undamaged goods. Phrases live in data/bazar.yaml."""
 
 from __future__ import annotations
 
 import unicodedata
 
 from bazar_deals.domain import Condition, Listing
-
-_DAMAGE = (
-    "na diely",
-    "na suciastky",
-    "for parts",
-    "not working",
-    "does not work",
-    "doesn't work",
-    "nefunkcny",
-    "nefunkcne",
-    "nefunkcna",
-    "k oprave",
-    "na opravu",
-    "defektne",
-    "defective",
-    "beschadigt",
-    "ersatzteil",
-    "poskodene",
-    "poskodeny",
-    "poskodena",
-    "rozbite",
-    "rozbity",
-    "broken screen",
-    "cracked screen",
-    "water damage",
-    "nestartuje",
-    "as-is",
-    " as is ",
-)
-
-_NEGATED = (
-    "bez defekt",
-    "bez poskod",
-    "no damage",
-    "undamaged",
-    "fully working",
-    "tested working",
-    "100% working",
-)
+from bazar_deals.rules import rules
 
 
 def _fold(text: str) -> str:
@@ -52,12 +14,13 @@ def _fold(text: str) -> str:
 
 
 def is_damaged_text(text: str) -> bool:
+    cfg = rules()["working"]
     hay = f" {_fold(text)} "
-    if "for parts" in hay or "na diely" in hay or "ersatzteil" in hay:
+    if any(marker in hay for marker in cfg["always_damage"]):
         return True
-    if any(marker in hay for marker in _NEGATED):
+    if any(marker in hay for marker in cfg["negated_phrases"]):
         return False
-    return any(marker in hay for marker in _DAMAGE)
+    return any(marker in hay for marker in cfg["damage_phrases"])
 
 
 def is_working_listing(listing: Listing) -> bool:
