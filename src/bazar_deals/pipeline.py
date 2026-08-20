@@ -6,7 +6,7 @@ from decimal import Decimal
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.catalog import is_bulky
 from bazar_deals.config import Settings
-from bazar_deals.domain import Action, Deal, Listing, Money, Vertical
+from bazar_deals.domain import Action, Deal, Listing, Marketplace, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
@@ -16,6 +16,7 @@ from bazar_deals.working import is_working_listing
 _FUNNEL_KEYS = (
     "fetched",
     "not_buy_now",
+    "no_sk_delivery",
     "over_cap",
     "under_min",
     "damaged",
@@ -24,10 +25,10 @@ _FUNNEL_KEYS = (
     "identity_weak",
     "sold_lookup_cap",
     "no_sold_comps",
+    "asking_only_comps",
     "scored",
     "buy",
-    "alert",
-    "skip_typical",
+    "below_net_profit",
 )
 
 
@@ -80,6 +81,9 @@ def score_listings(
         if not listing.is_immediate_buy() or listing.price.amount <= 0:
             funnel["not_buy_now"] += 1
             continue
+        if listing.marketplace is Marketplace.EBAY and listing.ships_to_slovakia is not True:
+            funnel["no_sk_delivery"] += 1
+            continue
         if listing.price.amount < floor:
             funnel["under_min"] += 1
             continue
@@ -113,26 +117,29 @@ def score_listings(
         if comp is None:
             funnel["no_sold_comps"] += 1
             continue
+        if not comp.reliable_for_buy:
+            funnel["asking_only_comps"] += 1
+            continue
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
         )
-        deal = score_deal(
-            item,
-            comp.median,
-            assumed_shipping(listing.price.amount, settings),
-            settings=settings,
-        )
+        shipping = _shipping_eur(listing, settings)
+        deal = score_deal(item, comp.median, shipping, settings=settings)
         funnel["scored"] += 1
         if deal.action is Action.BUY:
             funnel["buy"] += 1
-        elif deal.action is Action.ALERT:
-            funnel["alert"] += 1
         else:
-            funnel["skip_typical"] += 1
+            funnel["below_net_profit"] += 1
         deals.append(deal)
-    deals.sort(key=lambda deal: (deal.action is not Action.BUY, deal.costs.buy_price))
+    deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
     print(_format_funnel(funnel))
     return deals
+
+
+def _shipping_eur(listing: Listing, settings: Settings) -> Decimal:
+    if listing.shipping_cost is None:
+        return assumed_shipping(listing.price.amount, settings)
+    return listing.shipping_cost.to_eur(settings.eur_czk)
 
 
 def _format_funnel(funnel: Counter[str]) -> str:
@@ -141,8 +148,11 @@ def _format_funnel(funnel: Counter[str]) -> str:
 
 
 def _to_eur(listing: Listing, eur_czk: Decimal) -> Listing:
-    if listing.price.currency.upper() == "EUR":
-        return listing
-    return listing.model_copy(
-        update={"price": Money(amount=listing.price.to_eur(eur_czk), currency="EUR")}
-    )
+    updates: dict = {}
+    if listing.price.currency.upper() != "EUR":
+        updates["price"] = Money(amount=listing.price.to_eur(eur_czk), currency="EUR")
+    if listing.shipping_cost is not None and listing.shipping_cost.currency.upper() != "EUR":
+        updates["shipping_cost"] = Money(
+            amount=listing.shipping_cost.to_eur(eur_czk), currency="EUR"
+        )
+    return listing.model_copy(update=updates) if updates else listing
