@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--notify",
         action="store_true",
-        help="Post BUY/WATCH deals as comments on the Deal alerts GitHub issue",
+        help="Post BUY deals meeting the net-profit floor to the Deal alerts GitHub issue",
     )
     args = parser.parse_args(argv)
 
@@ -53,9 +53,9 @@ def main(argv: list[str] | None = None) -> int:
     sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
     deals = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
-    actionable = [deal for deal in deals if deal.action is not Action.SKIP]
+    actionable = [deal for deal in deals if deal.action is Action.BUY]
     if not actionable:
-        print("No deals at or below typical working-condition price.")
+        print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
         return 0
     print("\n\n".join(format_deal(deal) for deal in actionable))
     if args.notify:
