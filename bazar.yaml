@@ -1,0 +1,3 @@
+hunt:
+  min_net_profit_eur: 30
+  comps_db: .cache/bazar-comps-v2.sqlite
