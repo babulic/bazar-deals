@@ -44,7 +44,16 @@ class AukroHuntClient(ListingSource):
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
         products = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-        detail = next((item for item in products if item.description.strip()), None)
+        wanted_url = str(listing.url).split("?")[0].rstrip("/")
+        detail = next(
+            (
+                item
+                for item in products
+                if str(item.url).split("?")[0].rstrip("/") == wanted_url
+                and item.description.strip()
+            ),
+            None,
+        )
         raw = dict(listing.raw)
         raw["detail_fetched"] = detail is not None
         if detail is None:
