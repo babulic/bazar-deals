@@ -22,6 +22,7 @@ def _drive(
         marketplace=Marketplace.EBAY,
         external_id=external_id,
         title="Commodore 1541-II disk drive",
+        description="Funkčný disk drive, otestovaný a bez známych chýb.",
         url=f"https://www.ebay.de/itm/{external_id}",
         price=Money(amount=Decimal(price), currency="EUR"),
         buy_now=buy_now,
