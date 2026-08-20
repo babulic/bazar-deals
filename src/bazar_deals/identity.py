@@ -87,11 +87,72 @@ def significant_tokens(text: str) -> list[str]:
     return out
 
 
+def _storage_tokens(text: str) -> set[str]:
+    folded = _fold(text)
+    out = {f"{size}gb" for size in re.findall(r"\b(16|32|64|128|256|512)\s*(?:gb|g)\b", folded)}
+    out.update(f"{size}tb" for size in re.findall(r"\b([1248])\s*tb\b", folded))
+    return out
+
+
+def _years(text: str) -> set[str]:
+    return set(re.findall(r"\b20(?:1[0-9]|2[0-9])\b", _fold(text)))
+
+
+def _phone_signature(text: str) -> str | None:
+    folded = _fold(text)
+    patterns = (
+        r"\biphone\s+(se(?:\s*(?:2020|2022))?|\d{1,2})\b",
+        r"\bgalaxy\s+(s\d{1,2}|a\d{1,2}|note\s*\d{1,2}|z\s*(?:fold|flip)\s*\d?)\b",
+        r"\bpixel\s+(\d{1,2}[a-z]?)\b",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, folded)
+        if match:
+            return re.sub(r"\s+", "", match.group(0))
+    return None
+
+
+def _variant_tokens(text: str) -> set[str]:
+    folded = _fold(text)
+    variants = {"pro", "max", "plus", "mini", "ultra", "fe"}
+    return {token for token in variants if re.search(rf"\b{token}\b", folded)}
+
+
+def _hard_specs_match(left: str, right: str, kind: ItemKind) -> bool:
+    """Reject comps that differ on price-critical model/spec tokens.
+
+    This deliberately errs on the side of too few comps. A missed deal is safer
+    than pricing (for example) a 64 GB phone from 256 GB / Pro / newer peers.
+    """
+    left_storage = _storage_tokens(left)
+    right_storage = _storage_tokens(right)
+    if left_storage:
+        if not right_storage or left_storage != right_storage:
+            return False
+
+    left_years = _years(left)
+    right_years = _years(right)
+    if left_years and (not right_years or left_years != right_years):
+        return False
+
+    if kind is ItemKind.PHONES:
+        left_phone = _phone_signature(left)
+        right_phone = _phone_signature(right)
+        if left_phone and left_phone != right_phone:
+            return False
+        if _variant_tokens(left) != _variant_tokens(right):
+            return False
+    return True
+
+
 def similar_titles(left: str, right: str) -> bool:
     cfg = _id()
     left_kind = classify_kind(left)
     right_kind = classify_kind(right)
     if left_kind != right_kind and left_kind is not ItemKind.GENERIC and right_kind is not ItemKind.GENERIC:
+        return False
+    kind = left_kind if left_kind is not ItemKind.GENERIC else right_kind
+    if not _hard_specs_match(left, right, kind):
         return False
     a = set(significant_tokens(left))
     b = set(significant_tokens(right))
@@ -102,7 +163,6 @@ def similar_titles(left: str, right: str) -> bool:
     jaccard = len(inter) / len(union)
     brands = set(cfg["generic_brands"])
     overlap = int(cfg["min_overlap"])
-    kind = left_kind if left_kind is not ItemKind.GENERIC else right_kind
     if kind.value in cfg.get("loose_kinds", ["media"]):
         return len(inter - brands) >= overlap and jaccard >= float(cfg["media_jaccard"])
     return len(inter) >= overlap and jaccard >= float(cfg["title_jaccard"])
