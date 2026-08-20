@@ -40,25 +40,21 @@ def format_deal(deal: Deal) -> str:
     item = deal.item
     costs = deal.costs
     source = item.listing.marketplace.value.capitalize()
-    fire = "  🔥 BUY" if deal.action is Action.BUY else f"  {deal.action.value.upper()}"
     affiliate = ""
     if item.listing.affiliate_url:
         affiliate = f"\naffiliate: {item.listing.affiliate_url}"
-    typical = costs.estimated_resale
-    label = item.sold_label or "obvyklá cena"
-    if typical > 0:
-        ratio = (costs.buy_price / typical * 100).quantize(Decimal("1"))
-        typical_line = f"{label}: {typical} €\n"
-        ratio_line = f"pomer k obvyklej: {ratio} %{fire}\n"
-    else:
-        typical_line = f"{label}\n"
-        ratio_line = f"{fire.strip()}\n"
+    shipping_note = ""
+    if item.listing.marketplace.value == "ebay":
+        shipping_note = " (doručenie na Slovensko potvrdené)"
     return (
         f"{item.canonical_name}\n"
         f"{source}: {costs.buy_price} €\n"
-        f"{typical_line}"
-        f"poštovné (predpoklad): {costs.shipping} €\n"
-        f"{ratio_line}"
+        f"{item.sold_label or 'konzervatívna predajná cena'}: {costs.estimated_resale} €\n"
+        f"nákupná doprava{shipping_note}: {costs.shipping} €\n"
+        f"poplatky a resale rezerva: {costs.fees} €\n"
+        f"stav/výbava haircut: {costs.condition_haircut} €\n"
+        f"riziková rezerva: {costs.seller_risk} €\n"
+        f"očakávaný čistý zisk: {costs.net_profit} €  🔥 BUY\n"
         f"{item.listing.url}{affiliate}"
     )
 
@@ -86,18 +82,19 @@ def format_github_deal(deal: Deal) -> str:
         rows.append(("vertikála", item.vertical.value))
     rows.append(("marketplace", listing.marketplace.value))
     rows.append(("id", listing.external_id))
-    rows.append(("cena", _eur(costs.buy_price)))
+    rows.append(("nákupná cena", _eur(costs.buy_price)))
     if typical > 0:
-        rows.append(("typická cena", _eur(typical)))
-        ratio = (costs.buy_price / typical * 100).quantize(Decimal("1"))
-        rows.append(("pomer k obvyklej", f"{ratio} %"))
+        rows.append(("konzervatívna rýchlopredajná cena", _eur(typical)))
     else:
-        rows.append(("typická cena", "neznáma (chýbajú predané/trhové comps)"))
-    rows.append(("poštovné (predpoklad)", _eur(costs.shipping)))
-    if costs.fees > 0:
-        rows.append(("poplatky", _eur(costs.fees)))
-    if typical > 0:
-        rows.append(("rozdiel vs obvyklá", _eur(costs.net_profit)))
+        rows.append(("konzervatívna rýchlopredajná cena", "neznáma"))
+    rows.append(("nákupná doprava", _eur(costs.shipping)))
+    rows.append(("poplatky + resale rezerva", _eur(costs.fees)))
+    if costs.condition_haircut > 0:
+        rows.append(("haircut za stav/výbavu", _eur(costs.condition_haircut)))
+    rows.append(("riziková rezerva", _eur(costs.seller_risk)))
+    rows.append(("očakávaný čistý zisk", _eur(costs.net_profit)))
+    if listing.marketplace.value == "ebay":
+        rows.append(("doručenie na Slovensko", "áno" if listing.ships_to_slovakia else "neoverené"))
     rows.append(("stav", _CONDITION_SK.get(listing.condition.value, listing.condition.value)))
     if listing.location:
         rows.append(("lokalita", listing.location))
@@ -120,7 +117,7 @@ def format_github_deal(deal: Deal) -> str:
         rows.append(("sample predaných", str(item.asking_sample)))
     else:
         rows.append(("sample predaných", "chýba"))
-    rows.append(("sold_label", item.sold_label or "—"))
+    rows.append(("price source", item.sold_label or "—"))
     rows.append(("dôvod", _quiet_reason(deal.reason)))
     rows.append(("inzerát", f"[inzerát]({url})"))
     if listing.affiliate_url:
