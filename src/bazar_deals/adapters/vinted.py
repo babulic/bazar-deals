@@ -12,7 +12,7 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
-from bazar_deals.htmlparse import parse_vinted_items
+from bazar_deals.htmlparse import parse_vinted_detail, parse_vinted_items
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
@@ -56,6 +56,29 @@ class VintedHuntClient(ListingSource):
         )
         response.raise_for_status()
         return parse_vinted_items(response.text)
+
+    def enrich_listing(self, listing: Listing) -> Listing:
+        if self.fixture_path:
+            return listing
+        try:
+            response = httpx.get(
+                str(listing.url),
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            detail = parse_vinted_detail(response.text)
+        except httpx.HTTPError:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = bool(detail)
+        return listing.model_copy(update={"description": detail, "raw": raw})
 
 
 def sign_vinted_request(
