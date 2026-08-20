@@ -11,6 +11,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
     assert data["hunt"]["min_buy_eur"] == 10
+    assert data["hunt"]["min_net_profit_eur"] == 30
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
     assert "max_no_comp_alerts" not in data["hunt"]
@@ -22,7 +23,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["max_shipping_eur"] == 15
     assert data["hunt"]["cheap_buy_eur"] == 20
     assert data["hunt"]["max_shipping_cheap_eur"] == 11
-    assert data["hunt"]["comps_db"] == ".cache/bazar-comps.sqlite"
+    assert data["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"
     assert data["hunt"]["comps_ttl_days"] == 7
     assert "3213" in data["ebay"]["small_categories"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
