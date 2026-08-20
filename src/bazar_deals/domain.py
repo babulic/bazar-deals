@@ -56,6 +56,8 @@ class Listing(BaseModel):
     search_query: str = ""
     location: str | None = None
     affiliate_url: HttpUrl | None = None
+    ships_to_slovakia: bool | None = None
+    shipping_cost: Money | None = None
     raw: dict = Field(default_factory=dict)
 
     def is_immediate_buy(self) -> bool:
