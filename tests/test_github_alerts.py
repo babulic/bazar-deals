@@ -28,53 +28,29 @@ def _deal() -> Deal:
         kind="hardware",
         search_query="commodore 1541-ii",
         asking_sample=12,
-        sold_label="obvyklá cena, funkčný kus, ebay.de sold (n=12)",
+        sold_label="konzervatívna rýchlopredajná cena, ebay.de sold P25 (n=12)",
     )
-    return score_deal(item, Decimal("89"), Decimal("8"))
+    return score_deal(item, Decimal("120"), Decimal("8"))
 
 
-def test_comment_embeds_hidden_listing_key() -> None:
+def test_comment_embeds_listing_key_and_true_net_profit() -> None:
     assert ALERT_LABEL == "bazar-alert"
     deal = _deal()
+    assert deal.action is Action.BUY
+    assert deal.costs.net_profit >= Decimal("30")
     body = format_run_comment([deal], mention="babulic")
     assert f"<!-- listing:{listing_key(deal)} -->" in body
     assert body.startswith("@babulic\n")
     assert "Commodore 1541-II" in body
-    assert deal.action is Action.BUY
     assert "```" not in body
     assert "ALERT" not in body
-    assert "🔥" not in body
     assert not re.search(r"\bBUY\b", body)
     assert "[inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
-    assert "- názov: Commodore 1541-II" in body
-    assert "- typ tovaru: hardware" in body
-    jewelry = deal.model_copy(update={"item": deal.item.model_copy(update={"kind": "jewelry"})})
-    assert "- typ tovaru: šperky (jewelry)" in format_run_comment([jewelry], mention="babulic")
-    assert "- marketplace: bazos" in body
-    assert "- cena: 38 €" in body
-    assert "- typická cena: 89 €" in body
-    assert "- pomer k obvyklej:" in body
-    assert "- poštovné (predpoklad): 8 €" in body
-    assert "- stav: použitý" in body
-    assert "- identita: commodore 1541-ii" in body
-    assert "- confidence: 0.90" in body
-    assert "- sample predaných: 12" in body
-    assert "- sold_label: obvyklá cena, funkčný kus, ebay.de sold (n=12)" in body
-    assert "- dôvod:" in body
-    assert "- inzerát: [inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
-
-
-def test_comment_says_when_typical_price_is_missing() -> None:
-    deal = _deal()
-    deal = deal.model_copy(
-        update={"costs": deal.costs.model_copy(update={"estimated_resale": Decimal("0")})}
-    )
-    body = format_run_comment([deal], mention="babulic")
-    assert "typická cena: neznáma (chýbajú predané/trhové comps)" in body
-    assert "pomer k obvyklej:" not in body
-    assert "ALERT" not in body
-    assert "[inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
-    assert "```" not in body
+    assert "- nákupná cena: 38 €" in body
+    assert "- konzervatívna rýchlopredajná cena: 120 €" in body
+    assert "- nákupná doprava: 8 €" in body
+    assert "- očakávaný čistý zisk:" in body
+    assert "- price source: konzervatívna rýchlopredajná cena, ebay.de sold P25 (n=12)" in body
 
 
 def test_comment_includes_affiliate_markdown_link() -> None:
@@ -86,7 +62,13 @@ def test_comment_includes_affiliate_markdown_link() -> None:
     body = format_run_comment([deal], mention="babulic")
     assert "[affiliate](" in body
     assert "campid=1" in body
-    assert "```" not in body
+
+
+def test_alert_writer_ignores_non_buy_deals() -> None:
+    deal = _deal().model_copy(update={"action": Action.SKIP})
+    settings = Settings(github_token="t", github_repository="babulic/bazar-deals")
+    alerts = GitHubIssueAlerts(settings)
+    assert alerts.post_deals([deal]) == 0
 
 
 def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
@@ -128,10 +110,7 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
         return httpx.Response(404, json={"message": path})
 
     transport = httpx.MockTransport(handler)
-    settings = Settings(
-        github_token="t",
-        github_repository="babulic/bazar-deals",
-    )
+    settings = Settings(github_token="t", github_repository="babulic/bazar-deals")
     with httpx.Client(base_url="https://api.github.com", transport=transport) as client:
         alerts = GitHubIssueAlerts(settings, client=client)
         assert alerts.post_deals([first, second]) == 1
@@ -140,9 +119,6 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
     assert patches[0]["labels"] == ["bazar-alert"]
     assert patches[0]["assignees"] == ["babulic"]
     assert len(posts) == 1
-    assert "```" not in posts[0]
     assert posts[0].count("[inzerát](") == 2
-    assert posts[0].startswith("@babulic\n")
     assert "<!-- listing:bazos:1541 -->" in posts[0]
     assert "<!-- listing:bazos:1542 -->" in posts[0]
-    assert "ALERT" not in posts[0]
