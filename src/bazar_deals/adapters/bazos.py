@@ -13,10 +13,11 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_RSS, is_bulky
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
+from bazar_deals.htmlparse import parse_bazos_detail
 
 
 class BazosRssClient(ListingSource):
-    """Public Bazos RSS only. No unofficial GitHub 'private API' clients."""
+    """Public Bazos RSS plus public detail enrichment for shortlisted items."""
 
     marketplace = Marketplace.BAZOS.value
 
@@ -50,6 +51,28 @@ class BazosRssClient(ListingSource):
                 time.sleep(self.settings.bazos_request_gap_seconds)
         listings = [item for item in listings if not is_bulky(f"{item.title} {item.description}")]
         return listings
+
+    def enrich_listing(self, listing: Listing) -> Listing:
+        if self.fixture_path:
+            return listing
+        try:
+            response = httpx.get(
+                str(listing.url),
+                headers={"User-Agent": self.settings.bazos_user_agent, "Accept": "text/html"},
+                timeout=20.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            detail = parse_bazos_detail(response.text)
+        except httpx.HTTPError:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        time.sleep(self.settings.bazos_request_gap_seconds)
+        description = detail if len(detail) > len(listing.description or "") else listing.description
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = bool(description)
+        return listing.model_copy(update={"description": description or "", "raw": raw})
 
     def _get(self, url: str) -> str:
         headers = {"User-Agent": self.settings.bazos_user_agent, "Accept": "application/rss+xml"}
