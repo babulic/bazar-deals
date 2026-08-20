@@ -11,7 +11,13 @@ from bazar_deals.soldcomps import SoldCompClient
 SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
 
 
-def _drive(*, buy_now: bool, external_id: str = "1", price: str = "38") -> Listing:
+def _drive(
+    *,
+    buy_now: bool,
+    external_id: str = "1",
+    price: str = "38",
+    ships_to_slovakia: bool | None = True,
+) -> Listing:
     return Listing(
         marketplace=Marketplace.EBAY,
         external_id=external_id,
@@ -19,6 +25,7 @@ def _drive(*, buy_now: bool, external_id: str = "1", price: str = "38") -> Listi
         url=f"https://www.ebay.de/itm/{external_id}",
         price=Money(amount=Decimal(price), currency="EUR"),
         buy_now=buy_now,
+        ships_to_slovakia=ships_to_slovakia,
     )
 
 
@@ -45,11 +52,17 @@ def test_hunt_skips_auctions() -> None:
     assert deals == []
 
 
-def test_hunt_keeps_buy_now() -> None:
+def test_hunt_keeps_buy_now_for_scoring() -> None:
     sold = SoldCompClient(fixture_path=SOLD)
     deals = hunt(_Source([_drive(buy_now=True)]), sold=sold)
     assert deals
     assert deals[0].item.listing.buy_now is True
+
+
+def test_hunt_rejects_ebay_when_slovakia_delivery_is_not_confirmed() -> None:
+    sold = SoldCompClient(fixture_path=SOLD)
+    assert hunt(_Source([_drive(buy_now=True, ships_to_slovakia=None)]), sold=sold) == []
+    assert hunt(_Source([_drive(buy_now=True, ships_to_slovakia=False)]), sold=sold) == []
 
 
 def test_json_ld_auction_offer_is_not_buy_now() -> None:
