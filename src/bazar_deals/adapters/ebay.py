@@ -45,6 +45,37 @@ class EbayBrowseClient(ListingSource):
             and item.price.amount <= self.settings.max_buy_eur
         ]
 
+    def enrich_listing(self, listing: Listing) -> Listing:
+        href = str(listing.raw.get("itemHref") or "").strip()
+        if not href:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        headers = {
+            "Authorization": f"Bearer {self._access_token()}",
+            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
+        }
+        try:
+            response = httpx.get(href, headers=headers, timeout=20.0)
+            response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, ValueError):
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        description = str(data.get("description") or data.get("shortDescription") or "").strip()
+        shipping = _shipping_cost(data) or listing.shipping_cost
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = bool(description)
+        raw["detail"] = data
+        return listing.model_copy(
+            update={
+                "description": description,
+                "shipping_cost": shipping,
+                "raw": raw,
+            }
+        )
+
     def search(self, category_id: str, *, limit: int = 50) -> dict:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
