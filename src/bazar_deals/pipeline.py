@@ -13,6 +13,8 @@ from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.working import is_working_listing
 
+_HIGH_RISK_DETAIL_KINDS = {"phones", "hardware", "photo"}
+
 _FUNNEL_KEYS = (
     "fetched",
     "not_buy_now",
@@ -22,6 +24,10 @@ _FUNNEL_KEYS = (
     "damaged",
     "bulky",
     "usable",
+    "detail_failed",
+    "detail_damaged",
+    "detail_bulky",
+    "insufficient_detail",
     "identity_weak",
     "sold_lookup_cap",
     "no_sold_comps",
@@ -44,6 +50,7 @@ def hunt(
         source.fetch_new(vertical),
         settings,
         sold or SoldCompClient(settings),
+        enrichers={Marketplace(source.marketplace): source},
     )
 
 
@@ -56,23 +63,33 @@ def hunt_sources(
 ) -> list[Deal]:
     settings = settings or Settings()
     listings: list[Listing] = []
+    enrichers: dict[Marketplace, ListingSource] = {}
     for source in sources:
+        enrichers[Marketplace(source.marketplace)] = source
         try:
             batch = source.fetch_new(vertical)
             print(f"{source.marketplace}: fetched {len(batch)}")
             listings.extend(batch)
         except RuntimeError as exc:
             print(f"{source.marketplace}: fetched 0 ({exc})")
-    return score_listings(listings, settings, sold or SoldCompClient(settings))
+    return score_listings(
+        listings,
+        settings,
+        sold or SoldCompClient(settings),
+        enrichers=enrichers,
+    )
 
 
 def score_listings(
     listings: list[Listing],
     settings: Settings,
     sold: SoldCompClient,
+    *,
+    enrichers: dict[Marketplace, ListingSource] | None = None,
 ) -> list[Deal]:
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
+    enrichers = enrichers or {}
     funnel: Counter[str] = Counter()
     funnel["fetched"] = len(listings)
     usable: list[Listing] = []
@@ -105,7 +122,22 @@ def score_listings(
     lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for listing in usable:
+        enricher = enrichers.get(listing.marketplace)
+        if enricher is not None:
+            listing = enricher.enrich_listing(listing)
+            if listing.raw.get("detail_fetched") is False and not listing.description.strip():
+                funnel["detail_failed"] += 1
+        if not is_working_listing(listing):
+            funnel["detail_damaged"] += 1
+            continue
+        if is_bulky(f"{listing.title} {listing.description}"):
+            funnel["detail_bulky"] += 1
+            continue
+
         item = identify(listing)
+        if item.kind in _HIGH_RISK_DETAIL_KINDS and len(listing.description.strip()) < 10:
+            funnel["insufficient_detail"] += 1
+            continue
         if item.confidence < min_conf or not item.search_query:
             funnel["identity_weak"] += 1
             continue
