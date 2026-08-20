@@ -14,7 +14,7 @@ _API = "https://api.aukro.cz"
 
 
 class AukroHuntClient(ListingSource):
-    """Public Aukro newest buy-now pages (JSON-LD). Sell API stays on AukroSellClient."""
+    """Public Aukro newest buy-now pages with public detail enrichment."""
 
     marketplace = Marketplace.AUKRO.value
 
@@ -33,6 +33,23 @@ class AukroHuntClient(ListingSource):
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
         html = _get(_SEARCH, self.settings.bazos_user_agent)
         return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
+
+    def enrich_listing(self, listing: Listing) -> Listing:
+        if self.fixture_path or (listing.description or "").strip():
+            return listing
+        try:
+            html = _get(str(listing.url), self.settings.bazos_user_agent)
+        except httpx.HTTPError:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        products = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
+        detail = next((item for item in products if item.description.strip()), None)
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = detail is not None
+        if detail is None:
+            return listing.model_copy(update={"raw": raw})
+        return listing.model_copy(update={"description": detail.description, "raw": raw})
 
 
 class AukroSellClient:
