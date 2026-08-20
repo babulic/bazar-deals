@@ -3,7 +3,7 @@ from __future__ import annotations
 import httpx
 
 from bazar_deals.config import Settings
-from bazar_deals.domain import Deal
+from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import format_github_deal
 from bazar_deals.rules import rules
 
@@ -29,7 +29,7 @@ def format_run_comment(deals: list[Deal], *, mention: str) -> str:
 
 
 class GitHubIssueAlerts:
-    """Collector issue like polymarket-tracker #4: assign + bot comment with @user."""
+    """Collector issue for actionable BUY deals only."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
@@ -39,6 +39,7 @@ class GitHubIssueAlerts:
         self._client = client
 
     def post_deals(self, deals: list[Deal]) -> int:
+        deals = [deal for deal in deals if deal.action is Action.BUY]
         if not deals:
             return 0
         issue = self.ensure_issue()
