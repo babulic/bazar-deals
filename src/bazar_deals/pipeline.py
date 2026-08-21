@@ -347,6 +347,6 @@ def _to_eur(listing: Listing, eur_czk: Decimal) -> Listing:
         updates["price"] = Money(amount=listing.price.to_eur(eur_czk), currency="EUR")
     if listing.shipping_cost is not None and listing.shipping_cost.currency.upper() != "EUR":
         updates["shipping_cost"] = Money(
-            amount=listing.shipping_cost.to_eur(settings.eur_czk), currency="EUR"
+            amount=listing.shipping_cost.to_eur(eur_czk), currency="EUR"
         )
     return listing.model_copy(update=updates) if updates else listing
