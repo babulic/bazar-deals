@@ -1,14 +1,16 @@
 # AGENTS.md
 
-## Cursor Cloud specific instructions
+## Repository instructions
 
-`bazar-deals` is a single Python (>=3.11) CLI package — no web server, database server, or long-running services. Everything runs as a one-shot `hunt` batch command. Standard commands live in `README.md` and `pyproject.toml`; the notes below only cover non-obvious caveats.
+`bazar-deals` is a Python 3.11+ CLI package. It has no web server or long-running local service; hunts are one-shot batch commands. Use `README.md` and `pyproject.toml` as the primary command reference.
 
-- The update script installs the package in editable mode with dev extras (`pip install -e ".[dev]"`) into the user site-packages, so `pytest` and the package are importable without activating a virtualenv.
-- Run the CLI as a module: `python3 -m bazar_deals hunt ...`. The `bazar-deals` console script is installed to `~/.local/bin`, which is not on `PATH` by default, so prefer the module form.
-- Tests: `python3 -m pytest` (fully offline, uses fixtures under `tests/`).
-- Hello-world / smoke run (no network needed): `python3 -m bazar_deals hunt --offline --source bazos`. `--offline` uses bundled fixtures in `tests/fixtures/`; without it the CLI makes live outbound HTTPS calls to bazos.sk / ebay.de / aukro.sk / vinted.sk which may be blocked or rate-limited.
-- No lint tooling is configured in the repo (no ruff/mypy/flake8/black config), despite `.gitignore` mentioning cache dirs. Do not assume a lint command exists.
-- `--notify` posts to a GitHub issue and requires `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_ALERT_ISSUE`; leave it off for local testing.
-- Sold-comps are cached in SQLite at `.cache/bazar-comps.sqlite` (`COMPS_DB`), created automatically on first run.
-- Config defaults live in `src/bazar_deals/data/bazar.yaml`; secrets/env overrides go in `.env` (see `.env.example`).
+- Install development dependencies with `python -m pip install -e ".[dev]"`.
+- Run the CLI as a module: `python -m bazar_deals hunt ...`.
+- Run the offline test suite with `python -m pytest`; tests use fixtures under `tests/`.
+- Use `python -m bazar_deals hunt --offline --source bazos` for a network-free smoke run.
+- A live hunt can access Bazos, Vinted, Aukro, and eBay. eBay purchasing is disabled unless `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are configured because delivery to Slovakia must be verified through the Browse API.
+- GitHub Actions uses Copilot CLI for the required final AI review. OpenAI remains an optional local provider; do not assume an `OPENAI_API_KEY` is present.
+- `--notify` writes GitHub issue comments and requires `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_ALERT_ISSUE`; omit it during ordinary local testing.
+- Conservative sold comps and approved AI price reviews are cached at `.cache/bazar-comps-v2.sqlite` by default (`COMPS_DB`).
+- Catalog and marketplace defaults live in `src/bazar_deals/data/bazar.yaml`; environment overrides go in `.env` (see `.env.example`).
+- No separate lint or type-check command is configured.
