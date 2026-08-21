@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import time
+from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing, Marketplace, Vertical
+from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 
-_SEARCH = "https://aukro.sk/vysledky-vyhladavania?order=newest&sellingMode.format=BUY_NOW"
+_PUBLIC_SEARCH = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon"
 _API = "https://api.aukro.cz"
 
 
 class AukroHuntClient(ListingSource):
-    """Public Aukro newest buy-now pages with public detail enrichment."""
+    """Aukro public web backend for active fixed-price offers."""
 
     marketplace = Marketplace.AUKRO.value
 
@@ -32,20 +33,39 @@ class AukroHuntClient(ListingSource):
         if self.fixture_path:
             html = self.fixture_path.read_text(encoding="utf-8")
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-        found: list[Listing] = []
-        seen: set[str] = set()
-        for page in (1, 2):
-            html = _get(f"{_SEARCH}&page={page}", self.settings.bazos_user_agent)
-            batch = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-            for item in batch:
-                key = item.external_id or str(item.url)
-                if key in seen:
-                    continue
-                seen.add(key)
-                found.append(item)
-            if page == 1:
-                time.sleep(min(2.0, max(0.0, self.settings.bazos_request_gap_seconds)))
-        return found
+
+        found: dict[str, Listing] = {}
+        # The public endpoint's explicit newest sort currently returns HTTP 500.
+        # Pull a wider active window, then sort by startingTime client-side.
+        for page in range(3):
+            response = httpx.post(
+                _PUBLIC_SEARCH,
+                params={"page": page, "size": 60},
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "fallbackItemsCount": 12,
+                    "splitGroupKey": "listing",
+                    "splitGroupValue": "A18",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            data = response.json()
+            for node in data.get("content") or []:
+                listing = _listing_from_public_node(node)
+                if listing is not None:
+                    found[listing.external_id] = listing
+
+        return sorted(
+            found.values(),
+            key=lambda item: item.created_at or datetime.min,
+            reverse=True,
+        )
 
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path or (listing.description or "").strip():
@@ -57,21 +77,53 @@ class AukroHuntClient(ListingSource):
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
         products = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-        wanted_url = str(listing.url).split("?")[0].rstrip("/")
-        detail = next(
-            (
-                item
-                for item in products
-                if str(item.url).split("?")[0].rstrip("/") == wanted_url
-                and item.description.strip()
-            ),
-            None,
-        )
+        detail = next((item for item in products if item.description.strip()), None)
         raw = dict(listing.raw)
         raw["detail_fetched"] = detail is not None
         if detail is None:
             return listing.model_copy(update={"raw": raw})
         return listing.model_copy(update={"description": detail.description, "raw": raw})
+
+
+def _listing_from_public_node(node: dict) -> Listing | None:
+    if not isinstance(node, dict):
+        return None
+    if not node.get("buyNowActive") or node.get("auction") or node.get("adultContent"):
+        return None
+    item_id = str(node.get("itemId") or "")
+    title = str(node.get("itemName") or "").strip()
+    seo = str(node.get("seoUrl") or "").strip()
+    price = node.get("buyNowPrice") if isinstance(node.get("buyNowPrice"), dict) else {}
+    amount = Decimal(str(price.get("amount") or "0"))
+    currency = str(price.get("currency") or "CZK")
+    if not item_id or not title or not seo or amount <= 0:
+        return None
+    seller = node.get("seller") if isinstance(node.get("seller"), dict) else {}
+    score = seller.get("positiveFeedbackPercentage")
+    if not isinstance(score, (int, float)):
+        score = None
+    started = None
+    try:
+        started = datetime.fromisoformat(str(node.get("startingTime") or ""))
+    except ValueError:
+        pass
+    return Listing(
+        marketplace=Marketplace.AUKRO,
+        external_id=item_id,
+        title=title,
+        url=f"https://aukro.sk/{seo}-{item_id}",
+        price=Money(amount=amount, currency=currency),
+        seller_id=str(node.get("sellerLogin") or "") or None,
+        seller_score=float(score) if score is not None else None,
+        created_at=started,
+        buy_now=True,
+        location=str(node.get("location") or "") or None,
+        raw={
+            "categoryPath": node.get("categoryPath"),
+            "buyersProtectionAvailable": node.get("buyersProtectionAvailable"),
+            "freeShipping": node.get("freeShipping"),
+        },
+    )
 
 
 class AukroSellClient:
