@@ -97,3 +97,33 @@ def test_empty_db_file_is_created(tmp_path: Path) -> None:
     SoldCompClient(_settings(db))
     assert db.is_file()
     assert db.stat().st_size > 0
+
+
+def test_long_marketplace_descriptions_do_not_hide_exact_title_match(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    peers = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title=f"Apple iPhone 13 128GB color {index}",
+            description=" ".join(f"unrelated{word}" for word in range(40)),
+            url=f"https://mobil.bazos.sk/inzerat/{index}/",
+            price=Money(amount=Decimal(200 + index), currency="EUR"),
+        )
+        for index in range(5)
+    ]
+    listing = Listing(
+        marketplace=Marketplace.VINTED,
+        external_id="candidate",
+        title="Apple iPhone 13 128GB",
+        description="Plne funkčný telefón s dlhou detailnou informáciou.",
+        url="https://www.vinted.sk/items/candidate",
+        price=Money(amount=Decimal("80"), currency="EUR"),
+    )
+    with patch.object(client, "_sold_hits", return_value=([], 403, True)), patch.object(
+        client, "_market_hits", return_value=peers
+    ):
+        comp = client.median_sold(listing)
+    assert comp is not None
+    assert comp.reliable_for_buy is False
+    assert comp.sample == 5

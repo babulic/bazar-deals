@@ -71,6 +71,7 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_CAMPAIGN_ID: ${{ secrets.EBAY_CAMPAIGN_ID }}
           AI_PROVIDER: copilot
+          COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
           AI_MAX_REVIEWS: "8"

@@ -106,9 +106,13 @@ class BazosRssClient(ListingSource):
 
 
 def _split_price(title: str) -> tuple[Decimal, str]:
-    if " - " not in title:
+    # Bazos historically used ``title - price`` in RSS, but the current feed
+    # uses ``title: price``. Split only the final suffix so product titles may
+    # still contain either character.
+    separator = " - " if " - " in title else ": " if ": " in title else None
+    if separator is None:
         return Decimal("0"), title
-    head, tail = title.rsplit(" - ", 1)
+    head, tail = title.rsplit(separator, 1)
     digits = "".join(ch for ch in tail if ch.isdigit() or ch in ",.")
     digits = digits.replace(",", ".")
     try:
