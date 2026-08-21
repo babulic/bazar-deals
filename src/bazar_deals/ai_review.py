@@ -1,0 +1,320 @@
+from __future__ import annotations
+
+import json
+import re
+import sqlite3
+import unicodedata
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+from pathlib import Path
+from typing import Iterator
+
+import httpx
+
+from bazar_deals.config import Settings
+from bazar_deals.domain import AIReview, Deal, IdentifiedItem
+
+_SCHEMA = """
+CREATE TABLE IF NOT EXISTS ai_price_reviews (
+    review_key TEXT PRIMARY KEY,
+    canonical_name TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    complete_product INTEGER NOT NULL,
+    quick_sale_eur TEXT,
+    confidence REAL NOT NULL,
+    approved INTEGER NOT NULL,
+    reason TEXT,
+    source_urls TEXT,
+    model TEXT,
+    reviewed_at TEXT NOT NULL
+);
+"""
+
+
+def _utc_now() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _iso(moment: datetime) -> str:
+    return moment.astimezone(timezone.utc).isoformat()
+
+
+def _parse_iso(value: str) -> datetime | None:
+    try:
+        parsed = datetime.fromisoformat((value or "").replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _fold(text: str) -> str:
+    normalized = unicodedata.normalize("NFKD", (text or "").casefold())
+    asciiish = "".join(ch for ch in normalized if not unicodedata.combining(ch))
+    return " ".join(re.findall(r"[a-z0-9]+", asciiish))
+
+
+def review_key(item: IdentifiedItem) -> str:
+    identity = item.search_query or item.model or item.canonical_name or item.listing.title
+    return f"{item.kind}:{_fold(identity)}"
+
+
+def _decimal(value: object) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        out = Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return None
+    return out if out > 0 else None
+
+
+def _json_payload(text: str) -> dict:
+    cleaned = (text or "").strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.I)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start < 0 or end <= start:
+        raise ValueError("AI response did not contain a JSON object")
+    data = json.loads(cleaned[start : end + 1])
+    if not isinstance(data, dict):
+        raise ValueError("AI response JSON must be an object")
+    return data
+
+
+def _response_text_and_urls(data: dict) -> tuple[str, list[str]]:
+    if isinstance(data.get("output_text"), str):
+        direct = data["output_text"]
+    else:
+        direct = ""
+    texts: list[str] = [direct] if direct else []
+    urls: list[str] = []
+    for output in data.get("output") or []:
+        if not isinstance(output, dict):
+            continue
+        for content in output.get("content") or []:
+            if not isinstance(content, dict):
+                continue
+            text = content.get("text")
+            if isinstance(text, str) and text:
+                texts.append(text)
+            for annotation in content.get("annotations") or []:
+                if not isinstance(annotation, dict):
+                    continue
+                url = annotation.get("url")
+                if not url and isinstance(annotation.get("url_citation"), dict):
+                    url = annotation["url_citation"].get("url")
+                if isinstance(url, str) and url.startswith(("http://", "https://")):
+                    urls.append(url)
+    return "\n".join(texts).strip(), list(dict.fromkeys(urls))
+
+
+class AIReviewClient:
+    """Final, fail-closed review of deterministic BUY candidates.
+
+    AI is intentionally not allowed to create a deal or raise the deterministic
+    P25 valuation. It can correct identity, lower valuation, or veto the alert.
+    Reviewed prices are cached in the same SQLite file as sold comps.
+    """
+
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        *,
+        client: httpx.Client | None = None,
+        db_path: str | Path | None = None,
+    ) -> None:
+        self.settings = settings or Settings()
+        self._client = client
+        self._db_path = Path(db_path) if db_path is not None else Path(self.settings.comps_db)
+        self._init_db()
+
+    def review(self, deal: Deal) -> AIReview:
+        if not self.settings.openai_api_key:
+            raise RuntimeError("AI review enabled but OPENAI_API_KEY is missing")
+        key = review_key(deal.item)
+        cached = self._load(key)
+        if cached is not None:
+            return cached
+
+        response = self._post(self._prompt(deal))
+        text, citation_urls = _response_text_and_urls(response)
+        raw = _json_payload(text)
+        source_urls = [
+            str(url)
+            for url in raw.get("source_urls") or []
+            if str(url).startswith(("http://", "https://"))
+        ]
+        source_urls = list(dict.fromkeys([*source_urls, *citation_urls]))[:8]
+        confidence = max(0.0, min(1.0, float(raw.get("confidence") or 0)))
+        quick_sale = _decimal(raw.get("quick_sale_price_eur"))
+        complete = bool(raw.get("complete_product"))
+        approved = bool(raw.get("approved"))
+        reason = str(raw.get("reason") or "").strip()
+        canonical = str(raw.get("canonical_name") or deal.item.canonical_name).strip()
+        kind = str(raw.get("kind") or deal.item.kind).strip() or deal.item.kind
+
+        # Approval needs a verified price, web evidence and adequate confidence.
+        if quick_sale is None or not source_urls or confidence < self.settings.ai_min_confidence:
+            approved = False
+        if not complete:
+            approved = False
+
+        review = AIReview(
+            approved=approved,
+            complete_product=complete,
+            canonical_name=canonical,
+            kind=kind,
+            quick_sale_price_eur=quick_sale,
+            confidence=confidence,
+            reason=reason,
+            source_urls=source_urls,
+            model=self.settings.openai_model,
+            cached=False,
+        )
+        self._store(key, review)
+        return review
+
+    def _prompt(self, deal: Deal) -> str:
+        item = deal.item
+        listing = item.listing
+        description = (listing.description or "").strip()
+        if len(description) > 5000:
+            description = description[:5000]
+        return f"""
+Review this resale candidate as a skeptical second-line verifier. Use web search.
+
+Your two jobs:
+1. Identify exactly what is actually being sold. Distinguish a complete product from a replacement part/accessory. A title such as 'iPhone 13 OLED display', 'LCD for iPhone', case, box, battery, charger, flex cable, housing, back glass or spare part is NOT an iPhone.
+2. Verify a conservative quick-sale value in EUR for the exact same model/spec/condition. Prefer completed/sold transactions or strong resale market evidence. Do not rely on optimistic asking prices alone. If evidence is weak or identity/specs are ambiguous, reject.
+
+The deterministic engine already found a possible BUY, but you must not trust its identity or price blindly.
+Marketplace: {listing.marketplace.value}
+Listing title: {listing.title}
+Listing description: {description or '(no description)'}
+Purchase price: {deal.costs.buy_price} EUR
+Inbound shipping: {deal.costs.shipping} EUR
+Deterministic identity: {item.canonical_name}
+Deterministic kind: {item.kind}
+Deterministic search identity: {item.search_query}
+Deterministic conservative sold P25: {deal.costs.estimated_resale} EUR
+Sold sample: {item.asking_sample}
+
+Return JSON only with exactly these keys:
+{{
+  "approved": true_or_false,
+  "complete_product": true_or_false,
+  "canonical_name": "exact item being sold",
+  "kind": "phones|accessories|hardware|photo|media|collectibles|other",
+  "quick_sale_price_eur": number_or_null,
+  "confidence": number_0_to_1,
+  "reason": "short concrete reason, including any mismatch",
+  "source_urls": ["https://...", "https://..."]
+}}
+
+Rules: approve only when the item is sufficiently identified, is the intended complete product (not a part/accessory masquerading as it), and the quick-sale price is supported by current web evidence. Include source URLs used for the price check.
+""".strip()
+
+    def _post(self, prompt: str) -> dict:
+        url = self.settings.openai_base_url.rstrip("/") + "/responses"
+        headers = {
+            "Authorization": f"Bearer {self.settings.openai_api_key}",
+            "Content-Type": "application/json",
+        }
+        payload = {
+            "model": self.settings.openai_model,
+            "tools": [{"type": "web_search"}],
+            "input": prompt,
+            "max_output_tokens": 1200,
+        }
+        if self._client is not None:
+            response = self._client.post(url, headers=headers, json=payload)
+        else:
+            response = httpx.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=self.settings.ai_timeout_seconds,
+            )
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict):
+            raise RuntimeError("OpenAI Responses API returned a non-object response")
+        return data
+
+    @contextmanager
+    def _connect(self) -> Iterator[sqlite3.Connection]:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(str(self._db_path), timeout=30.0)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _init_db(self) -> None:
+        with self._connect() as conn:
+            conn.executescript(_SCHEMA)
+
+    def _load(self, key: str) -> AIReview | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT canonical_name, kind, complete_product, quick_sale_eur, confidence, approved, "
+                "reason, source_urls, model, reviewed_at FROM ai_price_reviews WHERE review_key = ?",
+                (key,),
+            ).fetchone()
+        if row is None:
+            return None
+        reviewed_at = _parse_iso(str(row["reviewed_at"]))
+        if reviewed_at is None:
+            return None
+        ttl = timedelta(days=max(0, int(self.settings.ai_review_ttl_days)))
+        if _utc_now() - reviewed_at > ttl:
+            return None
+        try:
+            urls = json.loads(row["source_urls"] or "[]")
+        except json.JSONDecodeError:
+            urls = []
+        return AIReview(
+            approved=bool(row["approved"]),
+            complete_product=bool(row["complete_product"]),
+            canonical_name=str(row["canonical_name"]),
+            kind=str(row["kind"]),
+            quick_sale_price_eur=_decimal(row["quick_sale_eur"]),
+            confidence=float(row["confidence"]),
+            reason=str(row["reason"] or ""),
+            source_urls=[str(url) for url in urls if isinstance(url, str)],
+            model=str(row["model"] or self.settings.openai_model),
+            cached=True,
+        )
+
+    def _store(self, key: str, review: AIReview) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO ai_price_reviews "
+                "(review_key, canonical_name, kind, complete_product, quick_sale_eur, confidence, approved, "
+                "reason, source_urls, model, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(review_key) DO UPDATE SET "
+                "canonical_name=excluded.canonical_name, kind=excluded.kind, "
+                "complete_product=excluded.complete_product, quick_sale_eur=excluded.quick_sale_eur, "
+                "confidence=excluded.confidence, approved=excluded.approved, reason=excluded.reason, "
+                "source_urls=excluded.source_urls, model=excluded.model, reviewed_at=excluded.reviewed_at",
+                (
+                    key,
+                    review.canonical_name,
+                    review.kind,
+                    1 if review.complete_product else 0,
+                    str(review.quick_sale_price_eur) if review.quick_sale_price_eur is not None else None,
+                    review.confidence,
+                    1 if review.approved else 0,
+                    review.reason,
+                    json.dumps(review.source_urls),
+                    review.model,
+                    _iso(_utc_now()),
+                ),
+            )
