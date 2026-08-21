@@ -1,0 +1,75 @@
+name: Source smoke
+
+on:
+  push:
+    branches: [fix/live-marketplace-ai]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  copilot-requests: write
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Probe Vinted and Aukro public sources
+        run: |
+          python - <<'PY'
+          import json, re
+          import urllib.request
+          
+          headers = {"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/139 Safari/537.36","Accept":"text/html,application/xhtml+xml"}
+          url = "https://www.vinted.sk/catalog?order=newest_first&price_from=10&price_to=110&page=1"
+          req = urllib.request.Request(url, headers=headers)
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  body = r.read().decode("utf-8", "replace")
+                  print("VINTED status", r.status, "bytes", len(body), "final", r.geturl())
+                  print("VINTED markers", {k: body.lower().count(k) for k in ["__next_f", "datadome", "captcha", "cloudflare", "\\\"id\\\"", "\"id\"", "/items/"]})
+                  title = re.search(r"<title[^>]*>(.*?)</title>", body, re.I|re.S)
+                  print("VINTED title", (title.group(1)[:200] if title else "<none>"))
+                  for marker in ["__next_f", "/items/", "\\\"id\\\""]:
+                      pos = body.lower().find(marker.lower())
+                      if pos >= 0:
+                          print("VINTED sample", marker, body[max(0,pos-250):pos+750].replace("\n"," ")[:1000])
+                          break
+          except Exception as exc:
+              print("VINTED ERROR", repr(exc))
+          
+          import urllib.error
+          aukro_url = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon?page=0&size=5"
+          payload = json.dumps({"categorySeoUrl":"sberatelstvi","fallbackItemsCount":12,"splitGroupKey":"listing","splitGroupValue":"A18"}).encode()
+          req = urllib.request.Request(aukro_url, data=payload, method="POST", headers={"User-Agent":headers["User-Agent"],"Accept":"application/json","Content-Type":"application/json"})
+          try:
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  raw = r.read().decode("utf-8", "replace")
+                  print("AUKRO status", r.status, "bytes", len(raw))
+                  data = json.loads(raw)
+                  print("AUKRO top keys", list(data)[:30] if isinstance(data,dict) else type(data).__name__)
+                  content = data.get("content", []) if isinstance(data,dict) else []
+                  print("AUKRO content count", len(content))
+                  if content:
+                      print("AUKRO first keys", list(content[0])[:80])
+                      print("AUKRO first", json.dumps(content[0], ensure_ascii=False)[:3000])
+          except Exception as exc:
+              print("AUKRO ERROR", repr(exc))
+          PY
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+      - name: Probe Copilot CLI authentication
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          copilot -p 'Return exactly the text COPILOT_OK and nothing else.' -s --model=gpt-5.4 --no-ask-user --available-tools='' > /tmp/copilot-out.txt 2>/tmp/copilot-err.txt
+          code=$?
+          echo "COPILOT exit=$code"
+          echo "COPILOT stdout: $(head -c 500 /tmp/copilot-out.txt)"
+          echo "COPILOT stderr: $(head -c 1200 /tmp/copilot-err.txt)"
+          exit 0
