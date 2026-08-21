@@ -11,6 +11,10 @@ _LD_JSON = re.compile(
     r'<script[^>]*type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.I | re.S,
 )
+_NEXT_CHUNK = re.compile(
+    r'self\.__next_f\.push\(\[1,("(?:\\.|[^"\\])*")\]\)',
+    re.S,
+)
 _VINTED_ITEM = re.compile(
     r'href="(https://www\.vinted\.sk/items/(\d+)[^"]*)"[^>]*>([^<]{3,120})<',
     re.I,
@@ -82,8 +86,27 @@ def _product_listing(node: dict, marketplace: Marketplace, currency: str) -> Lis
 
 
 def parse_vinted_items(html: str) -> list[Listing]:
+    """Parse both old cards and the current public Next.js hydration payload."""
     listings: list[Listing] = []
     seen: set[str] = set()
+
+    hydrated = _next_hydration_text(html)
+    if hydrated:
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r'\{"content_source"\s*:', hydrated):
+            try:
+                node, _ = decoder.raw_decode(hydrated, match.start())
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(node, dict):
+                continue
+            listing = _vinted_listing_from_node(node)
+            if listing is None or listing.external_id in seen:
+                continue
+            seen.add(listing.external_id)
+            listings.append(listing)
+
+    # Backward-compatible fallback for older/static fixtures.
     json_card = re.compile(
         r'"id":(\d{4,}),"title":"((?:\\.|[^"\\]){3,160})".{0,800}?"amount":"([\d.]+)"',
         re.S,
@@ -117,12 +140,57 @@ def parse_vinted_items(html: str) -> list[Listing]:
     return listings
 
 
+def _vinted_listing_from_node(node: dict) -> Listing | None:
+    item_id = str(node.get("id") or "")
+    title = str(node.get("title") or "").strip()
+    price = node.get("price") or {}
+    url = str(node.get("url") or "")
+    if not item_id.isdigit() or not title or not isinstance(price, dict) or not url.startswith("/items/"):
+        return None
+    amount = _decimal(price.get("amount"))
+    if amount <= 0:
+        return None
+    currency = str(price.get("currency_code") or "EUR")
+    item_box = node.get("item_box") if isinstance(node.get("item_box"), dict) else {}
+    description = _plain_text(
+        str(item_box.get("accessibility_label") or item_box.get("second_line") or "")
+    )
+    user = node.get("user") if isinstance(node.get("user"), dict) else {}
+    return Listing(
+        marketplace=Marketplace.VINTED,
+        external_id=item_id,
+        title=title,
+        description=description,
+        url=f"https://www.vinted.sk{url.split('?')[0]}",
+        price=Money(amount=amount, currency=currency),
+        seller_id=str(user.get("login") or "") or None,
+        raw={
+            "service_fee": node.get("service_fee"),
+            "total_item_price": node.get("total_item_price"),
+            "content_source": node.get("content_source"),
+        },
+    )
+
+
 def parse_vinted_detail(html: str) -> str:
-    """Best-effort public detail extraction; no private API and no challenge bypass."""
-    description = _json_string(html, "description")
-    status = _json_string(html, "status") or _json_string(html, "condition")
+    """Best-effort public detail extraction; no private API/challenge bypass."""
+    source = _next_hydration_text(html) or html
+    description = _json_string(source, "description")
+    status = _json_string(source, "status") or _json_string(source, "condition")
     parts = [part for part in (_plain_text(description), _plain_text(status)) if part]
     return " ".join(parts).strip()
+
+
+def _next_hydration_text(html: str) -> str:
+    chunks: list[str] = []
+    for raw_string in _NEXT_CHUNK.findall(html):
+        try:
+            decoded = json.loads(raw_string)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(decoded, str):
+            chunks.append(decoded)
+    return "\n".join(chunks)
 
 
 def parse_bazos_detail(html: str) -> str:
