@@ -114,9 +114,11 @@ def score_listings(
     floor = settings.min_buy_eur
     enrichers = enrichers or {}
     funnel: Counter[str] = Counter()
+    source_stats: dict[Marketplace, Counter[str]] = defaultdict(Counter)
     funnel["fetched"] = len(listings)
     usable: list[Listing] = []
     for listing in listings:
+        source_stats[listing.marketplace]["fetched"] += 1
         listing = _to_eur(listing, settings.eur_czk)
         if not listing.is_immediate_buy() or listing.price.amount <= 0:
             funnel["not_buy_now"] += 1
@@ -137,6 +139,7 @@ def score_listings(
             funnel["bulky"] += 1
             continue
         usable.append(listing)
+        source_stats[listing.marketplace]["usable"] += 1
     funnel["usable"] = len(usable)
 
     # Do not let a large/cheap Bazos batch consume the global sold lookup budget.
@@ -185,8 +188,10 @@ def score_listings(
         shipping = _shipping_eur(listing, settings)
         deal = score_deal(item, comp.median, shipping, settings=settings)
         funnel["scored"] += 1
+        source_stats[listing.marketplace]["scored"] += 1
         if deal.action is Action.BUY:
             funnel["pre_ai_buy"] += 1
+            source_stats[listing.marketplace]["pre_ai_buy"] += 1
         else:
             funnel["below_net_profit"] += 1
         deals.append(deal)
@@ -196,8 +201,12 @@ def score_listings(
         deals = _apply_ai_gate(deals, settings, reviewer, funnel)
 
     funnel["buy"] = sum(1 for deal in deals if deal.action is Action.BUY)
+    for deal in deals:
+        if deal.action is Action.BUY:
+            source_stats[deal.item.listing.marketplace]["buy"] += 1
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
     print(_format_funnel(funnel))
+    print(_format_source_health(source_stats))
     return deals
 
 
@@ -223,7 +232,7 @@ def _apply_ai_gate(
         reviewed += 1
         try:
             review = reviewer.review(deal)
-        except (RuntimeError, ValueError, httpx.HTTPError, json_error_types()) as exc:
+        except (RuntimeError, ValueError, httpx.HTTPError) as exc:
             funnel["ai_unavailable"] += 1
             if settings.ai_review_required:
                 replacements[key] = deal.model_copy(
@@ -269,14 +278,6 @@ def _apply_ai_gate(
         key = (deal.item.listing.marketplace.value, deal.item.listing.external_id)
         out.append(replacements.get(key, deal))
     return out
-
-
-def json_error_types():
-    # Kept as a helper so tests can exercise malformed AI responses without
-    # importing json in the hot pipeline module.
-    import json
-
-    return json.JSONDecodeError
 
 
 def _round_robin_listings(listings: list[Listing]) -> list[Listing]:
@@ -326,12 +327,26 @@ def _format_funnel(funnel: Counter[str]) -> str:
     return "filter: " + " ".join(parts)
 
 
+def _format_source_health(source_stats: dict[Marketplace, Counter[str]]) -> str:
+    order = [market for market in _MARKETPLACE_PRIORITY if market in source_stats]
+    order.extend(market for market in source_stats if market not in order)
+    parts = []
+    for market in order:
+        stats = source_stats[market]
+        parts.append(
+            f"{market.value}[fetched={stats.get('fetched', 0)},usable={stats.get('usable', 0)},"
+            f"scored={stats.get('scored', 0)},pre_ai_buy={stats.get('pre_ai_buy', 0)},"
+            f"buy={stats.get('buy', 0)}]"
+        )
+    return "source-health: " + " ".join(parts)
+
+
 def _to_eur(listing: Listing, eur_czk: Decimal) -> Listing:
     updates: dict = {}
     if listing.price.currency.upper() != "EUR":
         updates["price"] = Money(amount=listing.price.to_eur(eur_czk), currency="EUR")
     if listing.shipping_cost is not None and listing.shipping_cost.currency.upper() != "EUR":
         updates["shipping_cost"] = Money(
-            amount=listing.shipping_cost.to_eur(eur_czk), currency="EUR"
+            amount=listing.shipping_cost.to_eur(settings.eur_czk), currency="EUR"
         )
     return listing.model_copy(update=updates) if updates else listing
