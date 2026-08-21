@@ -19,74 +19,49 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Probe Vinted and Aukro public sources
+      - name: Probe Aukro newest sort
         run: |
           python - <<'PY' | tee /tmp/diag.txt
-          import html as html_lib
-          import json, re
+          import json
           import urllib.request
-
-          print("<!-- source-smoke-v2 -->")
-          print("## Source smoke v2")
-          headers = {"User-Agent":"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/139 Safari/537.36","Accept":"text/html,application/xhtml+xml"}
-          url = "https://www.vinted.sk/catalog?order=newest_first&price_from=10&price_to=110&page=1"
-          req = urllib.request.Request(url, headers=headers)
-          try:
-              with urllib.request.urlopen(req, timeout=30) as r:
-                  body = r.read().decode("utf-8", "replace")
-                  print("VINTED status", r.status, "bytes", len(body), "final", r.geturl())
-                  print("VINTED markers", {k: body.lower().count(k) for k in ["__next_f", "datadome", "captcha", "cloudflare", "\\\"id\\\"", "/items/"]})
-                  chunks = []
-                  for match in re.finditer(r'self\.__next_f\.push\(\[1,("(?:\\.|[^"\\])*")\]\)', body, re.S):
-                      try:
-                          chunks.append(json.loads(match.group(1)))
-                      except Exception:
-                          pass
-                  hydrated = "\n".join(chunks)
-                  print("VINTED hydration chunks", len(chunks), "decoded_bytes", len(hydrated))
-                  print("VINTED hydrated markers", {k: hydrated.count(k) for k in ['"id":', '"title":', '"price":', '"amount":', '/items/']})
-                  for marker in ["/items/", '"title":']:
-                      pos = hydrated.find(marker)
-                      if pos >= 0:
-                          sample = hydrated[max(0,pos-1800):pos+4200].replace("\n"," ")[:6000]
-                          sample = re.sub(r"(?i)(token|authorization|cookie)[^ ,;]{0,30}", r"\1=<redacted>", sample)
-                          print("VINTED hydrated sample", marker, sample)
-                          break
-          except Exception as exc:
-              print("VINTED ERROR", type(exc).__name__, str(exc)[:500])
-
-          aukro_url = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon?page=0&size=12"
-          for label, payload_obj in [
-              ("all", {"fallbackItemsCount":12,"splitGroupKey":"listing","splitGroupValue":"A18"}),
-              ("collectibles", {"categorySeoUrl":"sberatelstvi","fallbackItemsCount":12,"splitGroupKey":"listing","splitGroupValue":"A18"}),
-          ]:
-              payload = json.dumps(payload_obj).encode()
-              req = urllib.request.Request(aukro_url, data=payload, method="POST", headers={"User-Agent":headers["User-Agent"],"Accept":"application/json","Content-Type":"application/json"})
+          print("<!-- source-smoke-v3 -->")
+          print("## Source smoke v3")
+          headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/139 Safari/537.36","Accept":"application/json","Content-Type":"application/json"}
+          payload=json.dumps({"fallbackItemsCount":12,"splitGroupKey":"listing","splitGroupValue":"A18"}).encode()
+          for sort in ["", "&sort=-startTime"]:
+              url="https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon?page=0&size=20"+sort
               try:
-                  with urllib.request.urlopen(req, timeout=30) as r:
-                      raw = r.read().decode("utf-8", "replace")
-                      data = json.loads(raw)
-                      content = data.get("content", []) if isinstance(data,dict) else []
-                      buy_now = [item for item in content if item.get("buyNowActive") and not item.get("auction")]
-                      print(f"AUKRO {label} status", r.status, "content", len(content), "buy_now", len(buy_now), "keys", list(data)[:20] if isinstance(data,dict) else type(data).__name__)
-                      if buy_now:
-                          print("AUKRO buy_now first", json.dumps(buy_now[0], ensure_ascii=False)[:4000])
+                  req=urllib.request.Request(url,data=payload,method="POST",headers=headers)
+                  with urllib.request.urlopen(req,timeout=30) as r:
+                      data=json.loads(r.read().decode())
+                      content=data.get("content",[])
+                      buy=[x for x in content if x.get("buyNowActive") and not x.get("auction") and not x.get("adultContent")]
+                      print("AUKRO sort", sort or "default", "status", r.status, "buy", len(buy))
+                      print("AUKRO times", [x.get("startingTime") for x in buy[:8]])
+                      if buy:
+                          item=buy[0]
+                          detail_url=f"https://aukro.sk/{item.get('seoUrl')}-{item.get('itemId')}"
+                          dreq=urllib.request.Request(detail_url,headers={"User-Agent":headers["User-Agent"],"Accept":"text/html"})
+                          with urllib.request.urlopen(dreq,timeout=30) as dr:
+                              body=dr.read().decode("utf-8","replace")
+                              print("AUKRO detail", dr.status, "bytes", len(body), "jsonld", body.count('application/ld+json'), "description_markers", body.count('description'))
               except Exception as exc:
-                  print(f"AUKRO {label} ERROR", type(exc).__name__, str(exc)[:500])
+                  print("AUKRO sort", sort or "default", "ERROR", type(exc).__name__, str(exc)[:500])
           PY
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
-      - name: Probe Copilot CLI authentication and default model
+      - name: Probe Copilot web tools
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set +e
-          copilot -p 'Return exactly the text COPILOT_OK and nothing else.' -s --no-ask-user --available-tools='' > /tmp/copilot-out.txt 2>/tmp/copilot-err.txt
+          prompt='Use web search to identify the official GitHub domain. Return JSON only: {"ok":true,"domain":"github.com","source_urls":["https://..."]}'
+          copilot -p "$prompt" -s --no-ask-user --available-tools='web_search,web_fetch' --allow-all-urls > /tmp/copilot-out.txt 2>/tmp/copilot-err.txt
           code=$?
           {
-            echo "COPILOT default exit=$code"
-            echo "COPILOT stdout: $(head -c 500 /tmp/copilot-out.txt)"
-            echo "COPILOT stderr: $(head -c 1200 /tmp/copilot-err.txt)"
+            echo "COPILOT web exit=$code"
+            echo "COPILOT web stdout: $(head -c 1600 /tmp/copilot-out.txt)"
+            echo "COPILOT web stderr: $(head -c 1200 /tmp/copilot-err.txt)"
           } | tee -a /tmp/diag.txt
           exit 0
       - name: Post diagnostics
