@@ -26,7 +26,13 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6-terra"
+    ai_review_enabled: bool = False
+    ai_review_required: bool = False
+    ai_max_reviews: int = 12
+    ai_review_ttl_days: int = 14
+    ai_min_confidence: float = 0.75
+    ai_timeout_seconds: float = 75.0
 
     telegram_bot_token: str = ""
     telegram_chat_retro: str = ""
@@ -35,7 +41,7 @@ class Settings(BaseSettings):
     telegram_chat_network: str = ""
 
     eur_czk: Decimal = Decimal(str(_HUNT["eur_czk"]))
-    min_net_profit_eur: Decimal = Decimal(str(_HUNT["min_net_profit_eur"]))
+    min_net_profit_eur: Decimal = Decimal("30")
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
     max_shipping_eur: Decimal = Decimal(str(_HUNT["max_shipping_eur"]))
@@ -45,6 +51,16 @@ class Settings(BaseSettings):
     min_buy_eur: Decimal = Decimal(str(_HUNT.get("min_buy_eur", "10")))
     max_price_vs_typical: Decimal = Decimal(str(_HUNT["max_price_vs_typical"]))
     alert_price_vs_typical: Decimal = Decimal(str(_HUNT.get("alert_price_vs_typical", "1.0")))
+
+    # Conservative resale model. These are deliberately pessimistic because a false
+    # positive is more expensive than missing a marginal deal.
+    resale_fee_rate: Decimal = Decimal("0.10")
+    seller_risk_reserve_rate: Decimal = Decimal("0.05")
+    no_box_haircut_eur: Decimal = Decimal("5")
+    battery_under_80_haircut_rate: Decimal = Decimal("0.15")
+    battery_80_84_haircut_rate: Decimal = Decimal("0.08")
+    battery_85_89_haircut_rate: Decimal = Decimal("0.04")
+
     ebay_fee_rate: Decimal = Decimal(str(_FEES["rates"]["ebay"]))
     aukro_fee_rate: Decimal = Decimal(str(_FEES["rates"]["aukro"]))
     bazos_fee_rate: Decimal = Decimal(str(_FEES["rates"]["bazos"]))
@@ -58,7 +74,7 @@ class Settings(BaseSettings):
     github_alert_issue: int = int(_GITHUB["alert_issue"])
     github_assignee: str = str(_GITHUB["assignee"])
     keepa_api_key: str = ""
-    comps_db: str = str(_HUNT.get("comps_db", ".cache/bazar-comps.sqlite"))
+    comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
 
     @field_validator("github_alert_issue", mode="before")

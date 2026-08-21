@@ -44,16 +44,18 @@ def test_cache_hit_skips_network(tmp_path: Path) -> None:
     assert second is not None
     assert second.median == first.median
     assert second.sample == first.sample
+    assert second.reliable_for_buy is True
     fetch.assert_not_called()
 
 
-def test_cache_miss_fetches(tmp_path: Path) -> None:
+def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)) as fetch:
         comp = SoldCompClient(_settings(db)).median_sold(_listing())
     assert comp is not None
     assert comp.sample == 6
-    assert comp.median == Decimal("89.00")
+    assert comp.median == Decimal("85.00")
+    assert comp.reliable_for_buy is True
     fetch.assert_called_once()
 
 

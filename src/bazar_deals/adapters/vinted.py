@@ -12,7 +12,7 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
-from bazar_deals.htmlparse import parse_vinted_items
+from bazar_deals.htmlparse import parse_vinted_detail, parse_vinted_items
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
@@ -41,21 +41,56 @@ class VintedHuntClient(ListingSource):
             return parse_vinted_items(self.fixture_path.read_text(encoding="utf-8"))
         lo = int(self.settings.min_buy_eur)
         hi = int(self.settings.max_buy_eur)
-        url = (
-            "https://www.vinted.sk/catalog?order=newest_first"
-            f"&price_from={lo}&price_to={hi}"
-        )
-        response = httpx.get(
-            url,
-            headers={
-                "User-Agent": self.settings.bazos_user_agent,
-                "Accept": "text/html",
-            },
-            timeout=30.0,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
-        return parse_vinted_items(response.text)
+        found: list[Listing] = []
+        seen: set[str] = set()
+        for page in (1, 2):
+            url = (
+                "https://www.vinted.sk/catalog?order=newest_first"
+                f"&price_from={lo}&price_to={hi}&page={page}"
+            )
+            response = httpx.get(
+                url,
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            batch = parse_vinted_items(response.text)
+            for item in batch:
+                key = item.external_id or str(item.url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(item)
+            if page == 1:
+                time.sleep(min(2.0, max(0.0, self.settings.bazos_request_gap_seconds)))
+        return found
+
+    def enrich_listing(self, listing: Listing) -> Listing:
+        if self.fixture_path:
+            return listing
+        try:
+            response = httpx.get(
+                str(listing.url),
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            detail = parse_vinted_detail(response.text)
+        except httpx.HTTPError:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = bool(detail)
+        return listing.model_copy(update={"description": detail, "raw": raw})
 
 
 def sign_vinted_request(

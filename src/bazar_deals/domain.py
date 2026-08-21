@@ -56,6 +56,8 @@ class Listing(BaseModel):
     search_query: str = ""
     location: str | None = None
     affiliate_url: HttpUrl | None = None
+    ships_to_slovakia: bool | None = None
+    shipping_cost: Money | None = None
     raw: dict = Field(default_factory=dict)
 
     def is_immediate_buy(self) -> bool:
@@ -79,6 +81,19 @@ class IdentifiedItem(BaseModel):
     confidence: float = Field(ge=0, le=1)
 
 
+class AIReview(BaseModel):
+    approved: bool
+    complete_product: bool
+    canonical_name: str
+    kind: str = "generic"
+    quick_sale_price_eur: Decimal | None = None
+    confidence: float = Field(default=0, ge=0, le=1)
+    reason: str = ""
+    source_urls: list[str] = Field(default_factory=list)
+    model: str = ""
+    cached: bool = False
+
+
 class CostBreakdown(BaseModel):
     buy_price: Decimal
     estimated_resale: Decimal
@@ -95,3 +110,4 @@ class Deal(BaseModel):
     costs: CostBreakdown
     action: Action
     reason: str
+    ai_review: AIReview | None = None

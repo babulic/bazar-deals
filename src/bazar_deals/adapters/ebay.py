@@ -7,7 +7,6 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
-from bazar_deals.htmlparse import parse_ebay_html
 from bazar_deals.rules import rules
 
 _EBAY = rules()["ebay"]
@@ -18,7 +17,7 @@ _SMALL_CATEGORIES = tuple(_EBAY["small_categories"])
 
 
 class EbayBrowseClient(ListingSource):
-    """Newest buy-now ebay.de listings under the price cap."""
+    """Newest buy-now ebay.de listings that can be delivered to Slovakia."""
 
     marketplace = Marketplace.EBAY.value
 
@@ -27,50 +26,55 @@ class EbayBrowseClient(ListingSource):
         self._token: str | None = None
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
-        cap = str(self.settings.max_buy_eur)
-        floor = str(self.settings.min_buy_eur)
-        if self.settings.ebay_client_id and self.settings.ebay_client_secret:
-            listings: list[Listing] = []
-            for category in _SMALL_CATEGORIES:
-                data = self.search(category, limit=30)
-                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
-            return [
-                item
-                for item in listings
-                if item.buy_now
-                and item.condition is not Condition.FOR_PARTS
-                and "ebay.de" in str(item.url)
-                and item.price.amount >= self.settings.min_buy_eur
-                and item.price.amount <= self.settings.max_buy_eur
-            ]
-        return self._fetch_html(floor, cap)
-
-    def _fetch_html(self, floor: str, cap: str) -> list[Listing]:
-        url = (
-            "https://www.ebay.de/sch/i.html?_sop=10&LH_BIN=1"
-            f"&_udlo={floor}&_udhi={cap}&_ipg=60"
-        )
-        response = httpx.get(
-            url,
-            headers={
-                "User-Agent": self.settings.bazos_user_agent,
-                "Accept": "text/html",
-            },
-            timeout=30.0,
-            follow_redirects=True,
-        )
-        if response.status_code >= 400:
-            raise RuntimeError(f"eBay public search HTML HTTP {response.status_code}")
-        listings = [
+        if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
+            raise RuntimeError(
+                "eBay Browse API credentials are required: public HTML cannot reliably confirm delivery to Slovakia"
+            )
+        listings: list[Listing] = []
+        for category in _SMALL_CATEGORIES:
+            data = self.search(category, limit=30)
+            listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+        return [
             item
-            for item in parse_ebay_html(response.text)
-            if "ebay.de" in str(item.url)
+            for item in listings
+            if item.buy_now
+            and item.condition is not Condition.FOR_PARTS
+            and item.ships_to_slovakia is True
+            and "ebay.de" in str(item.url)
             and item.price.amount >= self.settings.min_buy_eur
             and item.price.amount <= self.settings.max_buy_eur
         ]
-        if not listings:
-            raise RuntimeError("eBay Browse keys missing and public search HTML returned no items")
-        return listings
+
+    def enrich_listing(self, listing: Listing) -> Listing:
+        href = str(listing.raw.get("itemHref") or "").strip()
+        if not href:
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        headers = {
+            "Authorization": f"Bearer {self._access_token()}",
+            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
+        }
+        try:
+            response = httpx.get(href, headers=headers, timeout=20.0)
+            response.raise_for_status()
+            data = response.json()
+        except (httpx.HTTPError, ValueError):
+            raw = dict(listing.raw)
+            raw["detail_fetched"] = False
+            return listing.model_copy(update={"raw": raw})
+        description = str(data.get("description") or data.get("shortDescription") or "").strip()
+        shipping = _shipping_cost(data) or listing.shipping_cost
+        raw = dict(listing.raw)
+        raw["detail_fetched"] = bool(description)
+        raw["detail"] = data
+        return listing.model_copy(
+            update={
+                "description": description,
+                "shipping_cost": shipping,
+                "raw": raw,
+            }
+        )
 
     def search(self, category_id: str, *, limit: int = 50) -> dict:
         headers = {
@@ -88,6 +92,7 @@ class EbayBrowseClient(ListingSource):
             "filter": (
                 "buyingOptions:{FIXED_PRICE},"
                 "conditions:{NEW|USED},"
+                "deliveryCountry:SK,"
                 f"price:[{self.settings.min_buy_eur}..{self.settings.max_buy_eur}]"
             ),
         }
@@ -108,6 +113,7 @@ class EbayBrowseClient(ListingSource):
             "filter": (
                 "buyingOptions:{FIXED_PRICE},"
                 "conditions:{NEW|USED},"
+                "deliveryCountry:SK,"
                 f"price:[{self.settings.min_buy_eur}..{hi}]"
             ),
         }
@@ -137,6 +143,7 @@ class EbayBrowseClient(ListingSource):
         price = item.get("price") or {}
         condition_id = (item.get("conditionId") or item.get("condition") or "").upper()
         affiliate = item.get("itemAffiliateWebUrl") or None
+        shipping = _shipping_cost(item)
         return Listing(
             marketplace=Marketplace.EBAY,
             external_id=item.get("itemId", ""),
@@ -151,8 +158,27 @@ class EbayBrowseClient(ListingSource):
             affiliate_url=affiliate,
             bid_count=item.get("bidCount"),
             buy_now=is_ebay_buy_now(item),
+            ships_to_slovakia=True,
+            shipping_cost=shipping,
             raw=item,
         )
+
+
+def _shipping_cost(item: dict) -> Money | None:
+    options = item.get("shippingOptions") or []
+    costs: list[Money] = []
+    for option in options:
+        value = option.get("shippingCost") or {}
+        if value.get("value") is None:
+            continue
+        try:
+            amount = Decimal(str(value["value"]))
+        except Exception:
+            continue
+        costs.append(Money(amount=amount, currency=str(value.get("currency") or "EUR")))
+    if not costs:
+        return None
+    return min(costs, key=lambda money: money.amount)
 
 
 def is_ebay_buy_now(item: dict) -> bool:

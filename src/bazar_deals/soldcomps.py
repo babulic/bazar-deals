@@ -50,6 +50,7 @@ class SoldComp:
     median: Decimal
     sample: int
     label: str
+    reliable_for_buy: bool = True
 
 
 @dataclass(frozen=True)
@@ -98,10 +99,19 @@ def _median(amounts: list[Decimal]) -> Decimal:
     return ((ordered[mid - 1] + ordered[mid]) / 2).quantize(Decimal("0.01"))
 
 
+def _lower_quartile(amounts: list[Decimal]) -> Decimal:
+    """Conservative quick-sale price: nearest-rank 25th percentile."""
+    ordered = sorted(amounts)
+    if not ordered:
+        return Decimal("0")
+    index = max(0, (len(ordered) - 1) // 4)
+    return ordered[index].quantize(Decimal("0.01"))
+
+
 def _comp_label(n: int, source: str = "ebay") -> str:
     if source == "market":
-        return f"obvyklá cena, rýchloobrátkový trh (n={n})"
-    return f"obvyklá cena, funkčný kus, ebay.de sold (n={n})"
+        return f"asking-only kontrola trhu, nie BUY podklad (n={n})"
+    return f"konzervatívna rýchlopredajná cena, ebay.de sold P25 (n={n})"
 
 
 def _url_key(url: object) -> str:
@@ -109,12 +119,12 @@ def _url_key(url: object) -> str:
 
 
 class SoldCompClient:
-    """Typical price for goods that actually circulate.
+    """Conservative market value for goods that actually circulate.
 
-    Prefer eBay.de *sold* median. If that HTML is blocked (common from GitHub)
-    or the sold sample is too small, fall back to current asking prices on
-    Bazos + Aukro (+ eBay Browse when keys exist). Need n ≥ min_sold_sample
-    similar working listings — obscure one-offs stay out. Never invent a price.
+    BUY valuation uses only a sufficiently large set of similar working sold
+    eBay.de items and the lower quartile (P25), not the median. Current asking
+    prices are kept only as a diagnostic fallback and are explicitly marked as
+    unreliable for BUY decisions.
     """
 
     def __init__(
@@ -142,7 +152,7 @@ class SoldCompClient:
         if not query:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        hay = listing.title
+        hay = f"{listing.title} {listing.description}"
         self_key = _url_key(listing.url)
         ask_key = f"ask:{query}"
 
@@ -151,7 +161,8 @@ class SoldCompClient:
             return SoldComp(
                 median=sold_summary.median,
                 sample=sold_summary.n,
-                label=_comp_label(sold_summary.n, sold_summary.source),
+                label=_comp_label(sold_summary.n, "ebay"),
+                reliable_for_buy=True,
             )
 
         hits, status, failed = self._sold_hits(query)
@@ -160,25 +171,27 @@ class SoldCompClient:
                 item
                 for item in hits
                 if item.price.amount > 0
-                and not is_damaged_text(item.title)
+                and not is_damaged_text(f"{item.title} {item.description}")
                 and _url_key(item.url) != self_key
             ]
-            peers = [item for item in sold if similar_titles(hay, item.title)]
+            peers = [item for item in sold if similar_titles(hay, f"{item.title} {item.description}")]
             fetched_at = _utc_now()
             if self._db_path is not None:
                 self._store_fetch(query, sold, peers, status, fetched_at, source="ebay")
             if len(peers) >= min_n:
                 n = len(peers)
                 return SoldComp(
-                    median=_median([item.price.amount for item in peers]),
+                    median=_lower_quartile([item.price.amount for item in peers]),
                     sample=n,
                     label=_comp_label(n, "ebay"),
+                    reliable_for_buy=True,
                 )
         elif sold_summary and sold_summary.n >= min_n:
             return SoldComp(
                 median=sold_summary.median,
                 sample=sold_summary.n,
-                label=_comp_label(sold_summary.n, sold_summary.source),
+                label=_comp_label(sold_summary.n, "ebay"),
+                reliable_for_buy=True,
             )
 
         ask_summary = self._db_summary(ask_key)
@@ -187,6 +200,7 @@ class SoldCompClient:
                 median=ask_summary.median,
                 sample=ask_summary.n,
                 label=_comp_label(ask_summary.n, "market"),
+                reliable_for_buy=False,
             )
 
         if self._fixture_html is not None:
@@ -197,19 +211,25 @@ class SoldCompClient:
             item
             for item in market
             if item.price.amount > 0
-            and not is_damaged_text(item.title)
+            and not is_damaged_text(f"{item.title} {item.description}")
             and _url_key(item.url) != self_key
         ]
-        peers = [item for item in asking if similar_titles(hay, item.title)]
-        if self._db_path is not None:
-            self._store_fetch(ask_key, asking, peers, 200, _utc_now(), source="market")
+        peers = [item for item in asking if similar_titles(hay, f"{item.title} {item.description}")]
         if len(peers) < min_n:
             return None
-        n = len(peers)
+
+        # Asking prices are not realized prices. Apply a strong haircut and, more
+        # importantly, mark them unreliable so the pipeline cannot emit BUY.
+        asking_value = (_lower_quartile([item.price.amount for item in peers]) * Decimal("0.75")).quantize(
+            Decimal("0.01")
+        )
+        if self._db_path is not None:
+            self._store_summary(ask_key, len(peers), asking_value, 200, _utc_now(), source="market")
         return SoldComp(
-            median=_median([item.price.amount for item in peers]),
-            sample=n,
-            label=_comp_label(n, "market"),
+            median=asking_value,
+            sample=len(peers),
+            label=_comp_label(len(peers), "market"),
+            reliable_for_buy=False,
         )
 
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
@@ -221,9 +241,6 @@ class SoldCompClient:
             hits = parse_ebay_html(self._fixture_html)
             self._cache[query] = hits
             return hits, 200, False
-        if self.settings.keepa_api_key:
-            # Paid Keepa needs an ASIN map we do not have. Do not invent prices.
-            pass
         url = (
             "https://www.ebay.de/sch/i.html?_nkw="
             f"{quote(query)}&LH_Sold=1&LH_Complete=1&_ipg=60"
@@ -361,6 +378,28 @@ class SoldCompClient:
             http_status=int(status) if status is not None else None,
         )
 
+    def _store_summary(
+        self,
+        query_key: str,
+        n: int,
+        value: Decimal,
+        status: int | None,
+        fetched_at: datetime,
+        *,
+        source: str,
+    ) -> None:
+        if self._db_path is None:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO sold_queries (query_key, n, median_eur, fetched_at, source, http_status) "
+                "VALUES (?, ?, ?, ?, ?, ?) "
+                "ON CONFLICT(query_key) DO UPDATE SET "
+                "n = excluded.n, median_eur = excluded.median_eur, fetched_at = excluded.fetched_at, "
+                "source = excluded.source, http_status = excluded.http_status",
+                (query_key, n, str(value), _iso(fetched_at), source, status),
+            )
+
     def _store_fetch(
         self,
         query_key: str,
@@ -374,7 +413,7 @@ class SoldCompClient:
         if self._db_path is None:
             return
         stamp = _iso(fetched_at)
-        median = _median([item.price.amount for item in peers]) if peers else Decimal("0")
+        value = _lower_quartile([item.price.amount for item in peers]) if peers else Decimal("0")
         with self._connect() as conn:
             conn.execute("DELETE FROM sold_listings WHERE query_key = ?", (query_key,))
             conn.executemany(
@@ -396,28 +435,5 @@ class SoldCompClient:
                     for item in sold
                 ],
             )
-            if peers:
-                conn.execute(
-                    "INSERT INTO sold_queries (query_key, n, median_eur, fetched_at, source, http_status) "
-                    "VALUES (?, ?, ?, ?, ?, ?) "
-                    "ON CONFLICT(query_key) DO UPDATE SET "
-                    "n = excluded.n, median_eur = excluded.median_eur, fetched_at = excluded.fetched_at, "
-                    "source = excluded.source, http_status = excluded.http_status",
-                    (query_key, len(peers), str(median), stamp, source, status),
-                )
-            else:
-                existing = conn.execute(
-                    "SELECT n FROM sold_queries WHERE query_key = ?",
-                    (query_key,),
-                ).fetchone()
-                if existing is None:
-                    conn.execute(
-                        "INSERT INTO sold_queries (query_key, n, median_eur, fetched_at, source, http_status) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (query_key, 0, "0", stamp, source, status),
-                    )
-                else:
-                    conn.execute(
-                        "UPDATE sold_queries SET http_status = ? WHERE query_key = ?",
-                        (status, query_key),
-                    )
+        if peers:
+            self._store_summary(query_key, len(peers), value, status, fetched_at, source=source)

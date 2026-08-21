@@ -21,11 +21,12 @@ def test_rss_parses_price_from_title() -> None:
     assert listings[0].price.amount == 38
 
 
-def test_hunt_flags_fixture_commodore() -> None:
+def test_fixture_is_scored_but_not_buy_when_net_profit_is_under_30() -> None:
     deals = hunt(BazosRssClient(fixture_path=FIXTURE), sold=SoldCompClient(fixture_path=SOLD))
     cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
     assert cheap
-    assert cheap[0].action is Action.BUY
+    assert cheap[0].action is Action.SKIP
+    assert cheap[0].costs.net_profit < 30
     assert cheap[0].item.canonical_name == "Commodore 1541-II disk drive"
 
 
@@ -35,14 +36,11 @@ def test_fixture_drops_bulky_couch() -> None:
     assert is_bulky("Starý gauč")
 
 
-def test_cli_offline(capsys) -> None:
+def test_cli_offline_reports_no_false_buy(capsys) -> None:
     assert main(["hunt", "--offline", "--source", "bazos"]) == 0
     out = capsys.readouterr().out
-    assert "Commodore 1541-II" in out
-    assert "BUY" in out
-    assert "obvyklá" in out
     assert "filter:" in out
-    assert "buy=" in out
+    assert "No deals" in out
 
 
 def test_under_min_price_is_dropped() -> None:
@@ -69,7 +67,7 @@ def test_under_min_price_is_dropped() -> None:
     assert deals == []
 
 
-def test_market_asking_comps_when_ebay_sold_blocked(tmp_path) -> None:
+def test_asking_only_market_comps_cannot_create_buy(tmp_path) -> None:
     from unittest.mock import patch
 
     from bazar_deals.config import Settings
@@ -98,9 +96,4 @@ def test_market_asking_comps_when_ebay_sold_blocked(tmp_path) -> None:
     sold = SoldCompClient(settings)
     with patch("bazar_deals.soldcomps.httpx.get", side_effect=fake_get):
         deals = hunt(BazosRssClient(fixture_path=FIXTURE), settings=settings, sold=sold)
-    cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
-    assert cheap
-    assert cheap[0].action is Action.BUY
-    assert cheap[0].costs.estimated_resale > 0
-    assert "nedostupná" not in (cheap[0].item.sold_label or "")
-    assert "trh" in cheap[0].item.sold_label
+    assert deals == []

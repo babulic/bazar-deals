@@ -2,9 +2,14 @@ from decimal import Decimal
 from pathlib import Path
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.domain import Action, Listing, Marketplace, Money, Vertical
-from bazar_deals.identity import ItemKind, classify_kind, identify
+from bazar_deals.identity import (
+    ItemKind,
+    classify_kind,
+    identify,
+    is_replacement_part_text,
+    similar_titles,
+)
 from bazar_deals.pipeline import hunt
 from bazar_deals.soldcomps import SoldCompClient
 
@@ -43,6 +48,41 @@ def test_kinds_cover_small_goods() -> None:
     assert classify_kind("Topásový prsteň") is ItemKind.JEWELRY
 
 
+def test_iphone_replacement_display_is_accessory_not_phone() -> None:
+    title = "Nový OLED display na iPhone 13"
+    listing = Listing(
+        marketplace=Marketplace.VINTED,
+        external_id="display-13",
+        title=title,
+        description="Náhradný OLED displej, telefón nie je súčasťou ponuky.",
+        url="https://www.vinted.sk/items/123456",
+        price=Money(amount=Decimal("35"), currency="EUR"),
+    )
+    item = identify(listing)
+    assert is_replacement_part_text(title)
+    assert item.kind == ItemKind.ACCESSORIES.value
+    assert item.kind != ItemKind.PHONES.value
+
+
+def test_replacement_display_never_matches_complete_iphone_comp() -> None:
+    part = "Nový OLED display na iPhone 13 128GB"
+    phone = "Apple iPhone 13 128GB Midnight"
+    assert similar_titles(part, phone) is False
+
+
+def test_normal_iphone_is_still_phone() -> None:
+    assert identify(
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="iphone",
+            title="Apple iPhone 13 128GB Midnight",
+            description="Plne funkčný, display bez škrabancov.",
+            url="https://mobil.bazos.sk/inzerat/iphone/",
+            price=Money(amount=Decimal("100"), currency="EUR"),
+        )
+    ).kind == ItemKind.PHONES.value
+
+
 def test_konami_cassette_is_media_not_c64_computer() -> None:
     listing = Listing(
         marketplace=Marketplace.AUKRO,
@@ -71,11 +111,16 @@ def test_cassette_does_not_buy_against_c64_computer_sold_comps() -> None:
     assert all(deal.action is not Action.BUY for deal in deals)
 
 
-def test_1541_drive_can_buy_when_sold_comps_match() -> None:
-    sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_1541.html")
-    deals = hunt(BazosRssClient(fixture_path=ROOT / "bazos_rss.xml"), sold=sold)
-    cheap = [deal for deal in deals if "1541/" in str(deal.item.listing.url)]
-    assert cheap
-    assert cheap[0].action is Action.BUY
-    assert cheap[0].costs.estimated_resale >= Decimal("80")
-    assert "predaných" in cheap[0].item.sold_label or "sold" in cheap[0].item.sold_label
+def test_1541_drive_matches_1541_sold_comps() -> None:
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="1541",
+        title="Commodore 1541-II disk drive",
+        description="Funkčná mechanika, krabica.",
+        url="https://pc.bazos.sk/inzerat/1541/",
+        price=Money(amount=Decimal("38"), currency="EUR"),
+    )
+    comp = SoldCompClient(fixture_path=ROOT / "ebay_sold_1541.html").median_sold(listing)
+    assert comp is not None
+    assert comp.reliable_for_buy is True
+    assert comp.median >= Decimal("80")

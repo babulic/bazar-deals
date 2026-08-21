@@ -1,58 +1,116 @@
 # bazar-deals
 
-Hunter for **small shippable, working goods**. Sites: ebay.de, vinted.sk, aukro.sk, bazos.sk. Buy-now only. Auctions are out.
+Hunter for **small, shippable, working goods** with a conservative resale valuation.
 
+Purchase sources:
+
+- `vinted.sk`
+- `aukro.sk`
+- `bazos.sk`
+- `ebay.de` — only listings for which delivery to Slovakia is confirmed by the eBay Browse API
+
+Buy-now only. Auctions and for-parts / damaged listings are excluded.
+
+## Decision rule
+
+The old rule `listed price <= 50% of typical price` is no longer used for BUY decisions. It could produce false positives when the market value itself was overestimated.
+
+A listing becomes **BUY only when expected conservative net profit is at least 30 EUR**.
+
+```text
+newest buy-now listing
+    ↓
+small + working + within purchase cap
+    ↓
+for ebay.de: deliveryCountry=SK must be confirmed
+    ↓
+strict identity / variant matching
+(storage, year, phone model, Pro/Max/Plus/Mini/Ultra etc.)
+    ↓
+minimum sold sample
+    ↓
+quick-sale resale value = P25 of similar working ebay.de SOLD comps
+    ↓
+subtract:
+  purchase price
+  inbound shipping
+  purchase fees (for example Vinted buyer protection)
+  conservative resale-fee reserve
+  known condition/accessory haircut
+  seller/valuation risk reserve
+    ↓
+BUY only if expected net profit >= 30 EUR
 ```
-newest buy-now ads
-     ↓
-price ≤ MAX_BUY_EUR (default 110) and ≥ MIN_BUY_EUR (default 10)
-     ↓
-drop bulky, auctions, damaged / for-parts
-     ↓
-identify the listing (weak title → skip)
-     ↓
-typical price = median of similar *sold* ebay.de working items
-     ↓
-BUY only if price ≤ typical × MAX_PRICE_VS_TYPICAL (default 0.5)
+
+## Conservative valuation
+
+`bazar-deals` intentionally prefers false negatives over false positives.
+
+For BUY decisions:
+
+1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
+2. The valuation uses the **lower quartile (P25)** of sufficiently similar working sold comps, not their median.
+3. Current asking prices from Bazoš/Aukro/eBay may be collected as a diagnostic fallback, but **asking-only comps are never allowed to create BUY**.
+4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
+5. A separate risk reserve is deducted before profit is calculated.
+
+This is deliberately stricter than normal marketplace valuation because an overvalued BUY alert costs real money while a skipped marginal deal does not.
+
+## Net profit
+
+Expected net profit is calculated approximately as:
+
+```text
+conservative quick-sale resale value
+- purchase price
+- inbound shipping
+- purchase / platform fees
+- conservative resale-fee reserve
+- condition/accessory haircut
+- risk reserve
+= expected net profit
 ```
 
-## Decision (the only BUY rule)
+Default BUY floor: **30 EUR**.
 
-Alert when **all** of this is true:
+## eBay Germany
 
-1. The listing is **buy-now**, **small**, **≥ min buy** and **≤ max buy** (10–110 € by default).
-2. Text does not say damaged / for parts / not working. eBay `FOR_PARTS` is dropped.
-3. Identity is tight enough to search comps (a Konami C64 *cassette* is not a C64 computer).
-4. Typical price exists because the item **circulates**: median of similar **sold** ebay.de peers (`n ≥ 5`), or if sold HTML is blocked, median of similar **asking** prices on Bazos/Aukro/eBay (`n ≥ 5`). Obscure one-offs with no market sample are skipped — we do not post “typická cena nedostupná”.
-5. **BUY** if listed price **≤ typical × max_price_vs_typical** (default 0.5). **ALERT** if still ≤ typical × `alert_price_vs_typical` (default 1.0).
+Live eBay purchasing requires `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`.
 
-Default `MAX_PRICE_VS_TYPICAL=0.5` means listed price at most **half** the usual working-condition market price. Set `1.0` for at-or-below typical. Set `MAX_BUY_EUR=40` to cap spend.
+The Browse API search includes `deliveryCountry:SK`. Public eBay search HTML is not accepted as a purchase source because it cannot reliably prove that the specific listing ships to Slovakia. When the API exposes a shipping cost, that cost is used; otherwise the conservative configured shipping allowance is used.
 
-Usual price is **not** a hardcoded table. Sold ebay.de comps are preferred. Hunt reads SQLite first (`COMPS_DB`). If eBay sold HTML 403s from GitHub, hunt uses a stored sold median when one exists, otherwise the current circulating asking median from Bazos/Aukro (and eBay Browse when `EBAY_CLIENT_ID`/`SECRET` are set). We do not invent a number.
+## Sold comps cache
 
-GitHub Actions restores/saves `.cache/bazar-comps.sqlite` with `actions/cache@v4` (`sold-comps-v1-` prefix, `COMPS_DB=.cache/bazar-comps.sqlite`) so hourly hunts reuse sold comps across runs.
+Conservative sold valuations use a new cache database:
 
-## Config
+```text
+.cache/bazar-comps-v2.sqlite
+```
 
-Lists, maps, and numeric defaults live in [`src/bazar_deals/data/bazar.yaml`](src/bazar_deals/data/bazar.yaml): bulky words, identity markers, damage phrases, Bazoš categories, hunt caps, fees, GitHub label. Optional overlay: `bazar.yaml` in the project root, or `BAZAR_CONFIG=/path/to.yaml`.
+The v2 cache intentionally does not reuse the older median/asking-price cache, preventing stale inflated values from leaking into the new decision model.
 
-Secrets (tokens, API keys) stay in `.env`. Env still overrides hunt gates:
+## Main configuration
 
-| Env | YAML key | Meaning |
-|---|---|---|
-| `MAX_BUY_EUR` | `hunt.max_buy_eur` | Max listed price to consider (default 110) |
-| `MIN_BUY_EUR` | `hunt.min_buy_eur` | Min listed price to consider (default 10) |
-| `MAX_PRICE_VS_TYPICAL` | `hunt.max_price_vs_typical` | Buy if price ≤ typical × this |
-| `ALERT_PRICE_VS_TYPICAL` | `hunt.alert_price_vs_typical` | Alert if price ≤ typical × this (default 1.0) |
-| `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Assumed postage when listed price ≥ 20 EUR (default 15) |
-| `CHEAP_BUY_EUR` | `hunt.cheap_buy_eur` | Listed-price cutoff for the cheaper postage cap (default 20) |
-| `MAX_SHIPPING_CHEAP_EUR` | `hunt.max_shipping_cheap_eur` | Assumed postage when listed price < 20 EUR (default 11) |
-| `COMPS_DB` | `hunt.comps_db` | SQLite path for sold comps (default `.cache/bazar-comps.sqlite`) |
-| `COMPS_TTL_DAYS` | `hunt.comps_ttl_days` | Reuse cached median this many days (default 7) |
+Environment overrides used by GitHub Actions:
+
+| Env | Default | Meaning |
+|---|---:|---|
+| `MIN_NET_PROFIT_EUR` | `30` | Minimum expected clean profit for BUY |
+| `MIN_BUY_EUR` | `10` | Minimum purchase price |
+| `MAX_BUY_EUR` | `110` | Maximum purchase price |
+| `MAX_SHIPPING_EUR` | `15` | Conservative inbound shipping when actual cost is unavailable |
+| `MAX_SHIPPING_CHEAP_EUR` | `11` | Shipping allowance for cheap purchases |
+| `RESALE_FEE_RATE` | `0.10` | Conservative resale fee reserve |
+| `SELLER_RISK_RESERVE_RATE` | `0.05` | General valuation / seller risk reserve |
+| `NO_BOX_HAIRCUT_EUR` | `5` | Resale-value reduction when listing explicitly says no box |
+| `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Sold comps cache |
+| `COMPS_TTL_DAYS` | `7` | Cache reuse period |
+
+Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
 
 ## Alerts
 
-One digest comment per hunt on [Deal alerts #1](https://github.com/babulic/bazar-deals/issues/1), label **`bazar-alert`**, assigned to `babulic`, first line `@babulic`.
+Only **BUY** deals that pass the >=30 EUR expected-net-profit gate are posted to the GitHub Deal alerts collector issue. The alert includes purchase price, conservative quick-sale value, shipping, fees, condition haircut, risk reserve and expected clean profit.
 
 ## Run
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html as html_lib
 import json
 import re
 from decimal import Decimal, InvalidOperation
@@ -68,10 +69,12 @@ def _product_listing(node: dict, marketplace: Marketplace, currency: str) -> Lis
     offer_currency = offers.get("priceCurrency") or currency
     offer_type = str(offers.get("@type") or "")
     buy_now = "Auction" not in offer_type
+    description = _plain_text(str(node.get("description") or ""))
     return Listing(
         marketplace=marketplace,
         external_id=str(url).rstrip("/").split("/")[-1],
         title=name,
+        description=description,
         url=str(url),
         price=Money(amount=amount, currency=str(offer_currency)),
         buy_now=buy_now,
@@ -93,7 +96,7 @@ def parse_vinted_items(html: str) -> list[Listing]:
             Listing(
                 marketplace=Marketplace.VINTED,
                 external_id=item_id,
-                title=title.replace('\\"', '"'),
+                title=_decode_json_text(title),
                 url=f"https://www.vinted.sk/items/{item_id}",
                 price=Money(amount=_decimal(amount), currency="EUR"),
             )
@@ -106,12 +109,36 @@ def parse_vinted_items(html: str) -> list[Listing]:
             Listing(
                 marketplace=Marketplace.VINTED,
                 external_id=item_id,
-                title=title.strip(),
+                title=_plain_text(title),
                 url=url.split("?")[0],
                 price=Money(amount=Decimal("0"), currency="EUR"),
             )
         )
     return listings
+
+
+def parse_vinted_detail(html: str) -> str:
+    """Best-effort public detail extraction; no private API and no challenge bypass."""
+    description = _json_string(html, "description")
+    status = _json_string(html, "status") or _json_string(html, "condition")
+    parts = [part for part in (_plain_text(description), _plain_text(status)) if part]
+    return " ".join(parts).strip()
+
+
+def parse_bazos_detail(html: str) -> str:
+    """Extract public Bazoš detail text from the visible detail/meta page."""
+    candidates: list[str] = []
+    for pattern in (
+        r'<div[^>]+class="[^"]*popisdetail[^"]*"[^>]*>(.*?)</div>',
+        r'<meta[^>]+name="description"[^>]+content="([^"]+)"',
+        r'<meta[^>]+property="og:description"[^>]+content="([^"]+)"',
+    ):
+        match = re.search(pattern, html, flags=re.I | re.S)
+        if match:
+            text = _plain_text(match.group(1))
+            if text:
+                candidates.append(text)
+    return max(candidates, key=len) if candidates else ""
 
 
 def parse_ebay_html(html: str) -> list[Listing]:
@@ -144,6 +171,31 @@ def parse_ebay_html(html: str) -> list[Listing]:
             )
         )
     return listings
+
+
+def _json_string(text: str, key: str) -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*("(?:\\.|[^"\\])*")', text, flags=re.S)
+    if not match:
+        return ""
+    try:
+        return str(json.loads(match.group(1)))
+    except json.JSONDecodeError:
+        return ""
+
+
+def _decode_json_text(text: str) -> str:
+    try:
+        return str(json.loads(f'"{text}"'))
+    except json.JSONDecodeError:
+        return text.replace('\\"', '"')
+
+
+def _plain_text(value: str) -> str:
+    if not value:
+        return ""
+    text = re.sub(r"<[^>]+>", " ", value)
+    text = html_lib.unescape(text)
+    return " ".join(text.split())
 
 
 def _decimal(value: object) -> Decimal:

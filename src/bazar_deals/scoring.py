@@ -1,3 +1,6 @@
+from __future__ import annotations
+
+import re
 from decimal import Decimal
 
 from bazar_deals.config import Settings
@@ -6,18 +9,63 @@ from bazar_deals.rules import rules
 
 
 def assumed_shipping(buy: Decimal, settings: Settings | None = None) -> Decimal:
-    """Assumed postage: cheaper cap under cheap_buy_eur, otherwise max_shipping_eur."""
+    """Conservative inbound postage when the listing does not expose a real cost."""
     settings = settings or Settings()
     if buy < settings.cheap_buy_eur:
         return settings.max_shipping_cheap_eur
     return settings.max_shipping_eur
 
 
-def _fee_rates() -> dict:
-    return {
-        Marketplace(name): Decimal(str(rate))
-        for name, rate in rules()["fees"]["rates"].items()
-    }
+def _vinted_buy_fee(buy: Decimal, settings: Settings) -> Decimal:
+    fees_cfg = rules()["fees"]
+    rate = Decimal(str(fees_cfg["rates"]["vinted"]))
+    fixed = Decimal(str(fees_cfg["vinted_fixed_eur"]))
+    return (buy * rate + fixed).quantize(Decimal("0.01"))
+
+
+def _battery_health(text: str) -> int | None:
+    folded = text.casefold()
+    patterns = (
+        r"(?:battery\s*health|battery|bat[eé]ri[ae]|bateria|akku|kond[ií]cia\s*bat[eé]rie)[^\d]{0,20}(\d{2,3})\s*%",
+        r"(\d{2,3})\s*%[^\n]{0,20}(?:battery|bat[eé]ri[ae]|bateria|akku)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, folded, flags=re.I)
+        if match:
+            value = int(match.group(1))
+            if 1 <= value <= 100:
+                return value
+    return None
+
+
+def condition_haircut(item: IdentifiedItem, resale: Decimal, settings: Settings) -> Decimal:
+    """Known listing-specific defects/accessory gaps reduce the conservative resale value."""
+    listing = item.listing
+    text = f"{listing.title} {listing.description}".casefold()
+    haircut = Decimal("0")
+
+    battery = _battery_health(text)
+    if battery is not None:
+        if battery < 80:
+            haircut += resale * settings.battery_under_80_haircut_rate
+        elif battery < 85:
+            haircut += resale * settings.battery_80_84_haircut_rate
+        elif battery < 90:
+            haircut += resale * settings.battery_85_89_haircut_rate
+
+    no_box_markers = (
+        "bez krabice",
+        "bez krabičky",
+        "bez krabicky",
+        "without box",
+        "no box",
+        "ohne ovp",
+        "ohne originalverpackung",
+    )
+    if any(marker in text for marker in no_box_markers):
+        haircut += settings.no_box_haircut_eur
+
+    return min(resale, haircut.quantize(Decimal("0.01")))
 
 
 def score_deal(
@@ -33,62 +81,54 @@ def score_deal(
     alert_price_vs_typical: Decimal | None = None,
     max_buy_eur: Decimal | None = None,
 ) -> Deal:
-    """BUY at typical × max_price_vs_typical; ALERT at typical × alert_price_vs_typical.
+    """BUY only when conservative expected net profit is at least the configured floor.
 
-    `typical` must be a real sold-comp median for the same working item.
-    min_net_profit / min_margin are ignored for the decision (kept for call compatibility).
-    Assumed postage is stored on the cost breakdown; it does not change BUY vs ALERT vs SKIP.
+    `typical` is expected to already be a conservative quick-sale comp value.  The
+    old price-ratio rule is intentionally ignored: cheap versus a bad valuation is
+    not a deal.  We subtract inbound shipping, purchase fees, a conservative resale
+    fee reserve, listing-specific condition haircuts, and a general risk reserve.
     """
-    del min_net_profit, min_margin
+    del min_margin, fee_rate, max_price_vs_typical, alert_price_vs_typical
     settings = settings or Settings()
-    buy_ratio = max_price_vs_typical if max_price_vs_typical is not None else settings.max_price_vs_typical
-    alert_ratio = (
-        alert_price_vs_typical if alert_price_vs_typical is not None else settings.alert_price_vs_typical
-    )
+    threshold = min_net_profit if min_net_profit is not None else settings.min_net_profit_eur
     cap = max_buy_eur if max_buy_eur is not None else settings.max_buy_eur
     listing = item.listing
     buy = listing.price.amount
     postage = assumed_shipping(buy, settings) if shipping is None else shipping
-    fees_cfg = rules()["fees"]
-    fee_rate = _fee_rates()[listing.marketplace] if fee_rate is None else fee_rate
-    buy_side = {Marketplace(name) for name in fees_cfg["buy_side"]}
-    fee_base = buy if listing.marketplace in buy_side else typical
-    fees = (fee_base * fee_rate).quantize(Decimal("0.01"))
-    if listing.marketplace in buy_side:
-        fees = (fees + Decimal(str(fees_cfg["vinted_fixed_eur"]))).quantize(Decimal("0.01"))
-    buy_ceiling = (typical * buy_ratio).quantize(Decimal("0.01"))
-    alert_ceiling = (typical * alert_ratio).quantize(Decimal("0.01"))
-    delta = (typical - buy).quantize(Decimal("0.01"))
+
+    purchase_fee = Decimal("0")
+    if listing.marketplace is Marketplace.VINTED:
+        purchase_fee = _vinted_buy_fee(buy, settings)
+    resale_fee = (typical * settings.resale_fee_rate).quantize(Decimal("0.01"))
+    fees = (purchase_fee + resale_fee).quantize(Decimal("0.01"))
+    haircut = condition_haircut(item, typical, settings)
+    risk = (typical * settings.seller_risk_reserve_rate).quantize(Decimal("0.01"))
+    net = (typical - buy - postage - fees - haircut - risk).quantize(Decimal("0.01"))
+
     costs = CostBreakdown(
         buy_price=buy,
         estimated_resale=typical,
         shipping=postage,
         fees=fees,
-        condition_haircut=Decimal("0"),
-        seller_risk=Decimal("0"),
-        net_profit=delta,
+        condition_haircut=haircut,
+        seller_risk=risk,
+        net_profit=net,
     )
+
     if buy > cap:
         return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"over max buy {cap} EUR")
     if buy < settings.min_buy_eur:
         return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"under min buy {settings.min_buy_eur} EUR")
-    if buy <= buy_ceiling:
+    if net >= threshold:
         return Deal(
             item=item,
             costs=costs,
             action=Action.BUY,
-            reason=f"at or below typical × {buy_ratio} ({buy} <= {buy_ceiling})",
-        )
-    if buy <= alert_ceiling:
-        return Deal(
-            item=item,
-            costs=costs,
-            action=Action.ALERT,
-            reason=f"above buy threshold but at or below typical × {alert_ratio} ({buy} <= {alert_ceiling})",
+            reason=f"expected net profit {net} EUR >= {threshold} EUR",
         )
     return Deal(
         item=item,
         costs=costs,
         action=Action.SKIP,
-        reason=f"above typical ({buy} > {alert_ceiling})",
+        reason=f"expected net profit {net} EUR < {threshold} EUR",
     )
