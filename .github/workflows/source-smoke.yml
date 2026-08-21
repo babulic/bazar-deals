@@ -13,58 +13,86 @@ permissions:
 jobs:
   smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Probe Aukro newest sort
-        run: |
-          python - <<'PY' | tee /tmp/diag.txt
-          import json
-          import urllib.request
-          print("<!-- source-smoke-v3 -->")
-          print("## Source smoke v3")
-          headers={"User-Agent":"Mozilla/5.0 AppleWebKit/537.36 Chrome/139 Safari/537.36","Accept":"application/json","Content-Type":"application/json"}
-          payload=json.dumps({"fallbackItemsCount":12,"splitGroupKey":"listing","splitGroupValue":"A18"}).encode()
-          for sort in ["", "&sort=-startTime"]:
-              url="https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon?page=0&size=20"+sort
-              try:
-                  req=urllib.request.Request(url,data=payload,method="POST",headers=headers)
-                  with urllib.request.urlopen(req,timeout=30) as r:
-                      data=json.loads(r.read().decode())
-                      content=data.get("content",[])
-                      buy=[x for x in content if x.get("buyNowActive") and not x.get("auction") and not x.get("adultContent")]
-                      print("AUKRO sort", sort or "default", "status", r.status, "buy", len(buy))
-                      print("AUKRO times", [x.get("startingTime") for x in buy[:8]])
-                      if buy:
-                          item=buy[0]
-                          detail_url=f"https://aukro.sk/{item.get('seoUrl')}-{item.get('itemId')}"
-                          dreq=urllib.request.Request(detail_url,headers={"User-Agent":headers["User-Agent"],"Accept":"text/html"})
-                          with urllib.request.urlopen(dreq,timeout=30) as dr:
-                              body=dr.read().decode("utf-8","replace")
-                              print("AUKRO detail", dr.status, "bytes", len(body), "jsonld", body.count('application/ld+json'), "description_markers", body.count('description'))
-              except Exception as exc:
-                  print("AUKRO sort", sort or "default", "ERROR", type(exc).__name__, str(exc)[:500])
-          PY
+      - run: python -m pip install -e .
       - name: Install Copilot CLI
         run: npm install -g @github/copilot
-      - name: Probe Copilot web tools
+      - name: Smoke live clients and AI reviewer
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          AI_PROVIDER: copilot
+          AI_REVIEW_ENABLED: "true"
+          AI_REVIEW_REQUIRED: "true"
+          COMPS_DB: /tmp/source-smoke.sqlite
         run: |
-          set +e
-          prompt='Use web search to identify the official GitHub domain. Return JSON only: {"ok":true,"domain":"github.com","source_urls":["https://..."]}'
-          copilot -p "$prompt" -s --no-ask-user --available-tools='web_search,web_fetch' --allow-all-urls > /tmp/copilot-out.txt 2>/tmp/copilot-err.txt
-          code=$?
-          {
-            echo "COPILOT web exit=$code"
-            echo "COPILOT web stdout: $(head -c 1600 /tmp/copilot-out.txt)"
-            echo "COPILOT web stderr: $(head -c 1200 /tmp/copilot-err.txt)"
-          } | tee -a /tmp/diag.txt
-          exit 0
+          python - <<'PY' | tee /tmp/diag.txt
+          from decimal import Decimal
+          from bazar_deals.adapters.aukro import AukroHuntClient
+          from bazar_deals.adapters.vinted import VintedHuntClient
+          from bazar_deals.ai_review import AIReviewClient
+          from bazar_deals.config import Settings
+          from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money
+          from bazar_deals.scoring import score_deal
+
+          print('<!-- source-smoke-v4 -->')
+          print('## Source smoke v4')
+          settings = Settings()
+
+          vinted = VintedHuntClient(settings).fetch_new()
+          print('VINTED count', len(vinted))
+          if vinted:
+              print('VINTED first', vinted[0].external_id, vinted[0].title[:120], vinted[0].price.amount, vinted[0].price.currency)
+
+          aukro = AukroHuntClient(settings).fetch_new()
+          print('AUKRO count', len(aukro))
+          if aukro:
+              print('AUKRO first', aukro[0].external_id, aukro[0].title[:120], aukro[0].price.amount, aukro[0].price.currency)
+
+          assert len(vinted) > 0, 'Vinted parser returned zero live listings'
+          assert len(aukro) > 0, 'Aukro client returned zero live listings'
+
+          listing = Listing(
+              marketplace=Marketplace.VINTED,
+              external_id='smoke-ai',
+              title='Apple iPhone SE 2020 64 GB black',
+              description='Used complete phone, battery 77%, no box.',
+              url='https://www.vinted.sk/',
+              price=Money(amount=Decimal('45'), currency='EUR'),
+              condition=Condition.USED,
+          )
+          item = IdentifiedItem(
+              listing=listing,
+              vertical=None,
+              canonical_name='Apple iPhone SE 2020 64 GB',
+              model='iphone se 2020 64gb',
+              search_query='iphone se 2020 64gb',
+              asking_sample=8,
+              kind='phones',
+              sold_label='smoke deterministic P25',
+              confidence=0.9,
+          )
+          deal = score_deal(item, Decimal('90'), Decimal('6'), settings=settings)
+          review = AIReviewClient(settings, db_path='/tmp/source-smoke.sqlite').review(deal)
+          print('AI approved', review.approved)
+          print('AI complete_product', review.complete_product)
+          print('AI canonical', review.canonical_name)
+          print('AI price', review.quick_sale_price_eur)
+          print('AI confidence', review.confidence)
+          print('AI sources', len(review.source_urls))
+          print('AI model', review.model)
+          assert review.canonical_name
+          assert review.source_urls, 'Copilot reviewer returned no web evidence'
+          PY
       - name: Post diagnostics
+        if: always()
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue comment 1 --repo "${{ github.repository }}" --body-file /tmp/diag.txt
+        run: |
+          if [ -f /tmp/diag.txt ]; then
+            gh issue comment 1 --repo "${{ github.repository }}" --body-file /tmp/diag.txt
+          fi
