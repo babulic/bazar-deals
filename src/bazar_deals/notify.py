@@ -25,6 +25,7 @@ _KIND_SK = {
     "tools": "náradie",
     "hardware": "hardware",
     "generic": "iné",
+    "other": "iné",
 }
 
 _CONDITION_SK = {
@@ -38,16 +39,28 @@ _CONDITION_SK = {
 
 def format_deal(deal: Deal) -> str:
     item = deal.item
+    listing = item.listing
     costs = deal.costs
-    source = item.listing.marketplace.value.capitalize()
+    source = listing.marketplace.value.capitalize()
     affiliate = ""
-    if item.listing.affiliate_url:
-        affiliate = f"\naffiliate: {item.listing.affiliate_url}"
+    if listing.affiliate_url:
+        affiliate = f"\naffiliate: {listing.affiliate_url}"
     shipping_note = ""
-    if item.listing.marketplace.value == "ebay":
+    if listing.marketplace.value == "ebay":
         shipping_note = " (doručenie na Slovensko potvrdené)"
+    ai_lines = ""
+    if deal.ai_review:
+        ai = deal.ai_review
+        ai_price = f"{ai.quick_sale_price_eur} €" if ai.quick_sale_price_eur is not None else "neoverená"
+        ai_lines = (
+            f"AI identifikácia: {ai.canonical_name}\n"
+            f"AI web cena: {ai_price}; confidence {ai.confidence:.2f}\n"
+            f"AI dôvod: {ai.reason}\n"
+        )
     return (
-        f"{item.canonical_name}\n"
+        f"Titulok inzerátu: {listing.title}\n"
+        f"Identifikovaný tovar: {item.canonical_name}\n"
+        f"{ai_lines}"
         f"{source}: {costs.buy_price} €\n"
         f"{item.sold_label or 'konzervatívna predajná cena'}: {costs.estimated_resale} €\n"
         f"nákupná doprava{shipping_note}: {costs.shipping} €\n"
@@ -55,7 +68,7 @@ def format_deal(deal: Deal) -> str:
         f"stav/výbava haircut: {costs.condition_haircut} €\n"
         f"riziková rezerva: {costs.seller_risk} €\n"
         f"očakávaný čistý zisk: {costs.net_profit} €  🔥 BUY\n"
-        f"{item.listing.url}{affiliate}"
+        f"{listing.url}{affiliate}"
     )
 
 
@@ -69,11 +82,10 @@ def format_github_deal(deal: Deal) -> str:
     title = listing.title or item.canonical_name
     kind = _kind_label(item.kind)
     rows: list[tuple[str, str]] = [
-        ("názov", title),
+        ("titulok inzerátu", title),
+        ("identifikovaný tovar", item.canonical_name or "—"),
         ("typ tovaru", kind),
     ]
-    if item.canonical_name and item.canonical_name != title:
-        rows.append(("canonical", item.canonical_name))
     if item.brand:
         rows.append(("značka", item.brand))
     if item.model:
@@ -84,9 +96,9 @@ def format_github_deal(deal: Deal) -> str:
     rows.append(("id", listing.external_id))
     rows.append(("nákupná cena", _eur(costs.buy_price)))
     if typical > 0:
-        rows.append(("konzervatívna rýchlopredajná cena", _eur(typical)))
+        rows.append(("finálna konzervatívna rýchlopredajná cena", _eur(typical)))
     else:
-        rows.append(("konzervatívna rýchlopredajná cena", "neznáma"))
+        rows.append(("finálna konzervatívna rýchlopredajná cena", "neznáma"))
     rows.append(("nákupná doprava", _eur(costs.shipping)))
     rows.append(("poplatky + resale rezerva", _eur(costs.fees)))
     if costs.condition_haircut > 0:
@@ -102,22 +114,28 @@ def format_github_deal(deal: Deal) -> str:
         rows.append(("predajca", listing.seller_id))
     if listing.seller_score is not None:
         rows.append(("seller_score", f"{listing.seller_score:.2f}"))
-    if listing.created_at:
-        rows.append(("created_at", listing.created_at.isoformat()))
-    if listing.ends_at:
-        rows.append(("ends_at", listing.ends_at.isoformat()))
-    if listing.bid_count:
-        rows.append(("bid_count", str(listing.bid_count)))
-    if not listing.buy_now:
-        rows.append(("kúpiť teraz", "nie"))
     identity = item.search_query or listing.search_query
-    rows.append(("identita", identity or "—"))
-    rows.append(("confidence", f"{item.confidence:.2f}"))
+    rows.append(("deterministická identita", identity or "—"))
+    rows.append(("deterministická confidence", f"{item.confidence:.2f}"))
     if item.asking_sample > 0:
         rows.append(("sample predaných", str(item.asking_sample)))
     else:
         rows.append(("sample predaných", "chýba"))
     rows.append(("price source", item.sold_label or "—"))
+
+    if deal.ai_review:
+        ai = deal.ai_review
+        rows.append(("AI identifikácia", ai.canonical_name))
+        rows.append(("AI complete product", "áno" if ai.complete_product else "nie"))
+        rows.append(("AI confidence", f"{ai.confidence:.2f}"))
+        if ai.quick_sale_price_eur is not None:
+            rows.append(("AI web quick-sale cena", _eur(ai.quick_sale_price_eur)))
+        rows.append(("AI model", ai.model + (" (cache)" if ai.cached else "")))
+        rows.append(("AI dôvod", ai.reason or "—"))
+        if ai.source_urls:
+            links = " · ".join(f"[zdroj {index + 1}]({source})" for index, source in enumerate(ai.source_urls[:5]))
+            rows.append(("AI cenové zdroje", links))
+
     rows.append(("dôvod", _quiet_reason(deal.reason)))
     rows.append(("inzerát", f"[inzerát]({url})"))
     if listing.affiliate_url:
