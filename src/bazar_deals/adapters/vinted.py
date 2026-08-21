@@ -41,21 +41,33 @@ class VintedHuntClient(ListingSource):
             return parse_vinted_items(self.fixture_path.read_text(encoding="utf-8"))
         lo = int(self.settings.min_buy_eur)
         hi = int(self.settings.max_buy_eur)
-        url = (
-            "https://www.vinted.sk/catalog?order=newest_first"
-            f"&price_from={lo}&price_to={hi}"
-        )
-        response = httpx.get(
-            url,
-            headers={
-                "User-Agent": self.settings.bazos_user_agent,
-                "Accept": "text/html",
-            },
-            timeout=30.0,
-            follow_redirects=True,
-        )
-        response.raise_for_status()
-        return parse_vinted_items(response.text)
+        found: list[Listing] = []
+        seen: set[str] = set()
+        for page in (1, 2):
+            url = (
+                "https://www.vinted.sk/catalog?order=newest_first"
+                f"&price_from={lo}&price_to={hi}&page={page}"
+            )
+            response = httpx.get(
+                url,
+                headers={
+                    "User-Agent": self.settings.bazos_user_agent,
+                    "Accept": "text/html",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            response.raise_for_status()
+            batch = parse_vinted_items(response.text)
+            for item in batch:
+                key = item.external_id or str(item.url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(item)
+            if page == 1:
+                time.sleep(min(2.0, max(0.0, self.settings.bazos_request_gap_seconds)))
+        return found
 
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path:
