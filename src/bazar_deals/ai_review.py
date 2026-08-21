@@ -148,7 +148,7 @@ class AIReviewClient:
             model_label = self.settings.openai_model
         else:
             text = self._run_copilot(prompt)
-            model_label = f"copilot:{self.settings.copilot_model or 'default'}"
+            model_label = f"copilot:{self.settings.copilot_model or 'auto'}"
 
         raw = _json_payload(text)
         source_urls = [
@@ -239,8 +239,9 @@ Inbound shipping: {deal.costs.shipping} EUR
 Deterministic identity: {item.canonical_name}
 Deterministic kind: {item.kind}
 Deterministic search identity: {item.search_query}
-Deterministic sold-P25 valuation: {deal.costs.estimated_resale} EUR
-Sold sample: {item.asking_sample}
+Deterministic conservative valuation: {deal.costs.estimated_resale} EUR
+Valuation basis: {item.sold_label or 'unknown'}
+Comparable sample: {item.asking_sample}
 --- LISTING DATA END ---
 
 Return JSON only, no markdown, with exactly these keys:

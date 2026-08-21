@@ -27,6 +27,7 @@ _MARKETPLACE_PRIORITY = (
 _FUNNEL_KEYS = (
     "fetched",
     "not_buy_now",
+    "invalid_price",
     "no_sk_delivery",
     "over_cap",
     "under_min",
@@ -41,6 +42,7 @@ _FUNNEL_KEYS = (
     "sold_lookup_cap",
     "no_sold_comps",
     "asking_only_comps",
+    "asking_only_provisional",
     "scored",
     "pre_ai_buy",
     "ai_reviewed",
@@ -117,8 +119,11 @@ def score_listings(
     for listing in listings:
         source_stats[listing.marketplace]["fetched"] += 1
         listing = _to_eur(listing, settings.eur_czk)
-        if not listing.is_immediate_buy() or listing.price.amount <= 0:
+        if not listing.is_immediate_buy():
             funnel["not_buy_now"] += 1
+            continue
+        if listing.price.amount <= 0:
+            funnel["invalid_price"] += 1
             continue
         if listing.marketplace is Marketplace.EBAY and listing.ships_to_slovakia is not True:
             funnel["no_sk_delivery"] += 1
@@ -145,7 +150,7 @@ def score_listings(
     usable = _round_robin_listings(usable)
 
     deals: list[Deal] = []
-    lookups = 0
+    lookup_queries: set[str] = set()
     lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for listing in usable:
@@ -168,17 +173,24 @@ def score_listings(
         if item.confidence < min_conf or not item.search_query:
             funnel["identity_weak"] += 1
             continue
-        if lookups >= lookup_cap:
-            funnel["sold_lookup_cap"] += 1
-            continue
-        lookups += 1
+        lookup_key = item.search_query.casefold().strip()
+        if lookup_key not in lookup_queries:
+            if len(lookup_queries) >= lookup_cap:
+                funnel["sold_lookup_cap"] += 1
+                continue
+            lookup_queries.add(lookup_key)
         comp = sold.median_sold(listing)
         if comp is None:
             funnel["no_sold_comps"] += 1
             continue
         if not comp.reliable_for_buy:
             funnel["asking_only_comps"] += 1
-            continue
+            # Asking prices are allowed only as a deliberately haircutted
+            # provisional valuation. They can reach BUY only through the
+            # mandatory fail-closed AI web-verification gate.
+            if not settings.ai_review_enabled or not settings.ai_review_required:
+                continue
+            funnel["asking_only_provisional"] += 1
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
         )

@@ -50,7 +50,7 @@ For BUY decisions:
 
 1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
 2. The valuation uses the **lower quartile (P25)** of sufficiently similar working sold comps, not their median.
-3. Current asking prices from Bazoš/Aukro/eBay may be collected as a diagnostic fallback, but **asking-only comps are never allowed to create BUY**.
+3. Current asking prices from Bazoš/Aukro/Vinted/eBay may be collected as a deliberately haircutted fallback. They can create only a provisional candidate and **never create BUY without the required fail-closed AI web verification**. With AI disabled or unavailable, asking-only candidates remain SKIP.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
 
@@ -107,6 +107,8 @@ Environment overrides used by GitHub Actions:
 | `COMPS_TTL_DAYS` | `7` | Cache reuse period |
 
 Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
+
+GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model.
 
 ## Alerts
 

@@ -34,7 +34,8 @@ hunt:
   max_price_vs_typical: 0.5
   alert_price_vs_typical: 1.0
   min_sold_sample: 5
-  max_sold_lookups: 40
+  # Counts unique normalized product queries, not duplicate listings.
+  max_sold_lookups: 80
   default_shipping_eur: 8
   max_shipping_eur: 15
   cheap_buy_eur: 20

@@ -1,3 +1,4 @@
+from bazar_deals.config import Settings
 from bazar_deals.github_alerts import ALERT_LABEL
 from bazar_deals.rules import rules
 
@@ -16,6 +17,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
     assert "max_no_comp_alerts" not in data["hunt"]
     assert data["hunt"]["min_sold_sample"] == 5
+    assert data["hunt"]["max_sold_lookups"] == 80
+    assert Settings().copilot_model == "auto"
     assert "phones" in data["domain"]["item_kinds"]
     assert "clothing" in data["domain"]["item_kinds"]
     assert "minerals" in data["domain"]["item_kinds"]
