@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import httpx
@@ -31,8 +32,20 @@ class AukroHuntClient(ListingSource):
         if self.fixture_path:
             html = self.fixture_path.read_text(encoding="utf-8")
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
-        html = _get(_SEARCH, self.settings.bazos_user_agent)
-        return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
+        found: list[Listing] = []
+        seen: set[str] = set()
+        for page in (1, 2):
+            html = _get(f"{_SEARCH}&page={page}", self.settings.bazos_user_agent)
+            batch = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
+            for item in batch:
+                key = item.external_id or str(item.url)
+                if key in seen:
+                    continue
+                seen.add(key)
+                found.append(item)
+            if page == 1:
+                time.sleep(min(2.0, max(0.0, self.settings.bazos_request_gap_seconds)))
+        return found
 
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path or (listing.description or "").strip():
