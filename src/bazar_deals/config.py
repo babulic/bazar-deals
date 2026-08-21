@@ -26,7 +26,13 @@ class Settings(BaseSettings):
 
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-5.6-terra"
+    ai_review_enabled: bool = False
+    ai_review_required: bool = False
+    ai_max_reviews: int = 12
+    ai_review_ttl_days: int = 14
+    ai_min_confidence: float = 0.75
+    ai_timeout_seconds: float = 75.0
 
     telegram_bot_token: str = ""
     telegram_chat_retro: str = ""
