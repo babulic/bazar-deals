@@ -107,9 +107,6 @@ def score_listings(
     enrichers: dict[Marketplace, ListingSource] | None = None,
     reviewer: AIReviewClient | None = None,
 ) -> list[Deal]:
-    if settings.ai_review_enabled and settings.ai_review_required and not settings.openai_api_key:
-        raise RuntimeError("AI_REVIEW_REQUIRED is true but OPENAI_API_KEY is missing")
-
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
     enrichers = enrichers or {}
