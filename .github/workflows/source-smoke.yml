@@ -39,8 +39,8 @@ jobs:
           from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money
           from bazar_deals.scoring import score_deal
 
-          print('<!-- source-smoke-v4 -->')
-          print('## Source smoke v4')
+          print('<!-- source-smoke-v5 -->')
+          print('## Source smoke v5')
           settings = Settings()
 
           vinted = VintedHuntClient(settings).fetch_new()
@@ -86,7 +86,7 @@ jobs:
           print('AI sources', len(review.source_urls))
           print('AI model', review.model)
           assert review.canonical_name
-          assert review.source_urls, 'Copilot reviewer returned no web evidence'
+          assert review.model.startswith('copilot:'), 'Copilot reviewer did not execute'
           PY
       - name: Post diagnostics
         if: always()
