@@ -12,6 +12,21 @@ def _id() -> dict:
     return rules()["identity"]
 
 
+_REPLACEMENT_PART_PATTERNS = (
+    r"\b(?:replacement|spare\s+part|ersatz(?:teil)?|nahradn\w*\s+diel|náhradn\w*\s+diel)\b",
+    r"\b(?:display|displej|lcd|oled|digitizer|touchscreen|dotykov\w*\s+sklo)\b.{0,30}\b(?:pre|pro|for|fur|für|na)\b.{0,25}\b(?:iphone|ipad|galaxy|pixel|apple|samsung)\b",
+    r"\b(?:novy|nový|new|neu)\s+(?:display|displej|lcd|oled|digitizer|touchscreen)\b",
+    r"\b(?:back\s+glass|zadn\w*\s+sklo|housing|charging\s+port|nabijac\w*\s+konektor|nabíjac\w*\s+konektor|flex\s+(?:cable|kabel)|camera\s+module|logic\s+board)\b",
+    r"\b(?:battery|bateria|batéria|akku)\b.{0,20}\b(?:pre|pro|for|fur|für)\b.{0,20}\b(?:iphone|ipad|galaxy|pixel)\b",
+    r"\b(?:iphone|ipad|galaxy|pixel)\b.{0,25}\b(?:lcd|oled|digitizer|touchscreen|replacement|ersatzteil)\b",
+)
+
+
+def is_replacement_part_text(text: str) -> bool:
+    folded = _fold(text)
+    return any(re.search(pattern, folded, flags=re.I) for pattern in _REPLACEMENT_PART_PATTERNS)
+
+
 def identify(listing: Listing, vertical_hint: Vertical | None = None) -> IdentifiedItem:
     hay = f"{listing.title} {listing.description}"
     conf = _id()["confidence"]
@@ -22,7 +37,11 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
             canonical_name=listing.title.strip(),
             confidence=float(conf["damaged"]),
         )
-    kind = classify_kind(hay)
+    # Title-level replacement-part detection has priority over a phone/model name.
+    if is_replacement_part_text(listing.title):
+        kind = ItemKind.ACCESSORIES
+    else:
+        kind = classify_kind(hay)
     query = sold_query(hay, kind)
     weak = query is None
     if weak:
@@ -44,6 +63,8 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
 
 def classify_kind(text: str) -> ItemKind:
     hay = _fold(text)
+    if is_replacement_part_text(text):
+        return ItemKind.ACCESSORIES
     cfg = _id()
     markers = cfg["kind_markers"]
     for kind in cfg["kind_priority"]:
@@ -119,11 +140,11 @@ def _variant_tokens(text: str) -> set[str]:
 
 
 def _hard_specs_match(left: str, right: str, kind: ItemKind) -> bool:
-    """Reject comps that differ on price-critical model/spec tokens.
+    """Reject comps that differ on price-critical model/spec tokens."""
+    # A replacement part must never be priced from complete-product comps, or vice versa.
+    if is_replacement_part_text(left) != is_replacement_part_text(right):
+        return False
 
-    This deliberately errs on the side of too few comps. A missed deal is safer
-    than pricing (for example) a 64 GB phone from 256 GB / Pro / newer peers.
-    """
     left_storage = _storage_tokens(left)
     right_storage = _storage_tokens(right)
     if left_storage:
