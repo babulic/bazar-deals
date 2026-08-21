@@ -5,7 +5,7 @@ from decimal import Decimal
 import httpx
 
 from bazar_deals.config import Settings
-from bazar_deals.domain import Action, Condition, Deal, IdentifiedItem, Listing, Marketplace, Money, Vertical
+from bazar_deals.domain import AIReview, Action, Condition, Deal, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.github_alerts import ALERT_LABEL, GitHubIssueAlerts, format_run_comment, listing_key
 from bazar_deals.scoring import score_deal
 
@@ -14,7 +14,7 @@ def _deal() -> Deal:
     listing = Listing(
         marketplace=Marketplace.BAZOS,
         external_id="1541",
-        title="Commodore 1541-II",
+        title="Commodore 1541-II ORIGINAL LISTING TITLE",
         url="https://pc.bazos.sk/inzerat/1541/",
         price=Money(amount=Decimal("38"), currency="EUR"),
         condition=Condition.USED,
@@ -33,7 +33,7 @@ def _deal() -> Deal:
     return score_deal(item, Decimal("120"), Decimal("8"))
 
 
-def test_comment_embeds_listing_key_and_true_net_profit() -> None:
+def test_comment_embeds_listing_key_title_and_true_net_profit() -> None:
     assert ALERT_LABEL == "bazar-alert"
     deal = _deal()
     assert deal.action is Action.BUY
@@ -41,16 +41,41 @@ def test_comment_embeds_listing_key_and_true_net_profit() -> None:
     body = format_run_comment([deal], mention="babulic")
     assert f"<!-- listing:{listing_key(deal)} -->" in body
     assert body.startswith("@babulic\n")
-    assert "Commodore 1541-II" in body
+    assert "Commodore 1541-II ORIGINAL LISTING TITLE" in body
+    assert "- titulok inzerátu: Commodore 1541-II ORIGINAL LISTING TITLE" in body
+    assert "- identifikovaný tovar: Commodore 1541-II" in body
     assert "```" not in body
     assert "ALERT" not in body
     assert not re.search(r"\bBUY\b", body)
     assert "[inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
     assert "- nákupná cena: 38 €" in body
-    assert "- konzervatívna rýchlopredajná cena: 120 €" in body
+    assert "- finálna konzervatívna rýchlopredajná cena: 120 €" in body
     assert "- nákupná doprava: 8 €" in body
     assert "- očakávaný čistý zisk:" in body
     assert "- price source: konzervatívna rýchlopredajná cena, ebay.de sold P25 (n=12)" in body
+
+
+def test_comment_includes_ai_verification_and_sources() -> None:
+    deal = _deal().model_copy(
+        update={
+            "ai_review": AIReview(
+                approved=True,
+                complete_product=True,
+                canonical_name="Commodore 1541-II disk drive",
+                kind="hardware",
+                quick_sale_price_eur=Decimal("110"),
+                confidence=0.91,
+                reason="Exact drive verified against sold listings.",
+                source_urls=["https://www.ebay.de/sch/example"],
+                model="gpt-5.6-terra",
+            )
+        }
+    )
+    body = format_run_comment([deal], mention="babulic")
+    assert "- AI identifikácia: Commodore 1541-II disk drive" in body
+    assert "- AI web quick-sale cena: 110 €" in body
+    assert "- AI confidence: 0.91" in body
+    assert "[zdroj 1](https://www.ebay.de/sch/example)" in body
 
 
 def test_comment_includes_affiliate_markdown_link() -> None:
