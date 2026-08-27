@@ -205,19 +205,32 @@ listed on the four seller accounts (bazos.sk, aukro.sk, vinted.sk, ebay.at) and
 works out where the buyers are.
 
 It now also searches **other people's want-to-buy ads** across Europe, not
-only Slovak `kúpim`. Query words are local to the board: `kúpim` / `hľadám`,
-`koupím` / `hledám`, `suche` / `kaufe`, `szukam` / `kupię`, `keresek`,
-`cherche`, `cerco`, `zoek`, `busco`. Only ads whose **title is the buyer's
-own dopyt** are kept.
+only Slovak `kúpim`. The search uses the local **I will buy** verb on each
+board, not just "I'm looking for":
+
+| Language | I will buy |
+|---|---|
+| Slovak | kúpim |
+| Czech | koupím |
+| German | kaufe |
+| Polish | kupię |
+| Hungarian | veszek |
+| Italian | compro |
+| French | achète |
+| Dutch | koop |
+
+"I'm looking for" (`suche`, `szukam`, `keresek`, `cherche`, `cerco`, `zoek`)
+is still searched as a second pass. Only ads whose **title is the buyer's own
+dopyt** are kept.
 
 | Server | What is searched |
 |---|---|
-| bazos.sk, bazos.cz | kúpim, hľadám, koupím, hledám, suche, szukam |
-| Aukro | koupím, kúpim, suche, szukam, keresek |
-| vinted.sk / .cz / .at / .de / .pl / .hu / .fr / .it / .nl / .be / .es | local WTB word |
-| kleinanzeigen.de | `suche {part or locality}` |
-| willhaben.at | `Suche {part or locality}` |
-| ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{wtb} {part}` via Browse API |
+| bazos.sk, bazos.cz | kúpim, koupím, kaufe, kupię, veszek, compro, achète, koop |
+| Aukro | same buy verbs |
+| vinted.sk / .cz / .at / .de / .pl / .hu / .fr / .it / .nl / .be / .es | local I-will-buy, then looking-for |
+| kleinanzeigen.de | `suche {part}` and `kaufe {part}` |
+| willhaben.at | `Suche {part}` and `Kaufe {part}` |
+| ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{kaufe\|kupię\|veszek\|compro\|achète\|koop} {part}` plus looking-for |
 
 Allegro, Delcampe and Forum64 are not scraped (need an account or are not
 classifieds search). Facebook is out of scope.

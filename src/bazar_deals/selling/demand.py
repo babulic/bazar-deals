@@ -32,15 +32,17 @@ _BAZOS_SEARCH = {
     "cz": "https://www.bazos.cz/search.php",
 }
 _WANT_PREFIX = re.compile(
-    r"(?i)^[^\w]{0,8}((je|ich|i|ja)\s+)?"
+    r"(?i)^[^\w]{0,8}((ik|ich|ja|je|j['’]|i)\s*)?"
     r"(kúpim|kupim|koupím|koupim|hľadám|hladam|hledám|hledam|"
-    r"suche|kaufe|gesucht|gesuch|szukam|kupię|kupie|poszukuję|poszukuje|"
-    r"keresek|keresem|wanted|wtb|looking\s+for|cherche|achète|achete|"
-    r"cerco|compro|busco|zoek|gezocht|cumpăr|cumpar)\b"
+    r"suche|kaufe|gesucht|gesuch|szukam|kupię|kupie|kupuję|kupuje|"
+    r"poszukuję|poszukuje|keresek|keresem|veszek|megveszem|vennék|venne|"
+    r"wanted|wtb|looking\s+for|cherche|achète|achete|"
+    r"cerco|compro|comprerei|acquisto|busco|zoek|gezocht|koop|"
+    r"cumpăr|cumpar)\b"
 )
 _SELL_PREFIX = re.compile(
     r"(?i)^[^\w]{0,8}(predám|predam|prodám|prodam|verkaufe|sprzedam|eladó|"
-    r"vends|vendo|verkopen|ofertuję)\b"
+    r"vends|vendo|verkopen|te\s+koop|ofertuję)\b"
 )
 _BAZOS_BLOCK_RE = re.compile(
     r'<div class="inzeraty inzeratyflex">.*?'
@@ -74,34 +76,47 @@ _GENERIC_TITLE_WORDS = {
     "leskly",
     "priehladny",
 }
+# Direct "I will buy" verbs first, then "I'm looking for" on the same boards.
 _BAZOS_PHRASES = {
-    "sk": ("kúpim", "hľadám", "suche", "szukam"),
-    "cz": ("koupím", "hledám", "suche", "szukam"),
+    "sk": ("kúpim", "hľadám", "kaufe", "kupię", "veszek", "compro", "achète", "koop"),
+    "cz": ("koupím", "hledám", "kaufe", "kupię", "veszek", "compro", "achète", "koop"),
 }
-_AUKRO_PHRASES = ("koupím", "kúpim", "suche", "szukam", "keresek")
+_AUKRO_PHRASES = (
+    "koupím",
+    "kúpim",
+    "kaufe",
+    "kupię",
+    "veszek",
+    "compro",
+    "achète",
+    "koop",
+)
 _VINTED_SITES = (
-    ("vinted.sk", "kúpim"),
-    ("vinted.cz", "koupím"),
-    ("vinted.at", "suche"),
-    ("vinted.de", "suche"),
-    ("vinted.pl", "szukam"),
-    ("vinted.hu", "keresek"),
-    ("vinted.fr", "cherche"),
-    ("vinted.it", "cerco"),
-    ("vinted.nl", "zoek"),
-    ("vinted.be", "cherche"),
-    ("vinted.es", "busco"),
+    ("vinted.sk", ("kúpim",)),
+    ("vinted.cz", ("koupím",)),
+    ("vinted.at", ("kaufe", "suche")),
+    ("vinted.de", ("kaufe", "suche")),
+    ("vinted.pl", ("kupię", "szukam")),
+    ("vinted.hu", ("veszek", "keresek")),
+    ("vinted.fr", ("achète", "cherche")),
+    ("vinted.it", ("compro", "cerco")),
+    ("vinted.nl", ("koop", "zoek")),
+    ("vinted.be", ("achète", "koop")),
+    ("vinted.es", ("compro", "busco")),
 )
 _EBAY_BOARDS = (
-    ("EBAY_DE", "ebay.de", "suche"),
-    ("EBAY_AT", "ebay.at", "suche"),
-    ("EBAY_FR", "ebay.fr", "cherche"),
-    ("EBAY_IT", "ebay.it", "cerco"),
-    ("EBAY_PL", "ebay.pl", "szukam"),
-    ("EBAY_NL", "ebay.nl", "zoek"),
-    ("EBAY_ES", "ebay.es", "busco"),
-    ("EBAY_BE", "ebay.be", "cherche"),
+    ("EBAY_DE", "ebay.de", ("kaufe", "suche")),
+    ("EBAY_AT", "ebay.at", ("kaufe", "suche")),
+    ("EBAY_FR", "ebay.fr", ("achète", "cherche")),
+    ("EBAY_IT", "ebay.it", ("compro", "cerco")),
+    ("EBAY_PL", "ebay.pl", ("kupię", "szukam")),
+    ("EBAY_NL", "ebay.nl", ("koop", "zoek")),
+    ("EBAY_ES", "ebay.es", ("compro", "busco")),
+    ("EBAY_BE", "ebay.be", ("achète", "koop")),
 )
+_KA_PHRASES = ("suche", "kaufe")
+_WILLHABEN_PHRASES = ("Suche", "Kaufe")
+BUY_VERBS = ("kúpim", "koupím", "kaufe", "kupię", "veszek", "compro", "achète", "koop")
 
 
 class WantAd(BaseModel):
@@ -127,10 +142,46 @@ class BuyerDigest:
     fetched: Counter[str] = field(default_factory=Counter)
 
 
+def searched_buy_phrases() -> list[str]:
+    """All 'I will buy' search words actually sent to classifieds."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for phrases in _BAZOS_PHRASES.values():
+        for phrase in phrases:
+            key = _fold(phrase)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(phrase)
+    for phrase in _AUKRO_PHRASES:
+        key = _fold(phrase)
+        if key not in seen:
+            seen.add(key)
+            found.append(phrase)
+    for _host, phrases in _VINTED_SITES:
+        for phrase in phrases:
+            key = _fold(phrase)
+            if key not in seen:
+                seen.add(key)
+                found.append(phrase)
+    for _mid, _host, phrases in _EBAY_BOARDS:
+        for phrase in phrases:
+            key = _fold(phrase)
+            if key not in seen:
+                seen.add(key)
+                found.append(phrase)
+    for phrase in _KA_PHRASES + _WILLHABEN_PHRASES:
+        key = _fold(phrase)
+        if key not in seen:
+            seen.add(key)
+            found.append(phrase)
+    return found
+
+
 def searched_sites() -> list[str]:
     """Classifieds and marketplaces scanned for other people's want-to-buy ads."""
     sites = ["bazos.sk", "bazos.cz", "aukro.cz"]
-    sites.extend(host for host, _phrase in _VINTED_SITES)
+    sites.extend(host for host, _phrases in _VINTED_SITES)
     sites.append("kleinanzeigen.de")
     sites.append("willhaben.at")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
@@ -291,17 +342,20 @@ def find_buyers(
         batch, note = _search_aukro(phrase, settings, client=client)
         ingest(batch, note, "aukro")
 
-    for site, phrase in _VINTED_SITES:
-        batch, note = _search_vinted(phrase, site, settings, client=client)
-        ingest(batch, note, site)
+    for site, phrases in _VINTED_SITES:
+        for phrase in phrases:
+            batch, note = _search_vinted(phrase, site, settings, client=client)
+            ingest(batch, note, site)
 
-    for query in queries:
-        batch, note = _search_kleinanzeigen(query, settings, client=client)
-        ingest(batch, note, "kleinanzeigen.de")
+    for phrase in _KA_PHRASES:
+        for query in queries:
+            batch, note = _search_kleinanzeigen(query, settings, client=client, wtb=phrase)
+            ingest(batch, note, "kleinanzeigen.de")
 
-    for query in queries:
-        batch, note = _search_willhaben(f"Suche {query}", settings, client=client)
-        ingest(batch, note, "willhaben.at")
+    for phrase in _WILLHABEN_PHRASES:
+        for query in queries:
+            batch, note = _search_willhaben(f"{phrase} {query}", settings, client=client)
+            ingest(batch, note, "willhaben.at")
 
     if not settings.ebay_client_id or not settings.ebay_client_secret:
         digest.notes.append(
@@ -309,20 +363,23 @@ def find_buyers(
             "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
         )
     else:
-        for marketplace_id, site, wtb in _EBAY_BOARDS:
+        for marketplace_id, site, phrases in _EBAY_BOARDS:
             site_count = 0
             blocked = False
-            for query in queries:
-                batch, note = _search_ebay(
-                    f"{wtb} {query}", marketplace_id, site, settings, client=client
-                )
-                if note:
-                    digest.notes.append(note)
-                    blocked = True
+            for wtb in phrases:
+                for query in queries:
+                    batch, note = _search_ebay(
+                        f"{wtb} {query}", marketplace_id, site, settings, client=client
+                    )
+                    if note:
+                        digest.notes.append(note)
+                        blocked = True
+                        break
+                    site_count += len(batch)
+                    for ad in batch:
+                        ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+                if blocked:
                     break
-                site_count += len(batch)
-                for ad in batch:
-                    ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
             if not blocked:
                 digest.fetched[site] += site_count
                 digest.notes.append(f"{site}: fetched {site_count} rows")
@@ -354,7 +411,8 @@ def format_buyer_digest(digest: BuyerDigest, *, mention: str = "") -> str:
         boards = ", ".join(searched_sites())
         return (
             f"{ping}**0 kupcov** na tvoj tovar. Digest je prázdny, kým sa nenájde "
-            f"inzerát typu kúpim/koupím/suche/szukam/cherche spárovaný so skladom.\n\n"
+            f"inzerát typu kúpim/koupím/kaufe/kupię/veszek/compro/achète/koop "
+            f"spárovaný so skladom.\n\n"
             f"Servery: {boards}\n\nZdroje:\n{notes}\n"
         )
     markers = "\n".join(
@@ -534,8 +592,9 @@ def _search_kleinanzeigen(
     settings: Settings,
     *,
     client: httpx.Client | None,
+    wtb: str = "suche",
 ) -> tuple[list[WantAd], str]:
-    slug = re.sub(r"[^a-z0-9]+", "-", _fold(f"suche {query}")).strip("-")
+    slug = re.sub(r"[^a-z0-9]+", "-", _fold(f"{wtb} {query}")).strip("-")
     url = f"https://www.kleinanzeigen.de/s-{slug}/k0"
     try:
         response = _get(url, settings, client=client)
@@ -561,7 +620,7 @@ def _search_kleinanzeigen(
             )
         )
     _pause(settings, client)
-    return ads, f"kleinanzeigen.de: fetched {len(ads)} rows for {query!r}"
+    return ads, f"kleinanzeigen.de: fetched {len(ads)} rows for {wtb!r} {query!r}"
 
 
 def _search_willhaben(

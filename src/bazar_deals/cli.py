@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--buyers",
         action="store_true",
-        help="Search European want-to-buy ads (kúpim/koupím/suche/szukam/cherche) and pair them with own stock",
+        help="Search European I-will-buy ads (kúpim/koupím/kaufe/kupię/veszek/compro/achète/koop) and pair them with own stock",
     )
     parser.add_argument(
         "--source",

@@ -17,15 +17,18 @@ python -m bazar_deals sell --segment minerals
 python -m bazar_deals sell --format json
 ```
 
-`--buyers` hľadá cudzie inzeráty typu **kúpim / koupím / suche / szukam /
-cherche / cerco / keresek** — nie len slovenské „kúpim“. Servery:
+`--buyers` hľadá cudzie inzeráty s priamym slovesom **kúpim**, nie len „hľadám“:
 
-- bazos.sk, bazos.cz
-- Aukro
-- vinted.sk, .cz, .at, .de, .pl, .hu, .fr, .it, .nl, .be, .es
-- kleinanzeigen.de (nemecké Gesuche)
-- willhaben.at
-- ebay.de, .at, .fr, .it, .pl, .nl, .es, .be
+- poľsky **kupię**
+- maďarsky **veszek**
+- taliansky **compro**
+- francúzsky **achète** / *j'achète*
+- holandsky **koop** / *ik koop*
+- nemecky **kaufe** (plus suche)
+- česky **koupím**, slovensky **kúpim**
+
+Servery: bazos.sk/.cz, Aukro, vinted (SK/CZ/AT/DE/PL/HU/FR/IT/NL/BE/ES),
+kleinanzeigen.de, willhaben.at, ebay.de/.at/.fr/.it/.pl/.nl/.es/.be.
 
 Kupec musí mať vlastný inzerát, ktorý v titulku hovorí, že tovar kúpi — predajné
 inzeráty sa zahodia. Keď dopyt sedí na tvoj tovar, vznikne digest: kde kupec je,

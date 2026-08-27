@@ -6,6 +6,7 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.github_alerts import GitHubIssueAlerts, SELL_ALERT_LABEL, SELL_ALERT_ISSUE_TITLE
 from bazar_deals.selling.demand import (
+    BUY_VERBS,
     BuyerDigest,
     DemandMatch,
     WantAd,
@@ -15,6 +16,7 @@ from bazar_deals.selling.demand import (
     is_want_to_buy,
     match_want,
     queries_for,
+    searched_buy_phrases,
     searched_sites,
 )
 from bazar_deals.selling.inventory import Inventory, InventoryItem
@@ -53,7 +55,15 @@ def test_want_to_buy_requires_the_buyers_own_ad() -> None:
     assert is_want_to_buy("Keresek ametiszt Brandberg")
     assert is_want_to_buy("Zoek MOS 6510")
     assert is_want_to_buy("Kupię Commodore 6510")
+    assert is_want_to_buy("Veszek ametiszt Brandberg")
+    assert is_want_to_buy("Compro MOS 6510")
+    assert is_want_to_buy("J'achète MOS 6510")
+    assert is_want_to_buy("Achète améthyste Brandberg")
+    assert is_want_to_buy("Ik koop MOS 6510")
+    assert is_want_to_buy("Koop MOS 6510")
+    assert is_want_to_buy("Kaufe MOS 6510")
     assert is_want_to_buy("⚠️Kupim MOS 6510")
+    assert not is_want_to_buy("Te koop MOS 6510")
     assert not is_want_to_buy("Predám MOS 6510")
     assert not is_want_to_buy("COMMODORE C64 - koupí se zdrojem ZDARMA")
     assert not is_want_to_buy("Inga koupit opál 1,4x4cm")
@@ -93,6 +103,13 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "ebay.nl",
     ):
         assert host in sites
+
+
+def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
+    phrases = searched_buy_phrases()
+    for verb in ("kupię", "veszek", "compro", "achète", "koop", "kaufe"):
+        assert verb in phrases
+    assert BUY_VERBS[-5:] == ("kupię", "veszek", "compro", "achète", "koop")
 
 
 def test_postcard_part_number_does_not_match_chip() -> None:
