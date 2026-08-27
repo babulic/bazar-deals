@@ -33,7 +33,16 @@ class InventoryItem(BaseModel):
     locality: str = ""
     weight_g: int | None = None
     listed: dict[str, Decimal] = Field(default_factory=dict)
+    # Watchlist counts per marketplace: buyers who have already raised a hand.
+    watchers: dict[str, int] = Field(default_factory=dict)
+    views: dict[str, int] = Field(default_factory=dict)
     ship_eur: Decimal | None = None
+
+    def total_watchers(self) -> int:
+        return sum(self.watchers.values())
+
+    def total_views(self) -> int:
+        return sum(self.views.values())
 
     def shipping_weight_g(self) -> int:
         return self.weight_g or DEFAULT_WEIGHT_G

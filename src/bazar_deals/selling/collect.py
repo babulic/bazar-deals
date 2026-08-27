@@ -27,7 +27,8 @@ MAX_PAGES = 25
 
 _BAZOS_BLOCK_RE = re.compile(
     r'<div class="inzeratynadpis">.*?<h2 class=nadpis><a href="(?P<url>[^"]+)">(?P<title>.*?)</a>.*?'
-    r'<div class="inzeratycena"><b><span[^>]*>(?P<price>[^<]*)</span>',
+    r'<div class="inzeratycena"><b><span[^>]*>(?P<price>[^<]*)</span>'
+    r'(?:.*?<div class="inzeratyview">(?P<views>\d+)\s*x</div>)?',
     re.S,
 )
 _BAZOS_TOTAL_RE = re.compile(r"inzer\w*\s+z\s+(\d+)", re.I)
@@ -40,6 +41,10 @@ class CollectedListing(BaseModel):
     title: str
     price_eur: Decimal
     url: str = ""
+    # People who put the listing on their watchlist: the closest thing to a
+    # named buyer that a marketplace will expose.
+    watchers: int | None = None
+    views: int | None = None
 
 
 class SourceResult(BaseModel):
@@ -105,12 +110,14 @@ def collect_bazos(query: str, settings: Settings) -> SourceResult:
         for match in _BAZOS_BLOCK_RE.finditer(body):
             url = match.group("url")
             identifier = url.rsplit("/inzerat/", 1)[-1].split("/")[0]
+            views = match.group("views")
             listings[identifier] = CollectedListing(
                 marketplace="bazos",
                 external_id=identifier,
                 title=_clean(match.group("title")),
                 price_eur=_price(match.group("price")),
                 url=url,
+                views=int(views) if views else None,
             )
         # A page that adds nothing new means the offset walked past the end.
         if len(listings) == before:
@@ -170,12 +177,14 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
             identifier = str(node.get("itemId") or "")
             if not identifier:
                 continue
+            watchers = node.get("watchersCount")
             listings[identifier] = CollectedListing(
                 marketplace="aukro",
                 external_id=identifier,
                 title=str(node.get("itemName") or "").strip(),
                 price_eur=amount,
                 url=f"https://aukro.sk/{node.get('seoUrl', '')}-{identifier}",
+                watchers=int(watchers) if isinstance(watchers, int) else None,
             )
 
         if not content or page + 1 >= int(meta.get("totalPages") or 1):
@@ -235,12 +244,14 @@ def collect_ebay(seller: str, settings: Settings) -> SourceResult:
                 identifier = str(node.get("itemId") or "")
                 if not identifier:
                     continue
+                watchers = node.get("watchCount")
                 listings[identifier] = CollectedListing(
                     marketplace="ebay",
                     external_id=identifier,
                     title=str(node.get("title") or "").strip(),
                     price_eur=Decimal(str(price.get("value") or "0")),
                     url=str(node.get("itemWebUrl") or ""),
+                    watchers=int(watchers) if isinstance(watchers, int) else None,
                 )
             offset += len(summaries)
             if not summaries or offset >= int(payload.get("total") or 0):
@@ -394,6 +405,8 @@ def refresh_inventory(
     report = RefreshReport(sources=results)
     items = list(inventory.items)
     prices: dict[str, dict[str, Decimal]] = {item.id: {} for item in items}
+    watchers: dict[str, dict[str, int]] = {item.id: {} for item in items}
+    views: dict[str, dict[str, int]] = {item.id: {} for item in items}
 
     for source in results:
         if not source.ok:
@@ -405,6 +418,10 @@ def refresh_inventory(
                 continue
             report.matched += 1
             prices[matched.id][source.marketplace] = listing.price_eur
+            if listing.watchers is not None:
+                watchers[matched.id][source.marketplace] = listing.watchers
+            if listing.views is not None:
+                views[matched.id][source.marketplace] = listing.views
 
     collected = {source.marketplace for source in results if source.ok}
     refreshed: list[InventoryItem] = []
@@ -417,7 +434,21 @@ def refresh_inventory(
         listed.update(prices[item.id])
         if listed != item.listed:
             report.updated[item.id] = len(listed)
-        refreshed.append(item.model_copy(update={"listed": dict(sorted(listed.items()))}))
+        # Watch counts are only meaningful as of the last collection, so a
+        # source that was skipped keeps whatever it last reported.
+        watched = {k: v for k, v in item.watchers.items() if k not in collected}
+        watched.update(watchers[item.id])
+        seen = {k: v for k, v in item.views.items() if k not in collected}
+        seen.update(views[item.id])
+        refreshed.append(
+            item.model_copy(
+                update={
+                    "listed": dict(sorted(listed.items())),
+                    "watchers": dict(sorted(watched.items())),
+                    "views": dict(sorted(seen.items())),
+                }
+            )
+        )
 
     partial = sorted(
         {source.marketplace for source in results if not source.complete()}

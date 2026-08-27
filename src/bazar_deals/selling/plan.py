@@ -62,6 +62,9 @@ class ItemPlan(BaseModel):
     def live_channels(self) -> list[ChannelPlan]:
         return [plan for plan in self.channels if plan.listed]
 
+    def watchers(self) -> int:
+        return self.item.total_watchers()
+
     def viable_countries(self) -> list[str]:
         return [option.quote.country for option in self.shipping if option.viable]
 
@@ -104,6 +107,16 @@ class SellPlan(BaseModel):
 
     def by_segment(self, segment: str) -> list[ItemPlan]:
         return [plan for plan in self.items if plan.item.segment == segment]
+
+    def total_watchers(self) -> int:
+        return sum(plan.watchers() for plan in self.items)
+
+    def by_demand(self) -> list[ItemPlan]:
+        """Stock ranked by buyers who are already watching it."""
+        return sorted(
+            (plan for plan in self.items if plan.watchers()),
+            key=lambda plan: (-plan.watchers(), plan.item.id),
+        )
 
 
 def _channel_price(item: InventoryItem, channel: Channel) -> Decimal:
@@ -160,6 +173,8 @@ def _notes(
         notes.append("No weight on the listing, so postage is quoted from the default tier.")
 
     live = {plan.marketplace for plan in plans if plan.listed}
+    if not live:
+        notes.append("Listed nowhere right now, so it cannot sell at any price.")
     if live == {"vinted"}:
         notes.append("Listed on Vinted only, where collectors of this stock do not look.")
 
@@ -173,6 +188,15 @@ def _notes(
 
     if item.segment == "minerals" and item.price() >= CATAWIKI_FLOOR_EUR:
         notes.append("Priced high enough for a curated Catawiki auction.")
+
+    watching = item.total_watchers()
+    if watching:
+        where = ", ".join(f"{name} {count}" for name, count in sorted(item.watchers.items()))
+        missing = [plan.channel_id for plan in plans if not plan.listed]
+        note = f"{watching} buyer(s) already watching this ({where})"
+        if missing:
+            note += f", and it is not yet in front of {', '.join(missing)}"
+        notes.append(note + ".")
 
     return notes
 

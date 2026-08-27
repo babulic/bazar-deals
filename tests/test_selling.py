@@ -181,12 +181,14 @@ def test_inventory_snapshot_loads_with_prices_per_marketplace() -> None:
     # Every account has been paginated to the end.
     assert stock.partial == []
     assert stock.segments() == ["commodity", "minerals", "retro"]
-    assert stock.coverage() == {"aukro": 27, "bazos": 19, "ebay": 19, "vinted": 29}
+    # One Bazos ad expired between collections, which is why the galena below
+    # is now listed nowhere.
+    assert stock.coverage() == {"aukro": 27, "bazos": 18, "ebay": 19, "vinted": 29}
     item = stock.get("amethyst-namibia-74mm")
     assert item.price() == Decimal("115")
     assert item.home_price() == Decimal("110")
     assert item.missing_from({"bazos", "aukro", "vinted", "ebay"}) == []
-    assert stock.get("galenit-terezia").missing_from({"bazos", "ebay"}) == ["ebay"]
+    assert stock.get("galenit-terezia").missing_from({"bazos", "ebay"}) == ["bazos", "ebay"]
 
 
 def test_missing_weight_uses_the_default_tier() -> None:
@@ -291,3 +293,49 @@ def test_plan_names_the_exact_shortfall_against_the_account() -> None:
 def test_no_shortfall_once_every_account_is_paginated_to_the_end() -> None:
     plan = build_plan(load_inventory(PACKAGED_INVENTORY))
     assert plan.shortfall() == {}
+
+
+def test_demand_ranks_stock_by_buyers_already_watching() -> None:
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
+    ranked = plan.by_demand()
+    assert ranked, "the snapshot records watcher counts"
+    # Sorted by watchers, descending.
+    counts = [entry.watchers() for entry in ranked]
+    assert counts == sorted(counts, reverse=True)
+    # Items nobody watches stay out of the ranking entirely.
+    assert all(entry.watchers() > 0 for entry in ranked)
+    assert plan.total_watchers() == sum(counts)
+
+    report = format_markdown(plan)
+    assert "Buyers already watching" in report
+    assert "buyer(s) already watching this" in report
+
+
+def test_watched_item_note_names_the_channels_it_is_missing_from() -> None:
+    from bazar_deals.selling.inventory import Inventory
+
+    watched = Inventory(
+        items=[
+            InventoryItem(
+                id="chip",
+                segment="retro",
+                title="MOS 6522 VIA čip pre Commodore 1541",
+                part_numbers=["6522", "VIA"],
+                listed={"aukro": Decimal("11")},
+                watchers={"aukro": 9},
+            )
+        ]
+    )
+    entry = build_plan(watched).items[0]
+    assert entry.watchers() == 9
+    note = next(n for n in entry.notes if "already watching" in n)
+    assert "9 buyer(s)" in note
+    assert "aukro 9" in note
+    assert "forum64" in note
+
+
+def test_expired_listing_is_flagged_as_sellable_nowhere() -> None:
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
+    orphan = next(entry for entry in plan.items if not entry.item.listed)
+    assert orphan.item.id == "galenit-terezia"
+    assert any("Listed nowhere" in note for note in orphan.notes)

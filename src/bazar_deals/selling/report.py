@@ -40,6 +40,27 @@ def _summary(plan: SellPlan) -> list[str]:
     return lines
 
 
+def _demand_table(plan: SellPlan) -> list[str]:
+    ranked = plan.by_demand()
+    if not ranked:
+        return []
+    lines = [
+        "",
+        f"## Buyers already watching ({plan.total_watchers()} across the stock)",
+        "",
+        "| Watching | Price | Item | Where they are | Not yet listed on |",
+        "|---:|---:|---|---|---|",
+    ]
+    for entry in ranked:
+        item = entry.item
+        where = ", ".join(f"{name} {count}" for name, count in sorted(item.watchers.items()))
+        missing = ", ".join(gap.channel_id for gap in entry.missing_channels()) or "-"
+        lines.append(
+            f"| {entry.watchers()} | {item.price()} EUR | {item.title[:52]} | {where} | {missing} |"
+        )
+    return lines
+
+
 def _channel_table(plan: SellPlan) -> list[str]:
     lines = ["", "## Channels", "", "| Channel | Country | Lang | Reach | Status | Missing items |", "|---|---|---|---|---|---:|"]
     gaps = plan.gaps_by_channel()
@@ -94,6 +115,7 @@ def _item_block(item_plan: ItemPlan) -> list[str]:
 
 def format_markdown(plan: SellPlan, *, segment: str | None = None) -> str:
     lines = _summary(plan)
+    lines.extend(_demand_table(plan))
     lines.extend(_channel_table(plan))
     lines.extend(_reach_table())
 

@@ -8,7 +8,7 @@
 
 meta:
   collected: "2026-08-27"
-  counts: {bazos: 19, aukro: 27, vinted: 29, ebay: 19}
+  counts: {bazos: 18, aukro: 27, vinted: 29, ebay: 19}
   # All four accounts are complete: 19 + 27 + 29 + 19 listings across 36 distinct
   # objects. Bazos and Aukro were paginated by `sell --refresh`; Vinted loads its
   # grid by infinite scroll behind DataDome, so keeping it current needs the Pro
@@ -24,6 +24,8 @@ items:
     origin: namíbia
     locality: Goboboseb, Brandberg
     listed: {aukro: 110, bazos: 110, ebay: 115, vinted: 110}
+    watchers: {aukro: 0}
+    views: {bazos: 106}
     ship_eur: 13
 
   - id: amethyst-namibia-29mm
@@ -35,6 +37,8 @@ items:
     locality: Goboboseb, Brandberg
     weight_g: 103
     listed: {aukro: 44, bazos: 42, ebay: 45, vinted: 44}
+    watchers: {aukro: 5}
+    views: {bazos: 33}
     ship_eur: 13
 
   - id: topaz-pakistan-18mm
@@ -46,6 +50,8 @@ items:
     locality: Skardu
     weight_g: 72
     listed: {aukro: 45, bazos: 42, ebay: 50, vinted: 44}
+    watchers: {aukro: 0}
+    views: {bazos: 120}
     ship_eur: 13
 
   - id: galenit-terezia
@@ -54,7 +60,7 @@ items:
     species: [galenit, chalkopyrit, sfalerit, kremeň]
     origin: slovensko
     locality: banská štiavnica
-    listed: {bazos: 54}
+    listed: {}
 
   - id: polymetal-hodrusa
     segment: minerals
@@ -65,6 +71,8 @@ items:
     locality: hodruša-hámre
     weight_g: 168
     listed: {aukro: 17, bazos: 14, ebay: 15, vinted: 14}
+    watchers: {aukro: 6}
+    views: {bazos: 31}
     ship_eur: 13
 
   - id: kalcit-zlatak
@@ -76,6 +84,8 @@ items:
     locality: banská štiavnica
     weight_g: 100
     listed: {aukro: 10, bazos: 9, ebay: 13, vinted: 9}
+    watchers: {aukro: 4}
+    views: {bazos: 167}
     ship_eur: 13
 
   - id: chalcedon-kremenisko
@@ -86,6 +96,8 @@ items:
     locality: banská štiavnica
     weight_g: 61
     listed: {aukro: 8, bazos: 6, ebay: 7, vinted: 7}
+    watchers: {aukro: 3}
+    views: {bazos: 162}
     ship_eur: 14
 
   - id: apatit-durango
@@ -96,6 +108,8 @@ items:
     origin: mexiko
     locality: Cerro del Mercado, Durango
     listed: {aukro: 13, bazos: 13, ebay: 14, vinted: 13}
+    watchers: {aukro: 0}
+    views: {bazos: 167}
     ship_eur: 10
 
   - id: pseudomalachit-lubietova
@@ -106,6 +120,7 @@ items:
     origin: slovensko
     locality: ľubietová
     listed: {aukro: 29, vinted: 29}
+    watchers: {aukro: 0}
 
   - id: celestin-madagaskar
     segment: minerals
@@ -114,6 +129,7 @@ items:
     form: drúza
     origin: madagaskar
     listed: {aukro: 26, vinted: 22}
+    watchers: {aukro: 1}
 
   - id: jaspis-zemplin
     segment: minerals
@@ -123,6 +139,7 @@ items:
     origin: slovensko
     locality: zemplín
     listed: {aukro: 22, vinted: 22}
+    watchers: {aukro: 0}
 
   - id: zeolit-agregat
     segment: minerals
@@ -130,12 +147,14 @@ items:
     species: [zeolit]
     form: agregát
     listed: {aukro: 18, vinted: 15}
+    watchers: {aukro: 1}
 
   - id: jadeit-brus
     segment: minerals
     title: Prírodný Jadeit - vybrúsený a vyleštený, na výrobu šperkov
     species: [jadeit]
     listed: {aukro: 10, vinted: 12}
+    watchers: {aukro: 0}
 
   - id: apatit-privesok
     segment: minerals
@@ -151,6 +170,8 @@ items:
     keywords: ["1993", "PAL"]
     match_hints: ["1993"]
     listed: {aukro: 33, bazos: 32, ebay: 33, vinted: 33}
+    watchers: {aukro: 6}
+    views: {bazos: 28}
     ship_eur: 10
 
   - id: vic2-8565r2-1991
@@ -168,6 +189,8 @@ items:
     part_numbers: ["6569R5", "VIC-II"]
     keywords: ["PAL"]
     listed: {aukro: 39, bazos: 35, vinted: 39}
+    watchers: {aukro: 2}
+    views: {bazos: 105}
 
   - id: cpu-8500
     segment: retro
@@ -175,6 +198,7 @@ items:
     part_numbers: ["8500"]
     keywords: ["1990", "CSG"]
     listed: {aukro: 32, ebay: 32, vinted: 32}
+    watchers: {aukro: 9}
     ship_eur: 10
 
   - id: cpu-6510
@@ -183,6 +207,7 @@ items:
     part_numbers: ["6510"]
     keywords: ["MOS", "CBM"]
     listed: {aukro: 25, ebay: 25, vinted: 25}
+    watchers: {aukro: 6}
     ship_eur: 10
 
   - id: via-6522
@@ -192,6 +217,7 @@ items:
     keywords: ["MOS", "Atari 810"]
     match_hints: ["mos 6522", "mos6522"]
     listed: {aukro: 10, ebay: 11}
+    watchers: {aukro: 9}
     ship_eur: 10
 
   - id: via-6522-rockwell
@@ -201,6 +227,7 @@ items:
     keywords: ["Rockwell", "Atari 810"]
     match_hints: ["rockwell", "6522p"]
     listed: {aukro: 12, vinted: 10}
+    watchers: {aukro: 8}
 
   - id: psu-1541
     segment: retro
@@ -208,6 +235,8 @@ items:
     part_numbers: ["1541", "1581", "1571", "1570"]
     weight_g: 90
     listed: {aukro: 23, bazos: 22, ebay: 24, vinted: 22}
+    watchers: {aukro: 6}
+    views: {bazos: 348}
     ship_eur: 13
 
   - id: psu-c64-new
@@ -216,6 +245,7 @@ items:
     part_numbers: ["C64", "PSU"]
     match_hints: ["nov", "neu", "new", "spolah", "spoleh"]
     listed: {aukro: 33, ebay: 32, vinted: 31}
+    watchers: {aukro: 4}
     ship_eur: 15
 
   - id: psu-c64-original
@@ -231,29 +261,39 @@ items:
     title: Boeder BitStar Digital Joystick H-6 pre Commodore, Atari, Spectrum, Amstrad
     part_numbers: ["Boeder BitStar H-6"]
     listed: {aukro: 20, bazos: 20, vinted: 20}
+    watchers: {aukro: 2}
+    views: {bazos: 216}
 
   - id: joystick-quickshot
     segment: retro
     title: Joystick SVI Spectravideo QuickShot I pre Commodore, Atari, Spectrum, Amstrad
     part_numbers: ["Spectravideo QuickShot I"]
     listed: {aukro: 22, bazos: 20}
+    watchers: {aukro: 3}
+    views: {bazos: 229}
 
   - id: safepal-x1
     segment: commodity
     title: SafePal X1 hardvérová kryptomenová peňaženka
     listed: {aukro: 44, bazos: 43, vinted: 42}
+    watchers: {aukro: 0}
+    views: {bazos: 80}
 
   - id: ledger-case
     segment: commodity
     title: Púzdro pre hardvérovú krypto peňaženku Ledger Nano X
     weight_g: 67
     listed: {aukro: 11, bazos: 11, ebay: 14, vinted: 11}
+    watchers: {aukro: 4}
+    views: {bazos: 40}
     ship_eur: 13
 
   - id: watch-charger-or825
     segment: commodity
     title: Samsung EP-OR825 nabíjačka s kolískou pre Watch 1, 2, 3, 4
     listed: {aukro: 12, bazos: 12, ebay: 13, vinted: 12}
+    watchers: {aukro: 0}
+    views: {bazos: 172}
     ship_eur: 10
 
   - id: watch-glass-44
@@ -268,22 +308,27 @@ items:
     title: 2 ochranné sklá pre Samsung Galaxy Watch Active 2, 40mm
     match_hints: ["40"]
     listed: {bazos: 5, ebay: 5}
+    views: {bazos: 199}
     ship_eur: 10
 
   - id: watch-strap
     segment: commodity
     title: Silikónový remienok na Samsung Galaxy Watch 7, 6, 5, 4
     listed: {aukro: 6, vinted: 6}
+    watchers: {aukro: 2}
 
   - id: usb-cable-dg925u
     segment: commodity
     title: Samsung EP-DG925U 1.2m biely dátový a nabíjací microUSB kábel
     listed: {bazos: 4}
+    views: {bazos: 279}
 
   - id: winkhaus-handles
     segment: commodity
     title: Kovové kľučky na eurookná Winkhaus - ergonomické, dural
     listed: {aukro: 4, bazos: 4, vinted: 30}
+    watchers: {aukro: 0}
+    views: {bazos: 31}
 
   - id: outdoor-lamp
     segment: commodity
@@ -293,4 +338,4 @@ items:
   - id: euro-coins
     segment: commodity
     title: Pamätné 2 Eur mince
-    listed: {vinted: 2.80}
+    listed: {vinted: 2.8}
