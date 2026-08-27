@@ -221,7 +221,9 @@ board, not just "I'm looking for":
 
 "I'm looking for" (`suche`, `szukam`, `keresek`, `cherche`, `cerco`, `zoek`)
 is still searched as a second pass. Only ads whose **title is the buyer's own
-dopyt** are kept.
+dopyt** are counted as kupci. Targeted searches (willhaben, Kleinanzeigen, eBay)
+that hit **your own stock titles which are actually for sale** still appear in
+the digest with links, labelled as not-a-demand, so you can click them.
 
 | Server | What is searched |
 |---|---|
