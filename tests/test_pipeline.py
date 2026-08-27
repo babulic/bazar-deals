@@ -125,7 +125,7 @@ def test_invalid_price_has_its_own_funnel_metric(capsys) -> None:
 
 def test_asking_only_comp_can_reach_required_ai_gate() -> None:
     class _AskingComps:
-        def median_sold(self, listing):
+        def median_sold(self, listing, **kwargs):
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
@@ -172,7 +172,7 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
     monkeypatch.setattr(pipeline, "rules", lambda: configured)
 
     class _Sold:
-        def median_sold(self, listing):
+        def median_sold(self, listing, **kwargs):
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,

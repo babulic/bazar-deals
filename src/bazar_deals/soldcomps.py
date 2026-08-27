@@ -16,7 +16,14 @@ from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace
 from bazar_deals.htmlparse import parse_ebay_html
-from bazar_deals.identity import similar_titles, sold_query
+from bazar_deals.identity import (
+    ItemSpecs,
+    classify_kind,
+    extract_specs,
+    listing_text,
+    similar_titles,
+    sold_query,
+)
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
@@ -148,11 +155,30 @@ class SoldCompClient:
             self._db_path = Path(db_path) if db_path is not None else Path(self.settings.comps_db)
             self._init_db()
 
-    def median_sold(self, listing: Listing) -> SoldComp | None:
-        query = sold_query(listing.title) or sold_query(f"{listing.title} {listing.description}")
+    def median_sold(
+        self,
+        listing: Listing,
+        *,
+        query: str | None = None,
+        specs: ItemSpecs | None = None,
+        subject: str | None = None,
+    ) -> SoldComp | None:
+        """Value one listing from completed sales.
+
+        `query`, `specs` and `subject` let the caller pass an identity resolved
+        with more context than this method has: a capacity found in the body of
+        the ad, or the product name the AI recovered from an ad whose own title
+        says nothing more than "Predám".
+        """
+        full_text = listing_text(listing)
+        subject = (subject or "").strip() or listing.title
+        query = (query or "").strip() or sold_query(subject) or sold_query(full_text)
         if not query:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
+        # Specs are mined from the whole ad, similarity is measured on titles.
+        specs = specs if specs is not None else extract_specs(full_text)
+        kind = classify_kind(full_text)
         self_key = _url_key(listing.url)
         ask_key = f"ask:{query}"
 
@@ -177,7 +203,11 @@ class SoldCompClient:
             # Marketplace descriptions are often long boilerplate. Variant and
             # capacity matching belongs on titles; including full descriptions
             # diluted Jaccard similarity enough to reject exact products.
-            peers = [item for item in sold if similar_titles(listing.title, item.title)]
+            peers = [
+                item
+                for item in sold
+                if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+            ]
             fetched_at = _utc_now()
             if self._db_path is not None:
                 self._store_fetch(query, sold, peers, status, fetched_at, source="ebay")
@@ -217,7 +247,11 @@ class SoldCompClient:
             and not is_damaged_text(f"{item.title} {item.description}")
             and _url_key(item.url) != self_key
         ]
-        peers = [item for item in asking if similar_titles(listing.title, item.title)]
+        peers = [
+            item
+            for item in asking
+            if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+        ]
         if len(peers) < min_n:
             return None
 

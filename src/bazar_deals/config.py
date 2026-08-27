@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     ai_review_enabled: bool = False
     ai_review_required: bool = False
     ai_max_reviews: int = 8
+    # Copilot Free has a request budget, so AI identification is capped too.
+    ai_max_identifications: int = 12
     ai_review_ttl_days: int = 14
     ai_min_confidence: float = 0.75
     ai_timeout_seconds: float = 90.0
