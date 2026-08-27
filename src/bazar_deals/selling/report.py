@@ -16,11 +16,16 @@ def _summary(plan: SellPlan) -> list[str]:
     lines.append(f"Inventory snapshot: {plan.collected or 'unknown'}")
     if plan.partial:
         lines.append(
-            f"Partial accounts (only the visible listings were collected): "
+            f"Accounts not confirmed complete by the last refresh: "
             f"{', '.join(sorted(plan.partial))}"
         )
     coverage = ", ".join(f"{name} {count}" for name, count in plan.coverage.items())
     lines.append(f"Items in the snapshot: {len(plan.items)} ({coverage})")
+    for marketplace, (held, reported) in plan.shortfall().items():
+        lines.append(
+            f"Incomplete: {marketplace} advertises {reported} listings but the "
+            f"snapshot holds {held}; {reported - held} are unaccounted for."
+        )
     lines.append(f"Target countries: {', '.join(plan.target_countries)}")
     if plan.uncovered_countries:
         lines.append(

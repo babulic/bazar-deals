@@ -75,7 +75,17 @@ class SellPlan(BaseModel):
     target_countries: list[str] = Field(default_factory=list)
     uncovered_countries: list[str] = Field(default_factory=list)
     coverage: dict[str, int] = Field(default_factory=dict)
+    reported_counts: dict[str, int] = Field(default_factory=dict)
     items: list[ItemPlan] = Field(default_factory=list)
+
+    def shortfall(self) -> dict[str, tuple[int, int]]:
+        """Marketplaces where the account shows more listings than we hold."""
+        gaps: dict[str, tuple[int, int]] = {}
+        for marketplace, reported in self.reported_counts.items():
+            held = self.coverage.get(marketplace, 0)
+            if held < reported:
+                gaps[marketplace] = (held, reported)
+        return dict(sorted(gaps.items()))
 
     def total_overcharge_eur(self) -> Decimal:
         return _round(
@@ -225,6 +235,7 @@ def build_plan(
         target_countries=target_countries,
         uncovered_countries=uncovered_countries(target_countries),
         coverage=stock.coverage(),
+        reported_counts=stock.counts,
         items=item_plans,
     )
 

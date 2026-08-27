@@ -264,3 +264,16 @@ def test_sell_command_runs_without_network(capsys) -> None:
 
     assert main(["sell", "--format", "json"]) == 0
     assert '"channel_id"' in capsys.readouterr().out
+
+
+def test_plan_names_the_exact_shortfall_against_the_account() -> None:
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
+    # The Vinted profile advertises 29 items; infinite scroll hides the rest.
+    assert plan.shortfall() == {"vinted": (20, 29)}
+    assert "9 are unaccounted for" in format_markdown(plan, segment="minerals")
+
+
+def test_no_shortfall_is_reported_for_complete_accounts() -> None:
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
+    for marketplace in ("bazos", "aukro", "ebay"):
+        assert marketplace not in plan.shortfall()
