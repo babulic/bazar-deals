@@ -78,6 +78,10 @@ class IdentifiedItem(BaseModel):
     asking_sample: int = 0
     kind: str = "generic"
     sold_label: str = ""
+    # Price-critical facts mined from the whole ad, not only the title.
+    # Typed loosely to keep bazar_deals.identity free to import this module.
+    specs: object | None = None
+    identified_by: str = "rules"
     confidence: float = Field(ge=0, le=1)
 
 

@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 import unicodedata
 
+from pydantic import BaseModel, ConfigDict
+
 from bazar_deals.domain import IdentifiedItem, ItemKind, Listing, Vertical
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
@@ -27,8 +29,64 @@ def is_replacement_part_text(text: str) -> bool:
     return any(re.search(pattern, folded, flags=re.I) for pattern in _REPLACEMENT_PART_PATTERNS)
 
 
+# Fields beyond title and description that still describe the goods. eBay puts
+# specs in shortDescription, Aukro in the category path, Vinted in brand/size.
+_RAW_TEXT_FIELDS = (
+    "shortDescription",
+    "subtitle",
+    "condition",
+    "conditionDescription",
+    "brand",
+    "size",
+    "categoryPath",
+    "itemName",
+    "rss_title",
+)
+
+
+def _flatten(value: object, depth: int = 0) -> list[str]:
+    if depth > 3:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, (int, float)):
+        return [str(value)]
+    if isinstance(value, dict):
+        return [part for item in value.values() for part in _flatten(item, depth + 1)]
+    if isinstance(value, (list, tuple)):
+        return [part for item in value for part in _flatten(item, depth + 1)]
+    return []
+
+
+# Bazos RSS ships the thumbnail as a raw <img src="https://..."> in the body,
+# which otherwise contributes img, src, https and the image id to the identity.
+# A letter has to follow the bracket, so "rozmer < 7 cm" survives intact.
+_HTML_TAG_RE = re.compile(r"</?[a-zA-Z][^<>]*>")
+_URL_RE = re.compile(r"https?://\S+|\bwww\.\S+", re.IGNORECASE)
+_ENTITY_RE = re.compile(r"&(?:[a-z]{2,8}|#\d{1,5});", re.IGNORECASE)
+
+
+def strip_markup(text: str) -> str:
+    without_tags = _HTML_TAG_RE.sub(" ", text or "")
+    return _ENTITY_RE.sub(" ", _URL_RE.sub(" ", without_tags))
+
+
+def listing_text(listing: Listing) -> str:
+    """Every field that can say what the item is, not just the title.
+
+    Sellers routinely leave the capacity, the production year or the part number
+    out of the title and state it only in the body of the ad.
+    """
+    parts = [listing.title, listing.description]
+    raw = listing.raw if isinstance(listing.raw, dict) else {}
+    for key in _RAW_TEXT_FIELDS:
+        if key in raw:
+            parts.extend(_flatten(raw[key]))
+    return strip_markup(" ".join(part for part in parts if part))
+
+
 def identify(listing: Listing, vertical_hint: Vertical | None = None) -> IdentifiedItem:
-    hay = f"{listing.title} {listing.description}"
+    hay = listing_text(listing)
     conf = _id()["confidence"]
     if is_damaged_text(hay) or listing.condition.value == "for_parts":
         return IdentifiedItem(
@@ -42,7 +100,10 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
         kind = ItemKind.ACCESSORIES
     else:
         kind = classify_kind(hay)
+    specs = extract_specs(hay)
     query = sold_query(hay, kind)
+    if query is not None:
+        query = _with_specs(query, specs)
     weak = query is None
     if weak:
         score = float(conf["weak"])
@@ -57,8 +118,23 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
         model=query,
         search_query=query or "",
         kind=kind.value,
+        specs=specs,
         confidence=score,
     )
+
+
+def _with_specs(query: str, specs: ItemSpecs) -> str:
+    """Append decisive spec tokens the token-frequency query dropped.
+
+    Searching eBay for `iphone 13` and for `iphone 13 128gb` returns different
+    price levels, so a capacity stated anywhere in the ad belongs in the query.
+    """
+    present = set(re.findall(r"[a-z0-9]+", _fold(query)))
+    extra = [token for token in specs.query_tokens() if _fold(token) not in present]
+    if not extra:
+        return query
+    budget = int(_id()["sold_query_tokens"]) + 2
+    return " ".join([*query.split(), *extra][:budget])
 
 
 def classify_kind(text: str) -> ItemKind:
@@ -108,6 +184,116 @@ def significant_tokens(text: str) -> list[str]:
     return out
 
 
+class ItemSpecs(BaseModel):
+    """Price-critical facts about one item, gathered from the whole ad.
+
+    These are the dimensions on which two listings must agree before one may
+    price the other. A 64 GB phone is not a 256 GB phone and a lot of eight
+    handles is not one handle, however similar the titles read.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    storage: frozenset[str] = frozenset()
+    years: frozenset[str] = frozenset()
+    variants: frozenset[str] = frozenset()
+    phone: str | None = None
+    model_codes: frozenset[str] = frozenset()
+    lot_size: int | None = None
+
+    def is_empty(self) -> bool:
+        return not (
+            self.storage or self.years or self.variants or self.phone
+            or self.model_codes or self.lot_size
+        )
+
+    def conflicts_with(self, other: ItemSpecs, *, kind: ItemKind | None = None) -> bool:
+        """True when `other` may not be used to price `self`.
+
+        Asymmetric on purpose: whatever the candidate states, the comparable has
+        to state too. A comparable that mentions extra facts is still usable,
+        because most sold listings are described more thoroughly than an ad.
+        """
+        if self.storage and self.storage != other.storage:
+            return True
+        if self.years and self.years != other.years:
+            return True
+        if self.model_codes and not (self.model_codes & other.model_codes):
+            return True
+        # A multi-piece lot and a single piece are different products.
+        if (self.lot_size or 1) != (other.lot_size or 1):
+            return True
+        if kind is ItemKind.PHONES:
+            if self.phone and self.phone != other.phone:
+                return True
+            if self.variants != other.variants:
+                return True
+        return False
+
+    def query_tokens(self) -> list[str]:
+        """Spec tokens worth appending to a marketplace search."""
+        tokens: list[str] = []
+        if self.phone:
+            tokens.append(self.phone)
+        tokens.extend(sorted(self.model_codes))
+        tokens.extend(sorted(self.storage))
+        tokens.extend(sorted(self.variants))
+        tokens.extend(sorted(self.years))
+        return tokens
+
+
+def extract_specs(text: str) -> ItemSpecs:
+    return ItemSpecs(
+        storage=frozenset(_storage_tokens(text)),
+        years=frozenset(_years(text)),
+        variants=frozenset(_variant_tokens(text)),
+        phone=_phone_signature(text),
+        model_codes=frozenset(_model_codes(text)),
+        lot_size=_lot_size(text),
+    )
+
+
+# Written-together codes such as EP-OR825 or 1541-II.
+_MODEL_CODE_RE = re.compile(r"\b(?=[a-z0-9-]*[a-z])(?=[a-z0-9-]*\d)[a-z0-9]+(?:-[a-z0-9]+)*\b")
+# Chip families name their part right after the family: "MOS 6510", "CSG 8565".
+_PART_FAMILY_RE = re.compile(
+    r"\b(?:mos|csg|vic|sid|cia|via|rockwell|commodore|atari|amiga|zilog|intel)\b"
+    r"[\s:_-]{0,3}(\d{3,4}[a-z]?\d?)\b"
+)
+# A revision suffix written apart from the number: "8565 R2".
+_REVISION_RE = re.compile(r"\b(\d{3,4})\s*[-_ ]?\s*(r\d)\b")
+_LOT_RE = re.compile(r"\b(\d{1,3})\s?(?:ks|kus|kusov|kusy|stk|pcs)\b")
+_MODEL_CODE_STOP = {"c64", "c64c", "c64g", "c128", "mp3", "mp4", "usb2", "usb3"}
+# A number glued to a unit is a measurement, not a part number.
+_UNIT_SUFFIX_RE = re.compile(
+    r"^\d+(?:mm|cm|m|g|kg|ml|l|v|w|ah|mah|gb|tb|ks|ct|hz|khz|mhz|k|p|x)$"
+)
+
+
+def _model_codes(text: str) -> set[str]:
+    folded = _fold(text)
+    storage = _storage_tokens(text)
+    codes: set[str] = set()
+
+    for match in _MODEL_CODE_RE.finditer(folded):
+        token = match.group(0).replace("-", "")
+        if token in storage or token in _MODEL_CODE_STOP or _UNIT_SUFFIX_RE.match(token):
+            continue
+        # Five characters keeps out 220v and similar ratings.
+        if len(token) >= 5 and sum(char.isdigit() for char in token) >= 2:
+            codes.add(token)
+
+    codes.update(match.group(1) for match in _PART_FAMILY_RE.finditer(folded))
+    codes.update(f"{m.group(1)}{m.group(2)}" for m in _REVISION_RE.finditer(folded))
+    return {code for code in codes if code not in _MODEL_CODE_STOP}
+
+
+def _lot_size(text: str) -> int | None:
+    found = [int(size) for size in _LOT_RE.findall(_fold(text))]
+    sizes = [size for size in found if 1 < size <= 500]
+    return max(sizes) if sizes else None
+
+
 def _storage_tokens(text: str) -> set[str]:
     folded = _fold(text)
     out = {f"{size}gb" for size in re.findall(r"\b(16|32|64|128|256|512)\s*(?:gb|g)\b", folded)}
@@ -116,7 +302,9 @@ def _storage_tokens(text: str) -> set[str]:
 
 
 def _years(text: str) -> set[str]:
-    return set(re.findall(r"\b20(?:1[0-9]|2[0-9])\b", _fold(text)))
+    # Vintage hardware is priced by production year as much as by model, so the
+    # window reaches back past 2000: an 8565R2 from 1991 is not one from 1993.
+    return set(re.findall(r"\b(?:19[7-9][0-9]|20(?:[01][0-9]|2[0-9]))\b", _fold(text)))
 
 
 def _phone_signature(text: str) -> str | None:
@@ -139,41 +327,45 @@ def _variant_tokens(text: str) -> set[str]:
     return {token for token in variants if re.search(rf"\b{token}\b", folded)}
 
 
-def _hard_specs_match(left: str, right: str, kind: ItemKind) -> bool:
+def _hard_specs_match(
+    left: str,
+    right: str,
+    kind: ItemKind,
+    left_specs: ItemSpecs | None = None,
+) -> bool:
     """Reject comps that differ on price-critical model/spec tokens."""
     # A replacement part must never be priced from complete-product comps, or vice versa.
     if is_replacement_part_text(left) != is_replacement_part_text(right):
         return False
-
-    left_storage = _storage_tokens(left)
-    right_storage = _storage_tokens(right)
-    if left_storage:
-        if not right_storage or left_storage != right_storage:
-            return False
-
-    left_years = _years(left)
-    right_years = _years(right)
-    if left_years and (not right_years or left_years != right_years):
-        return False
-
-    if kind is ItemKind.PHONES:
-        left_phone = _phone_signature(left)
-        right_phone = _phone_signature(right)
-        if left_phone and left_phone != right_phone:
-            return False
-        if _variant_tokens(left) != _variant_tokens(right):
-            return False
-    return True
+    specs = left_specs if left_specs is not None else extract_specs(left)
+    return not specs.conflicts_with(extract_specs(right), kind=kind)
 
 
-def similar_titles(left: str, right: str) -> bool:
+def similar_titles(
+    left: str,
+    right: str,
+    *,
+    left_specs: ItemSpecs | None = None,
+    left_kind: ItemKind | None = None,
+) -> bool:
+    """Whether `right` may price `left`.
+
+    Word overlap is measured on titles alone, because marketplace descriptions
+    are mostly boilerplate and dilute the similarity. The hard spec gate is the
+    opposite: it accepts specs mined from the whole ad through `left_specs`, so
+    a capacity that appears only in the body still rejects the wrong comps.
+    """
     cfg = _id()
-    left_kind = classify_kind(left)
+    resolved_left_kind = left_kind if left_kind is not None else classify_kind(left)
     right_kind = classify_kind(right)
-    if left_kind != right_kind and left_kind is not ItemKind.GENERIC and right_kind is not ItemKind.GENERIC:
+    if (
+        resolved_left_kind != right_kind
+        and resolved_left_kind is not ItemKind.GENERIC
+        and right_kind is not ItemKind.GENERIC
+    ):
         return False
-    kind = left_kind if left_kind is not ItemKind.GENERIC else right_kind
-    if not _hard_specs_match(left, right, kind):
+    kind = resolved_left_kind if resolved_left_kind is not ItemKind.GENERIC else right_kind
+    if not _hard_specs_match(left, right, kind, left_specs):
         return False
     a = set(significant_tokens(left))
     b = set(significant_tokens(right))

@@ -139,17 +139,7 @@ class AIReviewClient:
         if cached is not None:
             return cached
 
-        provider = self._provider()
-        prompt = self._prompt(deal)
-        citation_urls: list[str] = []
-        if provider == "openai":
-            response = self._post_openai(prompt)
-            text, citation_urls = _response_text_and_urls(response)
-            model_label = self.settings.openai_model
-        else:
-            text = self._run_copilot(prompt)
-            model_label = f"copilot:{self.settings.copilot_model or 'default'}"
-
+        text, citation_urls, model_label = self.complete(self._prompt(deal))
         raw = _json_payload(text)
         source_urls = [
             str(url)
@@ -189,6 +179,19 @@ class AIReviewClient:
         if review.approved and review.complete_product and review.quick_sale_price_eur is not None:
             self._store(key, review)
         return review
+
+    def complete(self, prompt: str) -> tuple[str, list[str], str]:
+        """Run one prompt through whichever provider is configured.
+
+        Returns the raw text, any web citations the provider attached, and a
+        label for the model that answered.
+        """
+        if self._provider() == "openai":
+            response = self._post_openai(prompt)
+            text, urls = _response_text_and_urls(response)
+            return text, urls, self.settings.openai_model
+        model = self.settings.copilot_model or "auto"
+        return self._run_copilot(prompt), [], f"copilot:{model}"
 
     def _provider(self) -> str:
         requested = (self.settings.ai_provider or "auto").strip().casefold()
@@ -239,8 +242,9 @@ Inbound shipping: {deal.costs.shipping} EUR
 Deterministic identity: {item.canonical_name}
 Deterministic kind: {item.kind}
 Deterministic search identity: {item.search_query}
-Deterministic sold-P25 valuation: {deal.costs.estimated_resale} EUR
-Sold sample: {item.asking_sample}
+Deterministic conservative valuation: {deal.costs.estimated_resale} EUR
+Valuation basis: {item.sold_label or 'unknown'}
+Comparable sample: {item.asking_sample}
 --- LISTING DATA END ---
 
 Return JSON only, no markdown, with exactly these keys:

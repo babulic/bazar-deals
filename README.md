@@ -24,8 +24,11 @@ small + working + within purchase cap
     ↓
 for ebay.de: deliveryCountry=SK must be confirmed
     ↓
+identify the product from the whole ad, not the headline
+(title + body + marketplace fields; AI names what the rules cannot)
+    ↓
 strict identity / variant matching
-(storage, year, phone model, Pro/Max/Plus/Mini/Ultra etc.)
+(storage, year, part number, lot size, phone model, Pro/Max/Plus/Mini/Ultra)
     ↓
 minimum sold sample
     ↓
@@ -42,6 +45,47 @@ subtract:
 BUY only if expected net profit >= 30 EUR
 ```
 
+## Identification
+
+An item can only be valued once it is known exactly what it is, so identification
+reads the entire advertisement rather than the headline.
+
+- **Every field is searched.** Title, body and the marketplace's own fields
+  (eBay `shortDescription`, Aukro category path, Vinted brand and size). Sellers
+  routinely leave the capacity, the production year or the chip number out of
+  the title and state it only in the body.
+- **Selling boilerplate is discarded.** Without it a listing called
+  `Predám, ozvite sa` produced the confident nonsense query `predam ozvite`
+  instead of admitting it could not be identified.
+- **Price-critical facts become a spec profile**: storage capacity, production
+  year, part and model codes, lot size, phone model and variant. Two listings
+  must agree on these before one may price the other, and the facts count even
+  when they appear only in the body. A capacity written in the description now
+  rejects a comparable of a different capacity, which a title-only match missed.
+- **Part numbers survive being written apart.** `CSG 8565 R2` yields both `8565`
+  and `8565r2`, while measurements such as `220V`, `16cm` and `61g` are not
+  mistaken for model codes.
+- **Production year separates production runs.** An 8565R2 from 1991 is not
+  priced from one made in 1993.
+- **A lot is not a single piece.** `8ks kľučky` will not be priced from an ad
+  selling one.
+
+### AI identification
+
+When the rules cannot name an item, the ad is handed to the free Copilot CLI
+(`COPILOT_MODEL=auto`, the only mode Copilot Free and Student allow), which
+reads the full text and returns a canonical name, a search query and the specs
+it can quote from the ad.
+
+This decides **what the item is, never what it is worth**. A rescued candidate
+goes through exactly the same completed-sales valuation, the same >=30 EUR
+net-profit floor and the same fail-closed AI price review as any other. Results
+are cached in the comps database, so one advertisement costs one Copilot call,
+and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
+
+The funnel reports `identity_ai_rescued` and `identity_ai_failed` alongside
+`identity_weak`, so the value of the AI step is visible per run.
+
 ## Conservative valuation
 
 `bazar-deals` intentionally prefers false negatives over false positives.
@@ -50,7 +94,7 @@ For BUY decisions:
 
 1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
 2. The valuation uses the **lower quartile (P25)** of sufficiently similar working sold comps, not their median.
-3. Current asking prices from Bazoš/Aukro/eBay may be collected as a diagnostic fallback, but **asking-only comps are never allowed to create BUY**.
+3. Current asking prices from Bazoš/Aukro/Vinted/eBay may be collected as a deliberately haircutted fallback. They can create only a provisional candidate and **never create BUY without the required fail-closed AI web verification**. With AI disabled or unavailable, asking-only candidates remain SKIP.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
 
@@ -105,8 +149,11 @@ Environment overrides used by GitHub Actions:
 | `NO_BOX_HAIRCUT_EUR` | `5` | Resale-value reduction when listing explicitly says no box |
 | `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Sold comps cache |
 | `COMPS_TTL_DAYS` | `7` | Cache reuse period |
+| `AI_MAX_IDENTIFICATIONS` | `12` | Cap on AI identifications per hunt |
 
 Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
+
+GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model.
 
 ## Alerts
 

@@ -27,13 +27,17 @@ class Settings(BaseSettings):
     # AI review: scheduled GitHub Actions uses Copilot CLI with GITHUB_TOKEN,
     # while OPENAI_API_KEY remains an optional local/alternate provider.
     ai_provider: str = "auto"  # auto | copilot | openai
-    copilot_model: str = ""  # empty = the Copilot seat's current default model
+    # Copilot Free/Student allow auto selection only. Paid seats may override
+    # this with a specific model through COPILOT_MODEL.
+    copilot_model: str = "auto"
     openai_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
     openai_model: str = "gpt-5.6-terra"
     ai_review_enabled: bool = False
     ai_review_required: bool = False
     ai_max_reviews: int = 8
+    # Copilot Free has a request budget, so AI identification is capped too.
+    ai_max_identifications: int = 12
     ai_review_ttl_days: int = 14
     ai_min_confidence: float = 0.75
     ai_timeout_seconds: float = 90.0
