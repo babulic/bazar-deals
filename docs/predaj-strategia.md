@@ -7,12 +7,20 @@ Analýza vychádza z tvojich štyroch účtov, stiahnutých 27. 8. 2026:
 [eBay `berg-kristalle`](https://www.ebay.at/sch/i.html?sid=berg-kristalle) 19 položiek,
 124 hodnotení a 197 predaných kusov.
 
-Prehľad vieš kedykoľvek zregenerovať:
+Prehľad vieš kedykoľvek zregenerovať. `--refresh` predtým prejde všetky
+stránky každého účtu:
 
 ```bash
+python -m bazar_deals sell --refresh
 python -m bazar_deals sell --segment minerals
 python -m bazar_deals sell --format json
 ```
+
+Bazoš a Aukro sa zbierajú kompletne bez prihlásenia. eBay blokuje sťahovanie
+HTML z dátových centier, takže potrebuje `EBAY_CLIENT_ID` a `EBAY_CLIENT_SECRET`;
+Vinted načítava mriežku nekonečným scrollovaním za DataDome, takže potrebuje
+`VINTED_ACCESS_KEY` a `VINTED_SIGNING_KEY` z Pro Integrations. Kým tie chýbajú,
+tieto dva zdroje si podržia posledné známe ceny a označia sa ako neúplné.
 
 ## 1. Nepredávaš jeden sortiment, ale tri
 
@@ -157,26 +165,28 @@ Commodore C64C`, nie `Videochip CSG 8565 R2 ... pre Commodore`.
 
 ## 5. Diery v pokrytí
 
-Z 35 spárovaných položiek:
+Z 36 spárovaných položiek (Bazoš 19, Aukro 27, eBay 19, Vinted 20 z 29):
 
-- **Minerály iba na Vinted:** pseudomalachit z Ľubietovej (29 €), celestín
-  z Madagaskaru (22 €), jaspis zo Zemplína (22 €), zeolit (15 €), jadeit (12 €),
-  prívesok z apatitu (6 €). Zberatelia minerálov na Vinted nie sú.
-- **Retro iba na eBay:** MOS 6522 VIA, CSG 8500, druhý 8565R2 z roku 1991.
-  Na slovenských kanáloch chýbajú.
-- **6569R5 iba na Bazoši** za 35 €, hoci práve tento čip je v Nemecku vypredaný
-  a Polyplay zaň pýta 29 €.
-- **Joysticky iba na SK kanáloch**, hoci ich hlavný trh je nemecká a poľská
+- **Zberateľské minerály chýbajú na eBay**, teda na jedinom kanáli, ktorý dnes
+  dosiahne na nemecky hovoriacich zberateľov: pseudomalachit z Ľubietovej (29 €),
+  celestín z Madagaskaru (26 €), jaspis zo Zemplína (22 €), zeolit (18 €),
+  jadeit (12 €). Všetky visia iba na Aukre a Vinted, čiže na slovenskom publiku.
+- **Galenit z Terézie za 54 €** je tvoj druhý najdrahší kus a je len na Bazoši.
+- **6569R5 je len na Bazoši a Aukre** za 39 €, hoci práve tento čip je
+  v Nemecku vypredaný a Polyplay zaň pýta 29 €. Na eBay chýba.
+- **Joysticky sú len na SK kanáloch**, hoci ich hlavný trh je nemecká a poľská
   retro scéna.
-- **Aukro je z pohľadu snapshotu skoro prázdne** — z 27 ponúk sa dali vyčítať
-  4, takže tam čísla ber orientačne.
+- **Na eBay chýba 11 položiek, na Aukre 9.** Allegro by pribralo 26 z 36.
+- Jediný kus, ktorý sa neoplatí vyvážať vôbec, je ružový chalcedón za 8 € —
+  tam poštovné prekročí podiel ceny všade okrem Slovenska.
 
 ## 6. Poradie krokov
 
 1. **Zníž poštovné na eBay na reálnu Packetu.** Bez nového účtu, bez nových
    inzerátov, dotkne sa to všetkých 19 položiek naraz.
-2. **Presuň minerály z Vinted na eBay a Delcampe** s nemeckými titulkami
-   a historickými názvami lokalít. Začni pseudomalachitom z Ľubietovej.
+2. **Doplň zberateľské minerály na eBay a Delcampe** s nemeckými titulkami
+   a historickými názvami lokalít. Začni pseudomalachitom z Ľubietovej
+   a galenitom z Terézie.
 3. **Otvor Allegro.** Je to jediný krok, ktorý naraz pridá Poľsko, Česko
    a Maďarsko, teda aj jedinú krajinu, ktorú dnes nemáš vôbec.
 4. **Retro daj na Forum64** a doplň chýbajúce kusy na eBay — dopyt tam

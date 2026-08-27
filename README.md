@@ -119,9 +119,23 @@ listed on the four seller accounts and works out where the buyers are.
 
 ```powershell
 python -m bazar_deals sell
+python -m bazar_deals sell --refresh
 python -m bazar_deals sell --segment minerals
 python -m bazar_deals sell --format json
 ```
+
+`--refresh` pages through every seller account before planning: Bazos by search
+offset until the reported total is reached, Aukro by `totalPages` through the
+public offer search, eBay and Vinted through their official APIs. Results are
+written to `.cache/sell-inventory.yaml`, which then takes precedence over the
+committed snapshot.
+
+Bazos and Aukro need no credentials. eBay blocks datacentre HTML requests, so it
+needs `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`; Vinted renders its item grid by
+infinite scroll behind DataDome, so it needs `VINTED_ACCESS_KEY` and
+`VINTED_SIGNING_KEY` from Pro Integrations. A source that cannot be collected is
+reported as skipped and keeps its previous prices, so a missing credential is
+never mistaken for a delisted item.
 
 It reports, per item:
 
