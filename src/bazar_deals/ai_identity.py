@@ -219,7 +219,7 @@ class AIIdentityClient:
 
 def _specs_from(raw: dict, listing: Listing) -> ItemSpecs:
     """Trust the model on facts it can quote, but keep the rule-based floor."""
-        mined = extract_specs(listing_text(listing))
+    mined = extract_specs(listing_text(listing))
 
     def tokens(key: str) -> frozenset[str]:
         values = raw.get(key)
