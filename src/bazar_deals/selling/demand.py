@@ -42,7 +42,7 @@ _WANT_PREFIX = re.compile(
 )
 _SELL_PREFIX = re.compile(
     r"(?i)^[^\w]{0,8}(predám|predam|prodám|prodam|verkaufe|sprzedam|eladó|"
-    r"vends|vendo|verkopen|te\s+koop|ofertuję)\b"
+    r"vends|vendo|verkopen|te\s+koop|ofertuję|biete|tausche)\b"
 )
 _BAZOS_BLOCK_RE = re.compile(
     r'<div class="inzeraty inzeratyflex">.*?'
@@ -55,6 +55,17 @@ _KA_ITEM_RE = re.compile(
     r'<a class="ellipsis"[^>]*>(?P<title>.*?)</a>'
     r'(?:.*?<p class="aditem-main--middle--price-shipping--price">(?P<price>[^<]+))?',
     re.S,
+)
+_DELCAMPE_SEARCH = "https://www.delcampe.net/en_GB/collectibles/minerals-fossils/search"
+_FORUM64_SEARCH = "https://www.forum64.de/index.php?search/"
+_DELCAMPE_LINK_RE = re.compile(
+    r'<a href="(?P<href>/[^"]+-(?P<id>\d+)\.html)"[^>]*class="item-link"[^>]*>\s*'
+    r'<h2 class="item-title[^"]*">(?P<title>.*?)</h2>',
+    re.S,
+)
+_FORUM64_THREAD_RE = re.compile(
+    r'<a[^>]+href="(?P<href>[^"]*?thread/(?P<id>\d+)[^"]*)"[^>]*>\s*(?P<title>.*?)\s*</a>',
+    re.I | re.S,
 )
 _MAX_BROAD_PAGES = 2
 _MAX_TARGETED = 12
@@ -116,9 +127,17 @@ _EBAY_BOARDS = (
 )
 _KA_PHRASES = ("suche", "kaufe")
 _WILLHABEN_PHRASES = ("Suche", "Kaufe")
+_DELCAMPE_PHRASES = ("", "suche ", "wanted ")
+_FORUM64_PHRASES = ("Suche", "Gesucht")
 BUY_VERBS = ("kúpim", "koupím", "kaufe", "kupię", "veszek", "compro", "achète", "koop")
 _TARGETED_SITES = frozenset(
-    {"willhaben.at", "kleinanzeigen.de", *(host for _mid, host, _wtb in _EBAY_BOARDS)}
+    {
+        "willhaben.at",
+        "kleinanzeigen.de",
+        "delcampe.net",
+        "forum64.de",
+        *(host for _mid, host, _wtb in _EBAY_BOARDS),
+    }
 )
 
 
@@ -174,7 +193,7 @@ def searched_buy_phrases() -> list[str]:
             if key not in seen:
                 seen.add(key)
                 found.append(phrase)
-    for phrase in _KA_PHRASES + _WILLHABEN_PHRASES:
+    for phrase in _KA_PHRASES + _WILLHABEN_PHRASES + _FORUM64_PHRASES:
         key = _fold(phrase)
         if key not in seen:
             seen.add(key)
@@ -188,6 +207,8 @@ def searched_sites() -> list[str]:
     sites.extend(host for host, _phrases in _VINTED_SITES)
     sites.append("kleinanzeigen.de")
     sites.append("willhaben.at")
+    sites.append("delcampe.net")
+    sites.append("forum64.de")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
     return sites
 
@@ -264,7 +285,15 @@ def match_want(title: str, item: InventoryItem) -> float:
         if token.isdigit() and not _numeric_part_fits(token, title_tokens, support):
             continue
         score = max(score, 0.82 if token.isdigit() or len(token) >= 5 else 0.7)
-    species_hits = [spec for spec in item.species if _fold(spec) in folded]
+    species_hits = []
+    for spec in item.species:
+        aliases = [spec]
+        for lang in ("sk", "cs", "de", "en", "fr", "hu", "pl"):
+            label = _glossary_name(spec, lang)
+            if label:
+                aliases.append(label)
+        if any(_fold(alias) in folded for alias in aliases if len(_fold(alias)) >= 4):
+            species_hits.append(spec)
     places = []
     if item.locality:
         places.extend(part.strip() for part in item.locality.split(","))
@@ -360,6 +389,30 @@ def find_buyers(
         for query in queries:
             batch, note = _search_willhaben(f"{phrase} {query}", settings, client=client)
             ingest(batch, note, "willhaben.at")
+
+    blocked = False
+    for query in _mineral_search_queries(items):
+        for prefix in _DELCAMPE_PHRASES:
+            batch, note = _search_delcampe(
+                f"{prefix}{query}".strip(), settings, client=client
+            )
+            ingest(batch, note, "delcampe.net")
+            if _is_hard_block(note):
+                blocked = True
+                break
+        if blocked:
+            break
+
+    blocked = False
+    for query in _retro_search_queries(items):
+        for phrase in _FORUM64_PHRASES:
+            batch, note = _search_forum64(f"{phrase} {query}", settings, client=client)
+            ingest(batch, note, "forum64.de")
+            if _is_hard_block(note):
+                blocked = True
+                break
+        if blocked:
+            break
 
     if not settings.ebay_client_id or not settings.ebay_client_secret:
         digest.notes.append(
@@ -504,6 +557,79 @@ def _unique_queries(items: list[InventoryItem]) -> list[str]:
             if len(found) >= _MAX_TARGETED:
                 return found
     return found
+
+
+def _mineral_search_queries(items: list[InventoryItem]) -> list[str]:
+    """English/German collector names Delcampe listings actually use."""
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def add(query: str) -> None:
+        token = query.strip()
+        key = _fold(token)
+        if len(token) < 4 or key in seen:
+            return
+        seen.add(key)
+        found.append(token)
+
+    for item in items:
+        if item.segment != "minerals":
+            continue
+        place = ""
+        if item.locality:
+            place = item.locality.split(",")[-1].strip()
+        elif item.origin:
+            place = item.origin.strip()
+        german_place = _german_locality(item)
+        head = item.species[0] if item.species else ""
+        english = _glossary_name(head, "en")
+        german = _glossary_name(head, "de")
+        if english and german_place:
+            add(f"{english} {german_place}")
+        if english and place and _fold(place) != _fold(german_place):
+            add(f"{english} {place}")
+        if german and german_place:
+            add(f"{german} {german_place}")
+        if not english and not german:
+            for query in queries_for(item):
+                add(query)
+        if len(found) >= _MAX_TARGETED:
+            break
+    return found[:_MAX_TARGETED]
+
+
+def _retro_search_queries(items: list[InventoryItem]) -> list[str]:
+    found: list[str] = []
+    seen: set[str] = set()
+    for item in items:
+        if item.segment != "retro":
+            continue
+        for query in queries_for(item):
+            key = _fold(query)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(query)
+            if len(found) >= _MAX_TARGETED:
+                return found
+    return found
+
+
+def _glossary_name(word: str, lang: str) -> str:
+    if not word:
+        return ""
+    glossary = (rules().get("selling") or {}).get("glossary") or {}
+    if not isinstance(glossary, dict):
+        return ""
+    names = glossary.get(word)
+    if not isinstance(names, dict):
+        for key, value in glossary.items():
+            if _fold(str(key)) == _fold(word) and isinstance(value, dict):
+                names = value
+                break
+        else:
+            return ""
+    return str(names.get(lang) or "").strip()
 
 
 def _search_bazos(
@@ -746,6 +872,126 @@ def _search_willhaben(
     )
 
 
+def _search_delcampe(
+    query: str,
+    settings: Settings,
+    *,
+    client: httpx.Client | None,
+) -> tuple[list[WantAd], str]:
+    url = _DELCAMPE_SEARCH + "?" + urlencode({"term": query})
+    try:
+        response = _get(
+            url,
+            settings,
+            client=client,
+            extra_headers={"Accept-Language": "en-GB,en;q=0.9,de;q=0.8"},
+        )
+        if _cloudflare_blocked(response):
+            return [], "delcampe.net: fetched 0 (Cloudflare blocked datacenter requests)"
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        return [], f"delcampe.net: fetched 0 ({exc})"
+    ads: list[WantAd] = []
+    for match in _DELCAMPE_LINK_RE.finditer(response.text):
+        href = match.group("href")
+        if href.startswith("/"):
+            href = "https://www.delcampe.net" + href
+        title = _clean(match.group("title"))
+        identifier = match.group("id")
+        if not title or not identifier:
+            continue
+        tail = response.text[match.end() : match.end() + 500]
+        price_m = re.search(r'class="item-price[^"]*">(?P<p>[^<]+)', tail)
+        amount = None
+        if price_m:
+            raw = _clean(price_m.group("p"))
+            if "€" in raw or "EUR" in raw.upper():
+                parsed = _price(raw)
+                amount = parsed or None
+        ads.append(
+            WantAd(
+                marketplace="delcampe",
+                site="delcampe.net",
+                external_id=identifier,
+                title=title,
+                url=href,
+                offer_eur=amount,
+                query=query,
+            )
+        )
+    _pause(settings, client)
+    want_n = sum(1 for ad in ads if is_want_to_buy(ad.title))
+    return ads, (
+        f"delcampe.net: fetched {len(ads)} rows ({want_n} want-ads) for {query!r}"
+    )
+
+
+def _search_forum64(
+    query: str,
+    settings: Settings,
+    *,
+    client: httpx.Client | None,
+) -> tuple[list[WantAd], str]:
+    try:
+        response = _get(
+            _FORUM64_SEARCH,
+            settings,
+            client=client,
+            params={"q": query, "sortOrder": "DESC"},
+            extra_headers={"Accept-Language": "de-DE,de;q=0.9,en;q=0.8"},
+        )
+        if _cloudflare_blocked(response):
+            return [], "forum64.de: fetched 0 (Cloudflare blocked datacenter requests)"
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        return [], f"forum64.de: fetched 0 ({exc})"
+    ads: list[WantAd] = []
+    seen: set[str] = set()
+    for match in _FORUM64_THREAD_RE.finditer(response.text):
+        title = _clean(match.group("title"))
+        identifier = match.group("id")
+        if not identifier or identifier in seen or len(title) < 8:
+            continue
+        seen.add(identifier)
+        href = match.group("href").replace("&amp;", "&")
+        if href.startswith("/"):
+            href = "https://www.forum64.de" + href
+        elif not href.startswith("http"):
+            href = urljoin(_FORUM64_SEARCH, href)
+        ads.append(
+            WantAd(
+                marketplace="forum64",
+                site="forum64.de",
+                external_id=identifier,
+                title=title,
+                url=href,
+                offer_eur=None,
+                query=query,
+            )
+        )
+    _pause(settings, client)
+    want_n = sum(1 for ad in ads if is_want_to_buy(ad.title))
+    return ads, (
+        f"forum64.de: fetched {len(ads)} rows ({want_n} want-ads) for {query!r}"
+    )
+
+
+def _cloudflare_blocked(response: httpx.Response) -> bool:
+    snippet = (response.text or "")[:4000]
+    if "Just a moment" not in snippet and "challenge-platform" not in snippet:
+        return False
+    return (
+        response.status_code in {403, 503}
+        or "Cloudflare" in snippet
+        or "challenge-platform" in snippet
+        or "cf-browser-verification" in snippet
+    )
+
+
+def _is_hard_block(note: str) -> bool:
+    return "Cloudflare" in note
+
+
 def _search_ebay(
     query: str,
     marketplace_id: str,
@@ -802,8 +1048,17 @@ def _pause(settings: Settings, client: httpx.Client | None) -> None:
     time.sleep(min(0.4, settings.bazos_request_gap_seconds))
 
 
-def _get(url: str, settings: Settings, *, client: httpx.Client | None, params=None):
+def _get(
+    url: str,
+    settings: Settings,
+    *,
+    client: httpx.Client | None,
+    params=None,
+    extra_headers: dict[str, str] | None = None,
+):
     headers = {"User-Agent": settings.bazos_user_agent, "Accept": "text/html"}
+    if extra_headers:
+        headers.update(extra_headers)
     if client is not None:
         return client.get(url, headers=headers, params=params)
     return httpx.get(url, headers=headers, params=params, timeout=30.0, follow_redirects=True)
