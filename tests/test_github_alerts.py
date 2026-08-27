@@ -121,6 +121,54 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "EBAY_CLIENT_ID" in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
+    assert "žiadne ziskové karty" in body
+    assert "zisk sa nerátal" not in body
+
+
+def test_unscored_hunt_does_not_claim_losing_cards() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(
+            usable=238,
+            scored=0,
+            buy=0,
+            no_sold_comps=83,
+            sold_lookup_cap=154,
+            below_net_profit=0,
+            identity_weak=1,
+            asking_only_comps=0,
+            detail_failed=0,
+        ),
+        source_stats={
+            Marketplace.BAZOS: Counter(fetched=501, usable=161, scored=0, buy=0),
+            Marketplace.AUKRO: Counter(fetched=271, usable=77, scored=0, buy=0),
+        },
+        fetch_notes=[
+            "bazos: fetched 501",
+            "ebay: fetched 0 (eBay OAuth 401: client authentication failed)",
+            "aukro: fetched 271",
+            "vinted: fetched 0 (Vinted catalog blocked (DataDome/captcha). "
+            "Hunt uses public HTML only — VINTED_ACCESS_KEY is sell-side Pro, not catalog search)",
+        ],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert not body.startswith("@babulic")
+    assert "**0 BUY áno**" in body
+    assert "zisk sa nerátal" in body
+    assert "žiadne ziskové karty" not in body
+    assert "usable inzeráty nie sú ocenené" in body
+    assert "identity_weak=1" in body
+    assert "asking_only_comps=0" in body
+    assert "detail_failed=0" in body
+    assert "sold_lookup_cap=154" in body
+    assert "below_net_profit=0" in body
+    assert "DataDome" in body
+    assert "**BUY:" not in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:

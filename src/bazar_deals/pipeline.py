@@ -114,6 +114,7 @@ def hunt_sources(
     listings: list[Listing] = []
     enrichers: dict[Marketplace, ListingSource] = {}
     fetch_notes: list[str] = []
+    sold_client = sold or SoldCompClient(settings)
     for source in sources:
         enrichers[Marketplace(source.marketplace)] = source
         try:
@@ -140,12 +141,17 @@ def hunt_sources(
     run = score_listings(
         listings,
         settings,
-        sold or SoldCompClient(settings),
+        sold_client,
         enrichers=enrichers,
         reviewer=reviewer,
         identifier=identifier,
     )
-    run.fetch_notes = fetch_notes
+    extra = [
+        note
+        for note in getattr(sold_client, "notes", [])
+        if note and note not in fetch_notes
+    ]
+    run.fetch_notes = fetch_notes + extra
     return run
 
 
