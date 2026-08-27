@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -227,22 +228,15 @@ class SoldCompClient:
         if self._fixture_html is not None:
             return self._comp_from_fixture(subject, query, specs, kind, self_key, min_n)
 
+        seed_peers = self._filter_peers(
+            self._asking_catalog or [], subject, specs, kind, self_key
+        )
+        if len(seed_peers) >= min_n:
+            return self._store_market_comp(query, seed_peers)
+
         peers = self._similar_market_peers(query, subject, specs, kind, self_key)
         if len(peers) >= min_n:
-            value = _market_value(peers)
-            fetched_at = _utc_now()
-            if self._db_path is not None:
-                self._store_fetch(query, peers, peers, 200, fetched_at, source="market")
-            self._note(
-                "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused "
-                "(eBay is not used)"
-            )
-            return SoldComp(
-                median=value,
-                sample=len(peers),
-                label=_comp_label(len(peers), "market"),
-                reliable_for_buy=True,
-            )
+            return self._store_market_comp(query, peers)
 
         if cached and cached.n >= min_n:
             self._note(
@@ -257,6 +251,46 @@ class SoldCompClient:
                 reliable_for_buy=True,
             )
         return None
+
+    def _store_market_comp(self, query: str, peers: list[Listing]) -> SoldComp:
+        value = _market_value(peers)
+        if self._db_path is not None:
+            self._store_fetch(query, peers, peers, 200, _utc_now(), source="market")
+        self._note(
+            "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused "
+            "(eBay is not used)"
+        )
+        return SoldComp(
+            median=value,
+            sample=len(peers),
+            label=_comp_label(len(peers), "market"),
+            reliable_for_buy=True,
+        )
+
+    def _filter_peers(
+        self,
+        listings: list[Listing],
+        subject: str,
+        specs: ItemSpecs | None,
+        kind,
+        self_key: str,
+    ) -> list[Listing]:
+        found: list[Listing] = []
+        seen: set[str] = set()
+        for item in listings:
+            item = self._to_eur(item)
+            if item.price.amount <= 0:
+                continue
+            if is_damaged_text(f"{item.title} {item.description}"):
+                continue
+            key = _url_key(item.url)
+            if key == self_key or key in seen:
+                continue
+            if not similar_titles(subject, item.title, left_specs=specs, left_kind=kind):
+                continue
+            seen.add(key)
+            found.append(item)
+        return found
 
     def _comp_from_fixture(
         self,
@@ -301,18 +335,9 @@ class SoldCompClient:
         kind,
         self_key: str,
     ) -> list[Listing]:
-        asking = [
-            item
-            for item in self._market_hits(query)
-            if item.price.amount > 0
-            and not is_damaged_text(f"{item.title} {item.description}")
-            and _url_key(item.url) != self_key
-        ]
-        return [
-            item
-            for item in asking
-            if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
-        ]
+        return self._filter_peers(
+            self._market_hits(query), subject, specs, kind, self_key
+        )
 
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
         """Offline fixture path only. Live hunts never fetch eBay HTML."""
@@ -332,11 +357,7 @@ class SoldCompClient:
         extra: list[Listing] = []
         if self._live_sold_used < self._live_sold_budget:
             self._live_sold_used += 1
-            extra = [
-                *self._bazos_search(query),
-                *self._aukro_search(query),
-                *self._vinted_search(query),
-            ]
+            extra = self._live_market_search(query)
         else:
             self.live_sold_skipped += 1
         for item in (*extra, *(self._asking_catalog or ())):
@@ -348,6 +369,13 @@ class SoldCompClient:
             hits.append(item)
         self._market_cache[query] = hits
         return hits
+
+    def _live_market_search(self, query: str) -> list[Listing]:
+        with ThreadPoolExecutor(max_workers=3) as pool:
+            bazos = pool.submit(self._bazos_search, query)
+            aukro = pool.submit(self._aukro_search, query)
+            vinted = pool.submit(self._vinted_search, query)
+            return [*bazos.result(), *aukro.result(), *vinted.result()]
 
     def _bazos_search(self, query: str) -> list[Listing]:
         url = f"{BAZOS_RSS['sk']}?{urlencode({'hledat': query})}"
@@ -374,7 +402,7 @@ class SoldCompClient:
                     "User-Agent": _BROWSER_UA,
                     "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
                 },
-                timeout=30.0,
+                timeout=12.0,
                 follow_redirects=True,
             )
             self._vinted = VintedHuntClient(self.settings, client=session)
@@ -404,7 +432,7 @@ class SoldCompClient:
                 "User-Agent": self.settings.bazos_user_agent,
                 "Accept": accept,
             },
-            timeout=30.0,
+            timeout=12.0,
             follow_redirects=True,
         )
         if response.status_code >= 400:
