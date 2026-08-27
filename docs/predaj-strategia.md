@@ -34,7 +34,7 @@ Kupec musí mať vlastný inzerát, ktorý v titulku hovorí, že tovar kúpi �
 inzeráty sa zahodia. Keď dopyt sedí na tvoj tovar, vznikne digest: kde kupec je,
 čo chce, za koľko ak cenu uviedol, identifikácia produktu, a tvoje vlastné
 inzeráty na ten istý kus. GitHub Actions (`.github/workflows/sell.yml`) to
-posiela každú hodinu (minúta 30) na issue **Sell buyers**, oddelene od hunt
+posiela každú hodinu (minúta 30) a pri každom pushe na `main` na issue **Sell buyers**, oddelene od hunt
 issue #1. Hunt cleanup maže len komentáre na #1, predajný digest sa tým
 neprepisuje.
 

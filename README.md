@@ -236,7 +236,7 @@ Allegro, Delcampe and Forum64 are not scraped (need an account or are not
 classifieds search). Facebook is out of scope.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
-hourly at minute 30) posts a digest on a **Sell buyers** issue — not hunt
+hourly at minute 30 and on every push to `main`) posts a digest on a **Sell buyers** issue — not hunt
 issue #1 — pairing the buyer (where, title, identification, offered price if
 stated) with your own listings for that product.
 
