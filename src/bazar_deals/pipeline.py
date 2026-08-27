@@ -9,7 +9,7 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import is_bulky
+from bazar_deals.catalog import reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -43,10 +43,14 @@ _FUNNEL_KEYS = (
     "under_min",
     "damaged",
     "bulky",
+    "skip_keyword",
+    "heavy",
     "usable",
     "detail_failed",
     "detail_damaged",
     "detail_bulky",
+    "detail_skip_keyword",
+    "detail_heavy",
     "insufficient_detail",
     "identity_weak",
     "identity_ai_rescued",
@@ -182,8 +186,9 @@ def score_listings(
         if not is_working_listing(listing):
             funnel["damaged"] += 1
             continue
-        if is_bulky(f"{listing.title} {listing.description}"):
-            funnel["bulky"] += 1
+        dropped = reject_physical(f"{listing.title} {listing.description}")
+        if dropped:
+            funnel[dropped] += 1
             continue
         usable.append(listing)
         source_stats[listing.marketplace]["usable"] += 1
@@ -211,8 +216,9 @@ def score_listings(
         if not is_working_listing(listing):
             funnel["detail_damaged"] += 1
             continue
-        if is_bulky(f"{listing.title} {listing.description}"):
-            funnel["detail_bulky"] += 1
+        dropped = reject_physical(f"{listing.title} {listing.description}")
+        if dropped:
+            funnel[f"detail_{dropped}"] += 1
             continue
 
         item = identify(listing)

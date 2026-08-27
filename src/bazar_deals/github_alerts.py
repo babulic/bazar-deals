@@ -19,24 +19,20 @@ def listing_key(deal: Deal) -> str:
     return f"{listing.marketplace.value}:{listing.external_id}"
 
 
-def select_alert_deals(deals: list[Deal], *, minimum: int | None = None) -> list[Deal]:
-    """Best-ranked scored items: every BUY, plus fillers up to `minimum`.
+def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
+    """BUY deals only, ranked by expected net profit, capped at `alert_top_n`.
 
-    Rank is expected net profit, then identity confidence. The BUY gate is a
-    flag on each card, not a filter that hides the rest of the top list.
+    Losing items are never used as fillers. If nothing clears the net-profit
+    floor, the hunt comment is status/funnel only.
     """
-    floor = ALERT_TOP_N if minimum is None else max(0, int(minimum))
+    cap = ALERT_TOP_N if limit is None else max(0, int(limit))
+    buys = [deal for deal in deals if deal.action is Action.BUY]
     ranked = sorted(
-        deals,
+        buys,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    buys = [deal for deal in ranked if deal.action is Action.BUY]
-    if len(buys) >= floor:
-        return buys
-    seen = {listing_key(deal) for deal in buys}
-    extra = [deal for deal in ranked if listing_key(deal) not in seen]
-    return [*buys, *extra][:floor]
+    return ranked[:cap]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -56,7 +52,7 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report plus the best-ranked cards, each with a BUY áno/nie flag."""
+    """Hunt report plus BUY cards only. Losing items are omitted."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
@@ -82,6 +78,10 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
         health.append("- no marketplace reached scoring")
     funnel_bits = [
         f"usable={run.funnel.get('usable', 0)}",
+        f"under_min={run.funnel.get('under_min', 0)}",
+        f"bulky={run.funnel.get('bulky', 0)}",
+        f"skip_keyword={run.funnel.get('skip_keyword', 0)}",
+        f"heavy={run.funnel.get('heavy', 0)}",
         f"scored={run.funnel.get('scored', 0)}",
         f"buy={run.funnel.get('buy', 0)}",
         f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
@@ -93,13 +93,13 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
     ]
     if buy_count:
         headline = (
-            f"**{buy_count} BUY áno** · top {shown} podľa očakávaného čistého zisku "
-            f"(prah {min_profit} €). Pri každom kuse je flag BUY áno/nie."
+            f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
+            f"(prah {min_profit} €)."
         )
     else:
         headline = (
-            f"**0 BUY áno** · top {shown} podľa očakávaného čistého zisku "
-            f"(prah {min_profit} € čistého zisku). Pri každom kuse je flag BUY áno/nie."
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
+            f"Stratové položky sa neposielajú."
         )
     return (
         f"{headline}\n\n"
@@ -110,7 +110,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
 
 
 class GitHubIssueAlerts:
-    """Collector issue for the best-ranked hunt cards, each flagged BUY áno/nie."""
+    """Collector issue for BUY hunt cards. Losing items are never posted as deals."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings

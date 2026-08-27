@@ -56,7 +56,7 @@ class Settings(BaseSettings):
     cheap_buy_eur: Decimal = Decimal(str(_HUNT["cheap_buy_eur"]))
     max_shipping_cheap_eur: Decimal = Decimal(str(_HUNT["max_shipping_cheap_eur"]))
     max_buy_eur: Decimal = Decimal(str(_HUNT["max_buy_eur"]))
-    min_buy_eur: Decimal = Decimal(str(_HUNT.get("min_buy_eur", "10")))
+    min_buy_eur: Decimal = Decimal(str(_HUNT.get("min_buy_eur", "20")))
     max_price_vs_typical: Decimal = Decimal(str(_HUNT["max_price_vs_typical"]))
     alert_price_vs_typical: Decimal = Decimal(str(_HUNT.get("alert_price_vs_typical", "1.0")))
 

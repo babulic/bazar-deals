@@ -44,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--notify",
         action="store_true",
-        help="Post the top ranked hunt cards (each with a BUY áno/nie flag) to the Deal alerts GitHub issue",
+        help="Post the hunt report to the Deal alerts GitHub issue; include BUY cards only",
     )
     args = parser.parse_args(argv)
 

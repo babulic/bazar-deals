@@ -12,7 +12,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "kazeta" in data["identity"]["kind_markers"]["media"]
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
-    assert data["hunt"]["min_buy_eur"] == 10
+    assert data["hunt"]["min_buy_eur"] == 20
+    assert data["hunt"]["max_weight_kg"] == 5
     assert data["hunt"]["min_net_profit_eur"] == 30
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
@@ -32,6 +33,22 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "3213" in data["ebay"]["small_categories"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
     assert "du" in data["catalog"]["small_bazos_rubs"]
+    assert "sp" in data["catalog"]["small_bazos_rubs"]
+    assert "de" in data["catalog"]["small_bazos_rubs"]
+    assert "vánočn" in data["catalog"]["christmas_markers"]
+    assert "světelný řetěz" in data["catalog"]["christmas_light_products"]
+    assert "televízor" in data["catalog"]["bulky_keywords"]
+    assert 100838 in data["aukro"]["small_categories"]
+    assert 52651 in data["aukro"]["small_categories"]
+    assert 144281 in data["aukro"]["small_categories"]
+    assert 144304 in data["aukro"]["small_categories"]
+    assert 148663 in data["aukro"]["small_categories"]
+    assert 88874 in data["aukro"]["small_categories"]
+    assert "183454" in data["ebay"]["small_categories"]
+    assert "19068" in data["ebay"]["small_categories"]
+    assert "16-footwear" in data["vinted"]["catalogs"]
+    assert "3565-electronics_phones" in data["vinted"]["catalogs"]
+    assert "4874-hc_trading_cards" in data["vinted"]["catalogs"]
     markers = data["identity"]["kind_markers"]["minerals"]
     assert "topás" in markers
     assert "alexandrit" in markers

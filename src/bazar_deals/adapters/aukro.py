@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -10,9 +11,25 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
+from bazar_deals.rules import rules
 
-_PUBLIC_SEARCH = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon"
+_AUKRO = rules().get("aukro") or {}
+_PUBLIC_SEARCH = str(_AUKRO.get("search_url") or "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon")
+_SMALL_CATEGORIES = tuple(int(value) for value in _AUKRO.get("small_categories") or ())
+_PAGE_SIZE = int(_AUKRO.get("page_size") or 30)
+_PAGES = int(_AUKRO.get("pages") or 1)
 _API = "https://api.aukro.cz"
+
+
+def _search_body(category_id: int | None) -> dict:
+    body = {
+        "fallbackItemsCount": 12,
+        "splitGroupKey": "listing",
+        "splitGroupValue": "A18",
+    }
+    if category_id is not None:
+        body["categoryId"] = int(category_id)
+    return body
 
 
 class AukroHuntClient(ListingSource):
@@ -35,31 +52,31 @@ class AukroHuntClient(ListingSource):
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
 
         found: dict[str, Listing] = {}
-        # The public endpoint's explicit newest sort currently returns HTTP 500.
-        # Pull a wider active window, then sort by startingTime client-side.
-        for page in range(3):
-            response = httpx.post(
-                _PUBLIC_SEARCH,
-                params={"page": page, "size": 60},
-                headers={
-                    "User-Agent": self.settings.bazos_user_agent,
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "fallbackItemsCount": 12,
-                    "splitGroupKey": "listing",
-                    "splitGroupValue": "A18",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
-            response.raise_for_status()
-            data = response.json()
-            for node in data.get("content") or []:
-                listing = _listing_from_public_node(node)
-                if listing is not None:
-                    found[listing.external_id] = listing
+        categories = _SMALL_CATEGORIES or (None,)
+        pages = _PAGES if _SMALL_CATEGORIES else 3
+        gap = min(0.5, max(0.0, self.settings.bazos_request_gap_seconds))
+        for index, category_id in enumerate(categories):
+            if index:
+                time.sleep(gap)
+            for page in range(pages):
+                response = httpx.post(
+                    _PUBLIC_SEARCH,
+                    params={"page": page, "size": _PAGE_SIZE},
+                    headers={
+                        "User-Agent": self.settings.bazos_user_agent,
+                        "Accept": "application/json",
+                        "Content-Type": "application/json",
+                    },
+                    json=_search_body(category_id),
+                    timeout=30.0,
+                    follow_redirects=True,
+                )
+                response.raise_for_status()
+                data = response.json()
+                for node in data.get("content") or []:
+                    listing = _listing_from_public_node(node)
+                    if listing is not None:
+                        found[listing.external_id] = listing
 
         return sorted(
             found.values(),

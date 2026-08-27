@@ -116,12 +116,14 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
+    assert "Stratové položky sa neposielajú" in body
+    assert "**BUY:" not in body
     assert "EBAY_CLIENT_ID" in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
 
 
-def test_top_five_include_non_buy_with_explicit_flag() -> None:
+def test_alerts_are_buy_only_and_omit_losses() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -130,7 +132,6 @@ def test_top_five_include_non_buy_with_explicit_flag() -> None:
     for index in range(6):
         listing = _deal().item.listing.model_copy(update={"external_id": str(index)})
         item = _deal().item.model_copy(update={"listing": listing, "confidence": 0.5 + index / 20})
-        # Lower typical → lower net profit; all of these stay under the 30 € BUY floor.
         ranked.append(score_deal(item, Decimal(str(70 + index)), Decimal("8")))
     buy = _deal()
     run = HuntRun(
@@ -141,25 +142,46 @@ def test_top_five_include_non_buy_with_explicit_flag() -> None:
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert body.startswith("@babulic\n")
-    assert body.count("**BUY:") == 5
+    assert body.count("**BUY:") == 1
     assert "**BUY: áno**" in body
-    assert "**BUY: nie**" in body
-    assert "- BUY: áno" in body
-    assert "- BUY: nie" in body
-    selected = select_alert_deals(run.deals, minimum=5)
-    assert len(selected) == 5
+    assert "**BUY: nie**" not in body
+    assert "- BUY: nie" not in body
+    selected = select_alert_deals(run.deals)
+    assert len(selected) == 1
     assert selected[0].action is Action.BUY
-    assert all(deal.action is Action.SKIP for deal in selected[1:])
 
 
-def test_all_buys_are_kept_even_above_the_minimum() -> None:
+def test_losing_hunts_post_status_without_cards() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    listing = _deal().item.listing.model_copy(update={"external_id": "loss"})
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    assert skip.action is Action.SKIP
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(scored=1, buy=0),
+        source_stats={},
+        fetch_notes=["aukro: fetched 1"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert not body.startswith("@babulic")
+    assert "**0 BUY áno**" in body
+    assert "Stratové položky sa neposielajú" in body
+    assert "**BUY:" not in body
+    assert select_alert_deals(run.deals) == []
+
+
+def test_buy_alerts_are_capped_at_top_n() -> None:
     deals = []
     for index in range(6):
         listing = _deal().item.listing.model_copy(update={"external_id": f"buy-{index}"})
         item = _deal().item.model_copy(update={"listing": listing})
         deals.append(score_deal(item, Decimal("120"), Decimal("8")))
-    selected = select_alert_deals(deals, minimum=5)
-    assert len(selected) == 6
+    selected = select_alert_deals(deals)
+    assert len(selected) == 5
     assert all(deal.action is Action.BUY for deal in selected)
 
 
