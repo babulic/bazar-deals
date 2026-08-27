@@ -21,8 +21,13 @@ class EbayBrowseClient(ListingSource):
 
     marketplace = Marketplace.EBAY.value
 
-    def __init__(self, settings: Settings | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        client: httpx.Client | None = None,
+    ) -> None:
         self.settings = settings or Settings()
+        self._client = client
         self._token: str | None = None
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
@@ -129,17 +134,24 @@ class EbayBrowseClient(ListingSource):
             return self._token
         if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
             raise RuntimeError("Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET for Browse API")
-        response = httpx.post(
-            _TOKEN_URL,
-            auth=(self.settings.ebay_client_id, self.settings.ebay_client_secret),
-            data={
-                "grant_type": "client_credentials",
-                "scope": _EBAY["oauth_scope"],
-            },
-            timeout=20.0,
-        )
-        response.raise_for_status()
-        self._token = response.json()["access_token"]
+        payload = {
+            "grant_type": "client_credentials",
+            "scope": _EBAY["oauth_scope"],
+        }
+        headers = {"Content-Type": "application/x-www-form-urlencoded"}
+        auth = (self.settings.ebay_client_id, self.settings.ebay_client_secret)
+        if self._client is not None:
+            response = self._client.post(_TOKEN_URL, auth=auth, data=payload, headers=headers)
+        else:
+            response = httpx.post(
+                _TOKEN_URL, auth=auth, data=payload, headers=headers, timeout=20.0
+            )
+        if response.status_code >= 400:
+            raise RuntimeError(_oauth_reject_message(response))
+        try:
+            self._token = response.json()["access_token"]
+        except (ValueError, KeyError, TypeError) as exc:
+            raise RuntimeError(f"eBay OAuth response missing access_token ({exc})") from exc
         return self._token
 
     def _to_listing(self, item: dict) -> Listing:
@@ -165,6 +177,24 @@ class EbayBrowseClient(ListingSource):
             shipping_cost=shipping,
             raw=item,
         )
+
+
+def _oauth_reject_message(response: httpx.Response) -> str:
+    """401 here means the secrets reached eBay and were refused, not that they are missing."""
+    detail = ""
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = str(payload.get("error_description") or payload.get("error") or "").strip()
+    except ValueError:
+        detail = (response.text or "").strip()[:300]
+    hint = (
+        "credentials are set but eBay rejected them — use the production App ID "
+        "(Client ID) and Cert ID (Client Secret), not sandbox and not Dev ID"
+    )
+    if detail:
+        return f"eBay OAuth {response.status_code}: {detail}. {hint}"
+    return f"eBay OAuth {response.status_code}. {hint}"
 
 
 def _shipping_cost(item: dict) -> Money | None:

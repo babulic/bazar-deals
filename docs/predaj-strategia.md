@@ -31,7 +31,9 @@ Servery: bazos.sk/.cz, Aukro, vinted (SK/CZ/AT/DE/PL/HU/FR/IT/NL/BE/ES),
 kleinanzeigen.de, willhaben.at, ebay.de/.at/.fr/.it/.pl/.nl/.es/.be.
 
 Kupec musí mať vlastný inzerát, ktorý v titulku hovorí, že tovar kúpi — predajné
-inzeráty sa zahodia. Keď dopyt sedí na tvoj tovar, vznikne digest: kde kupec je,
+inzeráty sa ako kupci nepočítajú, ale ak sedia na tvoj sklad (willhaben „Kaufe
+apatit Durango“ často vráti predaj Apatitu), digest ich dá s linkom, aby si ich
+vedel otvoriť. Keď dopyt sedí na tvoj tovar, vznikne digest: kde kupec je,
 čo chce, za koľko ak cenu uviedol, identifikácia produktu, a tvoje vlastné
 inzeráty na ten istý kus. GitHub Actions (`.github/workflows/sell.yml`) to
 posiela každú hodinu (minúta 30) a pri každom pushe na `main` na issue **Sell buyers**, oddelene od hunt

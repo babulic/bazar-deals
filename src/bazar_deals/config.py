@@ -86,6 +86,17 @@ class Settings(BaseSettings):
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
 
+    @field_validator("ebay_client_id", "ebay_client_secret", mode="before")
+    @classmethod
+    def strip_ebay_secret(cls, value: object) -> object:
+        """GitHub secrets and .env pastes often carry a newline or wrapping quotes."""
+        if not isinstance(value, str):
+            return value
+        text = value.strip()
+        if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+            text = text[1:-1].strip()
+        return text
+
     @field_validator("github_alert_issue", "github_sell_alert_issue", mode="before")
     @classmethod
     def empty_issue(cls, value: object) -> object:

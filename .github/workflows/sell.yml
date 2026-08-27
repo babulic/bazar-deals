@@ -33,9 +33,20 @@ jobs:
       - name: Warn when eBay secrets are missing
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
         run: |
-          if [ -z "$EBAY_CLIENT_ID" ]; then
-            echo "::warning::EBAY_CLIENT_ID is not set. ebay.de / ebay.at want-ads are skipped; Bazos and Aukro still run."
+          if [ -z "$EBAY_CLIENT_ID" ] || [ -z "$EBAY_CLIENT_SECRET" ]; then
+            echo "::warning::EBAY_CLIENT_ID / EBAY_CLIENT_SECRET is not set. ebay.de / ebay.at want-ads are skipped; Bazos and Aukro still run."
+            exit 0
+          fi
+          CODE=$(curl -sS -o /tmp/ebay-oauth.json -w "%{http_code}" \
+            -u "${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}" \
+            -H "Content-Type: application/x-www-form-urlencoded" \
+            --data-urlencode "grant_type=client_credentials" \
+            --data-urlencode "scope=https://api.ebay.com/oauth/api_scope" \
+            https://api.ebay.com/identity/v1/oauth2/token || true)
+          if [ "$CODE" != "200" ]; then
+            echo "::warning::eBay OAuth HTTP ${CODE} — secrets are present but eBay rejected them. Use the production App ID (Client ID) and Cert ID (Client Secret), not sandbox and not Dev ID. Response: $(tr '\n' ' ' < /tmp/ebay-oauth.json)"
           fi
       - name: Find buyers for own stock
         run: python -m bazar_deals sell --buyers --notify

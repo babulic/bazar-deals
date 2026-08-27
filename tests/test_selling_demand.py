@@ -45,6 +45,18 @@ def crystal() -> InventoryItem:
     )
 
 
+def apatite() -> InventoryItem:
+    return InventoryItem(
+        id="apatit-durango",
+        segment="minerals",
+        title="Priehľadný žltý neporušený kryštál apatitu z Mexika",
+        species=["apatit"],
+        origin="mexiko",
+        locality="Cerro del Mercado, Durango",
+        listed={"aukro": Decimal("13"), "ebay": Decimal("14")},
+    )
+
+
 def test_want_to_buy_requires_the_buyers_own_ad() -> None:
     assert is_want_to_buy("Kúpim MOS 6510")
     assert is_want_to_buy("Koupím Commodore AMIGA 600")
@@ -230,7 +242,11 @@ def _kleinanzeigen_card(title: str, price: str) -> str:
     )
 
 
-def _willhaben_page(title: str, price: str) -> str:
+def _willhaben_page(
+    title: str,
+    price: str,
+    seo: str = "kaufen-und-verkaufen/d/suche-mos-6510-1622/",
+) -> str:
     payload = {
         "props": {
             "pageProps": {
@@ -244,12 +260,7 @@ def _willhaben_page(title: str, price: str) -> str:
                                     "attribute": [
                                         {"name": "HEADING", "values": [title]},
                                         {"name": "PRICE", "values": [price]},
-                                        {
-                                            "name": "SEO_URL",
-                                            "values": [
-                                                "kaufen-und-verkaufen/d/suche-mos-6510-1622/"
-                                            ],
-                                        },
+                                        {"name": "SEO_URL", "values": [seo]},
                                     ]
                                 },
                             }
@@ -375,3 +386,70 @@ def test_post_buyer_digest_goes_to_sell_issue() -> None:
     assert posts[0] == body
     assert "Kúpim MOS 6510" in posts[0]
     assert "18 €" in posts[0]
+
+
+def test_ebay_credentials_are_stripped() -> None:
+    settings = Settings(ebay_client_id='  "app-id"  ', ebay_client_secret="  'cert' \n")
+    assert settings.ebay_client_id == "app-id"
+    assert settings.ebay_client_secret == "cert"
+
+
+def _quiet_handler(request: httpx.Request) -> httpx.Response:
+    url = str(request.url)
+    if "oauth2/token" in url:
+        return httpx.Response(
+            401,
+            json={
+                "error": "invalid_client",
+                "error_description": "client authentication failed",
+            },
+        )
+    if "searchItemsCommon" in url:
+        return httpx.Response(200, json={"content": []})
+    if "willhaben.at" in url:
+        return httpx.Response(200, text="<html></html>")
+    if any(host in url for host in ("bazos.", "vinted.", "kleinanzeigen.de", "ebay.com")):
+        return httpx.Response(200, text="<html></html>")
+    return httpx.Response(404, json={"message": url})
+
+
+def test_willhaben_stock_hits_include_links_even_when_not_wtb() -> None:
+    seo = "kaufen-und-verkaufen/d/apatit-aus-mexiko-durango-1565218359/"
+    html = _willhaben_page("Apatit aus Mexiko - Durango", "14", seo=seo)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "willhaben.at" in str(request.url):
+            return httpx.Response(200, text=html)
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport) as client:
+        digest = find_buyers(Inventory(items=[apatite()]), settings, client=client)
+
+    assert digest.matches == []
+    assert digest.near_misses
+    hit = digest.near_misses[0]
+    assert hit.want.title == "Apatit aus Mexiko - Durango"
+    assert hit.item.id == "apatit-durango"
+    assert seo in hit.want.url
+    body = format_buyer_digest(digest)
+    assert "**0 kupcov**" in body
+    assert f"[Apatit aus Mexiko - Durango](https://www.willhaben.at/iad/{seo})" in body
+    assert "`apatit-durango`" in body
+    assert "názov nie je dopyt kúpim" in body
+    assert any("0 want-ads" in note and "willhaben.at" in note for note in digest.notes)
+
+
+def test_ebay_oauth_401_is_a_single_actionable_note() -> None:
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert")
+    transport = httpx.MockTransport(_quiet_handler)
+    with httpx.Client(transport=transport) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    ebay_notes = [note for note in digest.notes if note.startswith("ebay.")]
+    assert len(ebay_notes) == 1
+    assert "client authentication failed" in ebay_notes[0]
+    assert ebay_notes[0].count("ebay.") == 1
+    assert "Cert ID" in ebay_notes[0]
+

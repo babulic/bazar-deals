@@ -117,6 +117,9 @@ _EBAY_BOARDS = (
 _KA_PHRASES = ("suche", "kaufe")
 _WILLHABEN_PHRASES = ("Suche", "Kaufe")
 BUY_VERBS = ("kúpim", "koupím", "kaufe", "kupię", "veszek", "compro", "achète", "koop")
+_TARGETED_SITES = frozenset(
+    {"willhaben.at", "kleinanzeigen.de", *(host for _mid, host, _wtb in _EBAY_BOARDS)}
+)
 
 
 class WantAd(BaseModel):
@@ -138,6 +141,7 @@ class DemandMatch(BaseModel):
 @dataclass
 class BuyerDigest:
     matches: list[DemandMatch] = field(default_factory=list)
+    near_misses: list[DemandMatch] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     fetched: Counter[str] = field(default_factory=Counter)
 
@@ -363,32 +367,43 @@ def find_buyers(
             "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
         )
     else:
-        for marketplace_id, site, phrases in _EBAY_BOARDS:
-            site_count = 0
-            blocked = False
-            for wtb in phrases:
-                for query in queries:
-                    batch, note = _search_ebay(
-                        f"{wtb} {query}", marketplace_id, site, settings, client=client
-                    )
-                    if note:
-                        digest.notes.append(note)
-                        blocked = True
+        browse = EbayBrowseClient(settings, client=client)
+        try:
+            browse._access_token()
+        except (RuntimeError, httpx.HTTPError) as exc:
+            digest.notes.append(
+                f"ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 ({exc})"
+            )
+        else:
+            for marketplace_id, site, phrases in _EBAY_BOARDS:
+                site_count = 0
+                blocked = False
+                for wtb in phrases:
+                    for query in queries:
+                        batch, note = _search_ebay(
+                            f"{wtb} {query}",
+                            marketplace_id,
+                            site,
+                            browse,
+                            client=client,
+                        )
+                        if note:
+                            digest.notes.append(note)
+                            blocked = True
+                            break
+                        site_count += len(batch)
+                        for ad in batch:
+                            ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+                    if blocked:
                         break
-                    site_count += len(batch)
-                    for ad in batch:
-                        ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
-                if blocked:
-                    break
-            if not blocked:
-                digest.fetched[site] += site_count
-                digest.notes.append(f"{site}: fetched {site_count} rows")
+                if not blocked:
+                    digest.fetched[site] += site_count
+                    digest.notes.append(f"{site}: fetched {site_count} rows")
 
     matches: list[DemandMatch] = []
+    near_misses: list[DemandMatch] = []
     seen_pair: set[str] = set()
     for ad in ads.values():
-        if not is_want_to_buy(ad.title):
-            continue
         hit = best_item(ad.title, items)
         if hit is None:
             continue
@@ -397,35 +412,66 @@ def find_buyers(
         if key in seen_pair:
             continue
         seen_pair.add(key)
-        matches.append(DemandMatch(want=ad, item=item, score=score))
+        row = DemandMatch(want=ad, item=item, score=score)
+        if is_want_to_buy(ad.title):
+            matches.append(row)
+        elif ad.site in _TARGETED_SITES:
+            near_misses.append(row)
 
     matches.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
+    near_misses.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
     digest.matches = matches
+    digest.near_misses = near_misses
     return digest
 
 
 def format_buyer_digest(digest: BuyerDigest, *, mention: str = "") -> str:
     ping = f"@{mention}\n\n" if mention and digest.matches else ""
+    notes = "\n".join(f"- {note}" for note in digest.notes) or "- (no sources fetched)"
+    skipped = _format_near_misses(digest.near_misses)
     if not digest.matches:
-        notes = "\n".join(f"- {note}" for note in digest.notes) or "- (no sources fetched)"
         boards = ", ".join(searched_sites())
         return (
             f"{ping}**0 kupcov** na tvoj tovar. Digest je prázdny, kým sa nenájde "
             f"inzerát typu kúpim/koupím/kaufe/kupię/veszek/compro/achète/koop "
             f"spárovaný so skladom.\n\n"
-            f"Servery: {boards}\n\nZdroje:\n{notes}\n"
+            f"Servery: {boards}\n\n"
+            f"{skipped}"
+            f"Zdroje:\n{notes}\n"
         )
     markers = "\n".join(
         f"<!-- want:{row.want.site}:{row.want.external_id}:{row.item.id} -->"
         for row in digest.matches
     )
     blocks = "\n\n---\n\n".join(_format_match(row) for row in digest.matches)
-    notes = "\n".join(f"- {note}" for note in digest.notes)
     return (
         f"{ping}{markers}\n"
         f"**{len(digest.matches)} kupec/kupci** na tvoj tovar\n\n"
         f"{blocks}\n\n"
+        f"{skipped}"
         f"Zdroje:\n{notes}\n"
+    )
+
+
+_NEAR_MISS_CAP = 20
+
+
+def _format_near_misses(rows: list[DemandMatch]) -> str:
+    if not rows:
+        return ""
+    lines = []
+    for row in rows[:_NEAR_MISS_CAP]:
+        want = row.want
+        lines.append(
+            f"- [{want.title}]({want.url}) · {want.site} · sklad `{row.item.id}`"
+        )
+    extra = f"\n- … a ešte {len(rows) - _NEAR_MISS_CAP}" if len(rows) > _NEAR_MISS_CAP else ""
+    return (
+        f"**{len(rows)} inzerát(ov) sedí na sklad, ale názov nie je dopyt kúpim** "
+        f"(väčšinou predaj; over link):\n"
+        + "\n".join(lines)
+        + extra
+        + "\n\n"
     )
 
 
@@ -620,7 +666,11 @@ def _search_kleinanzeigen(
             )
         )
     _pause(settings, client)
-    return ads, f"kleinanzeigen.de: fetched {len(ads)} rows for {wtb!r} {query!r}"
+    want_n = sum(1 for ad in ads if is_want_to_buy(ad.title))
+    return ads, (
+        f"kleinanzeigen.de: fetched {len(ads)} rows ({want_n} want-ads) "
+        f"for {wtb!r} {query!r}"
+    )
 
 
 def _search_willhaben(
@@ -690,21 +740,20 @@ def _search_willhaben(
             )
         )
     _pause(settings, client)
-    return ads, f"willhaben.at: fetched {len(ads)} rows for {query!r}"
+    want_n = sum(1 for ad in ads if is_want_to_buy(ad.title))
+    return ads, (
+        f"willhaben.at: fetched {len(ads)} rows ({want_n} want-ads) for {query!r}"
+    )
 
 
 def _search_ebay(
     query: str,
     marketplace_id: str,
     site: str,
-    settings: Settings,
+    browse: EbayBrowseClient,
     *,
     client: httpx.Client | None,
 ) -> tuple[list[WantAd], str]:
-    if not settings.ebay_client_id or not settings.ebay_client_secret:
-        return [], f"{site}: fetched 0 (set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
-    local = settings.model_copy(update={"ebay_marketplace": marketplace_id})
-    browse = EbayBrowseClient(local)
     try:
         headers = {
             "Authorization": f"Bearer {browse._access_token()}",
