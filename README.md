@@ -20,7 +20,7 @@ A listing becomes **BUY only when expected conservative net profit is at least 3
 ```text
 newest buy-now listing
     ↓
-small + working + within purchase cap
+small + working + shoebox-scale (max 5 kg) + purchase at least 20 EUR
     ↓
 for ebay.de: deliveryCountry=SK must be confirmed
     ↓
@@ -44,6 +44,15 @@ subtract:
     ↓
 BUY only if expected net profit >= 30 EUR
 ```
+
+## What is searched
+
+The hunt looks for **small, working goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
+
+- **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
+- **Aukro** public newest buy-now window, then the same physical/price filters. Seasonal LED Christmas lighting and string lights are dropped as commodity dumps.
+- **Vinted** public catalog newest in the purchase-price range.
+- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
 
 ## Identification
 
@@ -161,7 +170,7 @@ Environment overrides used by GitHub Actions:
 | Env | Default | Meaning |
 |---|---:|---|
 | `MIN_NET_PROFIT_EUR` | `30` | Minimum expected clean profit for BUY |
-| `MIN_BUY_EUR` | `10` | Minimum purchase price |
+| `MIN_BUY_EUR` | `20` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `110` | Maximum purchase price |
 | `MAX_SHIPPING_EUR` | `15` | Conservative inbound shipping when actual cost is unavailable |
 | `MAX_SHIPPING_CHEAP_EUR` | `11` | Shipping allowance for cheap purchases |
@@ -179,11 +188,11 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 ## Alerts
 
 The hourly GitHub Actions hunt always comments on the Deal alerts collector
-issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). The comment
-lists **at least the top 5 scored items** by expected net profit. Each card has
-an explicit **BUY: áno** or **BUY: nie** flag against the 30 EUR net-profit
-floor. Actual BUY deals are never dropped from the list, and the assignee is
-mentioned only when at least one flag is áno.
+issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). Cards are
+**BUY only**, ranked by expected net profit, at most 5 per hunt. If nothing
+clears the 30 EUR net-profit floor, the comment is status and funnel only —
+losing items are not posted as fillers. The assignee is mentioned only when at
+least one BUY card is present.
 
 eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
 `EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but

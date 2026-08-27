@@ -64,7 +64,7 @@ jobs:
           GITHUB_ALERT_ISSUE: "1"
           GITHUB_ASSIGNEE: babulic
           MAX_BUY_EUR: "110"
-          MIN_BUY_EUR: "10"
+          MIN_BUY_EUR: "20"
           MIN_NET_PROFIT_EUR: "30"
           MAX_SHIPPING_EUR: "15"
           CHEAP_BUY_EUR: "20"

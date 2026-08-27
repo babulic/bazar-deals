@@ -12,7 +12,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "kazeta" in data["identity"]["kind_markers"]["media"]
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
-    assert data["hunt"]["min_buy_eur"] == 10
+    assert data["hunt"]["min_buy_eur"] == 20
+    assert data["hunt"]["max_weight_kg"] == 5
     assert data["hunt"]["min_net_profit_eur"] == 30
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
@@ -32,6 +33,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "3213" in data["ebay"]["small_categories"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
     assert "du" in data["catalog"]["small_bazos_rubs"]
+    assert "sp" in data["catalog"]["small_bazos_rubs"]
+    assert "de" in data["catalog"]["small_bazos_rubs"]
+    assert "vánoční osvětlení" in data["catalog"]["skip_keywords"]
+    assert "televízor" in data["catalog"]["bulky_keywords"]
     markers = data["identity"]["kind_markers"]["minerals"]
     assert "topás" in markers
     assert "alexandrit" in markers

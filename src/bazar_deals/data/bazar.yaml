@@ -30,7 +30,8 @@ domain:
 
 hunt:
   max_buy_eur: 110
-  min_buy_eur: 10
+  min_buy_eur: 20
+  max_weight_kg: 5
   max_price_vs_typical: 0.5
   alert_price_vs_typical: 1.0
   min_sold_sample: 5
@@ -54,7 +55,7 @@ github:
   alert_label: bazar-alert
   alert_issue: 0
   assignee: ""
-  # Always comment at least this many best-ranked scored items, each with a BUY flag.
+  # Maximum BUY cards in one hunt comment. Losing items are never used as fillers.
   alert_top_n: 5
 
 fees:
@@ -876,7 +877,9 @@ working:
 catalog:
   bazos_rss:
     sk: https://www.bazos.sk/rss.php
-  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn, os, du]
+  # pc=Počítače mo=Mobily el=Elektro fo=Foto hu=Hudba ob=Oblečenie
+  # kn=Knihy os=Ostatné du=Dom a záhrada sp=Šport de=Deti
+  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn, os, du, sp, de]
   vertical_rss:
     retro: [pc, el, hu, fo]
     apple: [pc, mo]
@@ -1015,6 +1018,101 @@ catalog:
     - karavan
     - šatník
     - satnik
+    - televízor
+    - televizor
+    - televízia
+    - televizia
+    - televize
+    - kočík
+    - kocik
+    - kočárek
+    - kocarek
+    - pneumatika
+    - pneumatiky
+    - sušička
+    - susicka
+    - vysávač
+    - vysavac
+    - klimatizácia
+    - klimatizacia
+    - klimatizace
+    - rebrík
+    - rebrik
+    - žebřík
+    - zebrik
+    - mikrovlnka
+    - komoda
+    - autosedačka
+    - autosedacka
+    - trampolína
+    - trampolina
+    - snowboard
+    - kajak
+    - paddleboard
+    - elektrocentrála
+    - elektrocentrala
+    - kompresor
+    - zváračka
+    - zvaracka
+    - krovinorez
+    - motorka
+    - skúter
+    - skuter
+    - trezor
+    - umývadlo
+    - umyvadlo
+    - radiátor
+    - radiator
+    - sprchový kút
+    - sprchovy kut
+    - jedálenský stôl
+    - jedalensky stol
+    - jídelní stůl
+    - jidelni stul
+    - písací stôl
+    - psaci stol
+    - konferenčný stolík
+    - konferencny stolik
+    - detská postieľka
+    - detska postielka
+    - nárazník
+    - naraznik
+    - strešný box
+    - stresny box
+  # Commodity dumps that fit a shoebox but have no resale spread.
+  skip_keywords:
+    - vánoční osvětlení
+    - vanocni osvetleni
+    - vánoční osvetlení
+    - vianočné osvetlenie
+    - vianocne osvetlenie
+    - vianočné osvetlení
+    - vánoční řetěz
+    - vanocni retez
+    - vianočná reťaz
+    - vianocna retaz
+    - světelný řetěz
+    - svetelny retez
+    - světelná řetěz
+    - svetelná reťaz
+    - svetelna retaz
+    - světelný řetězec
+    - led řetěz
+    - led reťaz
+    - led retaz
+    - led girlanda
+    - girlanda led
+    - světelná girlanda
+    - svetelna girlanda
+    - weihnachtsbeleuchtung
+    - weihnachtslichterkette
+    - weihnachtslichter
+    - christmas lights
+    - christmas lighting
+    - světýlka
+    - svetylka
+    - svetielka
+    - svetýlka
 
 ebay:
   marketplace_id: EBAY_DE
