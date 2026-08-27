@@ -75,6 +75,9 @@ def test_want_to_buy_requires_the_buyers_own_ad() -> None:
     assert is_want_to_buy("Koop MOS 6510")
     assert is_want_to_buy("Kaufe MOS 6510")
     assert is_want_to_buy("⚠️Kupim MOS 6510")
+    assert is_want_to_buy("Gesucht MOS 6510")
+    assert not is_want_to_buy("Biete MOS 6510")
+    assert not is_want_to_buy("Tausche MOS 6510")
     assert not is_want_to_buy("Te koop MOS 6510")
     assert not is_want_to_buy("Predám MOS 6510")
     assert not is_want_to_buy("COMMODORE C64 - koupí se zdrojem ZDARMA")
@@ -107,6 +110,8 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "vinted.fr",
         "kleinanzeigen.de",
         "willhaben.at",
+        "delcampe.net",
+        "forum64.de",
         "ebay.de",
         "ebay.at",
         "ebay.fr",
@@ -119,7 +124,7 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
 
 def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
     phrases = searched_buy_phrases()
-    for verb in ("kupię", "veszek", "compro", "achète", "koop", "kaufe"):
+    for verb in ("kupię", "veszek", "compro", "achète", "koop", "kaufe", "Gesucht"):
         assert verb in phrases
     assert BUY_VERBS[-5:] == ("kupię", "veszek", "compro", "achète", "koop")
 
@@ -315,6 +320,8 @@ def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
             return httpx.Response(200, text=_kleinanzeigen_card("Suche MOS 6510", "40"))
         if "willhaben.at" in url:
             return httpx.Response(200, text=_willhaben_page("Suche MOS 6510", "35"))
+        if "delcampe.net" in url or "forum64.de" in url:
+            return httpx.Response(200, text="<html></html>")
         return httpx.Response(404, json={"message": url})
 
     settings = Settings(ebay_client_id="", ebay_client_secret="")
@@ -408,7 +415,17 @@ def _quiet_handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"content": []})
     if "willhaben.at" in url:
         return httpx.Response(200, text="<html></html>")
-    if any(host in url for host in ("bazos.", "vinted.", "kleinanzeigen.de", "ebay.com")):
+    if any(
+        host in url
+        for host in (
+            "bazos.",
+            "vinted.",
+            "kleinanzeigen.de",
+            "ebay.com",
+            "delcampe.net",
+            "forum64.de",
+        )
+    ):
         return httpx.Response(200, text="<html></html>")
     return httpx.Response(404, json={"message": url})
 
@@ -452,4 +469,94 @@ def test_ebay_oauth_401_is_a_single_actionable_note() -> None:
     assert "client authentication failed" in ebay_notes[0]
     assert ebay_notes[0].count("ebay.") == 1
     assert "Cert ID" in ebay_notes[0]
+
+
+def _delcampe_card(title: str, item_id: str, price: str = "12,00 €") -> str:
+    return (
+        f'<div id="item-{item_id}" data-watch-item>'
+        f'<a href="/en_GB/collectables/minerals-fossils/minerals/slug-{item_id}.html" '
+        f'class="item-link"><h2 class="item-title">{title}</h2></a>'
+        f'<strong class="item-price">{price}</strong></div>'
+    )
+
+
+def _forum64_page(*threads: tuple[str, str]) -> str:
+    items = "".join(
+        f'<a href="https://www.forum64.de/index.php?thread/{thread_id}-slug/" '
+        f'class="messageGroupLink">{title}</a>'
+        for title, thread_id in threads
+    )
+    return f"<ol class='tabularList'>{items}</ol>"
+
+
+def test_delcampe_wtb_matches_mineral_and_sell_hit_keeps_link() -> None:
+    html = _delcampe_card("Suche Amethyst Brandberg", "111") + _delcampe_card(
+        "Amethyst Brandberg Namibia crystal", "222", "US$9.00"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "delcampe.net" in str(request.url):
+            return httpx.Response(200, text=html)
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[crystal()]), settings, client=client)
+
+    titles = {row.want.title for row in digest.matches}
+    assert "Suche Amethyst Brandberg" in titles
+    assert all(row.want.site == "delcampe.net" for row in digest.matches)
+    assert any(row.want.offer_eur == Decimal("12") for row in digest.matches)
+    assert any(row.want.title.startswith("Amethyst Brandberg Namibia") for row in digest.near_misses)
+    body = format_buyer_digest(digest)
+    assert "slug-111.html" in body
+    assert "slug-222.html" in body
+
+
+def test_forum64_suche_matches_chip_and_biete_is_not_a_buyer() -> None:
+    html = _forum64_page(
+        ("Suche MOS 6510", "77"),
+        ("Biete MOS 6510", "88"),
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "forum64.de" in str(request.url):
+            return httpx.Response(200, text=html)
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    titles = {row.want.title for row in digest.matches}
+    assert titles == {"Suche MOS 6510"}
+    assert digest.matches[0].want.url.endswith("thread/77-slug/")
+    assert any(row.want.title == "Biete MOS 6510" for row in digest.near_misses)
+    body = format_buyer_digest(digest)
+    assert "[forum64.de](https://www.forum64.de/index.php?thread/77-slug/)" in body
+    assert "thread/88-slug/" in body
+
+
+def test_forum64_cloudflare_block_is_reported_once() -> None:
+    calls = {"n": 0}
+    challenge = (
+        "<html><title>Just a moment...</title>"
+        "<div id='challenge-platform'>Cloudflare</div></html>"
+    )
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "forum64.de" in str(request.url):
+            calls["n"] += 1
+            return httpx.Response(403, text=challenge)
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    forum_notes = [note for note in digest.notes if note.startswith("forum64.de")]
+    assert calls["n"] == 1
+    assert len(forum_notes) == 1
+    assert "Cloudflare" in forum_notes[0]
+
 

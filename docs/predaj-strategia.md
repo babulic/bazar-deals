@@ -28,7 +28,10 @@ python -m bazar_deals sell --format json
 - česky **koupím**, slovensky **kúpim**
 
 Servery: bazos.sk/.cz, Aukro, vinted (SK/CZ/AT/DE/PL/HU/FR/IT/NL/BE/ES),
-kleinanzeigen.de, willhaben.at, ebay.de/.at/.fr/.it/.pl/.nl/.es/.be.
+kleinanzeigen.de, willhaben.at, ebay.de/.at/.fr/.it/.pl/.nl/.es/.be,
+**Delcampe** (minerály) a **Forum64** (C64 Suche/Gesucht). Facebook skupiny
+sa nesťahujú. Forum64 je za Cloudflare; keď GitHub Actions nepustí, digest to
+napíše namiesto tichej nuly.
 
 Kupec musí mať vlastný inzerát, ktorý v titulku hovorí, že tovar kúpi — predajné
 inzeráty sa ako kupci nepočítajú, ale ak sedia na tvoj sklad (willhaben „Kaufe

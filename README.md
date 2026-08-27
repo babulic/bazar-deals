@@ -232,10 +232,13 @@ the digest with links, labelled as not-a-demand, so you can click them.
 | vinted.sk / .cz / .at / .de / .pl / .hu / .fr / .it / .nl / .be / .es | local I-will-buy, then looking-for |
 | kleinanzeigen.de | `suche {part}` and `kaufe {part}` |
 | willhaben.at | `Suche {part}` and `Kaufe {part}` |
+| delcampe.net | minerals category: species+locality, then `suche` / `wanted` |
+| forum64.de | C64 Kleinanzeigen search: `Suche` / `Gesucht` + part number |
 | ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{kaufe\|kupię\|veszek\|compro\|achète\|koop} {part}` plus looking-for |
 
-Allegro, Delcampe and Forum64 are not scraped (need an account or are not
-classifieds search). Facebook is out of scope.
+Allegro is not scraped (needs a business account). Facebook groups are out of
+scope. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
+says so instead of pretending the board was empty.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
 hourly at minute 30 and on every push to `main`) posts a digest on a **Sell buyers** issue — not hunt
