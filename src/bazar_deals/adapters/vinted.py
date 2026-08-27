@@ -45,10 +45,6 @@ def vinted_catalog_blocked(response: httpx.Response) -> bool:
     )
 
 
-def _looks_like_vinted_catalog(html: str) -> bool:
-    return "self.__next_f.push" in html or "/items/" in html
-
-
 def _catalog_url(path: str | None, *, lo: int, hi: int, page: int) -> str:
     base = "https://www.vinted.sk/catalog"
     if path:
@@ -77,7 +73,6 @@ class VintedHuntClient(ListingSource):
         hi = int(self.settings.max_buy_eur)
         found: list[Listing] = []
         seen: set[str] = set()
-        last_html = ""
         paths = _CATALOGS or (None,)
         gap = min(0.8, max(0.0, self.settings.bazos_request_gap_seconds))
         for index, path in enumerate(paths):
@@ -96,15 +91,16 @@ class VintedHuntClient(ListingSource):
             if vinted_catalog_blocked(response):
                 raise RuntimeError(VINTED_BLOCKED)
             response.raise_for_status()
-            last_html = response.text or ""
-            batch = parse_vinted_items(last_html)
+            batch = parse_vinted_items(response.text or "")
             for item in batch:
                 key = item.external_id or str(item.url)
                 if key in seen:
                     continue
                 seen.add(key)
                 found.append(item)
-        if not found and last_html and not _looks_like_vinted_catalog(last_html):
+        if not found:
+            # Next.js shells still contain __next_f /items/ crumbs after DataDome
+            # strips the catalog, so "looks like HTML" is not enough.
             raise RuntimeError(VINTED_BLOCKED)
         return found
 
