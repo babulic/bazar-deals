@@ -13,6 +13,9 @@ from bazar_deals.domain import Action, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources
+from bazar_deals.selling.inventory import known_segments
+from bazar_deals.selling.plan import build_plan
+from bazar_deals.selling.report import format_json, format_markdown
 from bazar_deals.soldcomps import SoldCompClient
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rss.xml"
@@ -23,7 +26,23 @@ def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     parser = argparse.ArgumentParser(description="Marketplace mispricing hunter")
-    parser.add_argument("command", choices=["hunt"], help="Run the deal pipeline")
+    parser.add_argument(
+        "command",
+        choices=["hunt", "sell"],
+        help="hunt: buy-side deal pipeline. sell: cross-border plan for own stock.",
+    )
+    parser.add_argument(
+        "--segment",
+        choices=known_segments(),
+        default=None,
+        help="Restrict the sell plan to one inventory segment.",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["md", "json"],
+        default="md",
+        help="Sell plan output format (default: md).",
+    )
     parser.add_argument(
         "--source",
         choices=["all", "bazos", "ebay", "aukro", "vinted"],
@@ -47,6 +66,12 @@ def main(argv: list[str] | None = None) -> int:
         help="Post BUY deals meeting the net-profit floor to the Deal alerts GitHub issue",
     )
     args = parser.parse_args(argv)
+
+    if args.command == "sell":
+        plan = build_plan()
+        renderer = format_json if args.format == "json" else format_markdown
+        print(renderer(plan, segment=args.segment))
+        return 0
 
     settings = Settings()
     vertical = Vertical(args.vertical) if args.vertical else None

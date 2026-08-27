@@ -1,0 +1,279 @@
+# Snapshot of the own-stock listings across bazos.sk, aukro.sk, vinted.sk and
+# ebay.at, collected 2026-08-27. `bazar-deals sell --refresh` overwrites it from
+# the live accounts; the checked-in copy keeps the planner usable offline.
+#
+# `listed` holds the asking price per marketplace, so a missing key is a real
+# coverage gap. `ship_eur` is what the eBay listing currently charges the buyer.
+# `weight_g` is only filled where the listing states it.
+
+meta:
+  collected: "2026-08-27"
+  counts: {bazos: 19, aukro: 27, vinted: 29, ebay: 19}
+  # Aukro renders offers client-side and Vinted paginates, so those two accounts
+  # are represented by the items that were visible, not by the full set.
+  partial: [aukro, vinted]
+
+items:
+  - id: amethyst-namibia-74mm
+    segment: minerals
+    title: 74mm lesklý priehľadný fantómový kryštál Ametystu, Namíbia
+    species: [ametyst]
+    form: kryštál
+    origin: namíbia
+    locality: Goboboseb, Brandberg
+    listed: {bazos: 110, vinted: 110, ebay: 115}
+    ship_eur: 13
+
+  - id: amethyst-namibia-29mm
+    segment: minerals
+    title: 29mm kryštál Ametystu s kryštálmi kalcitu v ryolite, Namíbia
+    species: [ametyst, kalcit, ryolit]
+    form: kryštál
+    origin: namíbia
+    locality: Goboboseb, Brandberg
+    weight_g: 103
+    listed: {bazos: 42, ebay: 45}
+    ship_eur: 13
+
+  - id: topaz-pakistan-18mm
+    segment: minerals
+    title: 18mm čistý kryštál topazu, krištáľu a muskovitu v pegmatite
+    species: [topaz, kremeň, muskovit, pegmatit]
+    form: kryštál
+    origin: pakistan
+    locality: Skardu
+    weight_g: 72
+    listed: {bazos: 42, aukro: 45, ebay: 50}
+    ship_eur: 13
+
+  - id: galenit-terezia
+    segment: minerals
+    title: Kostrovitý galenit, chalkopyrit, sfalerit, Banská Štiavnica
+    species: [galenit, chalkopyrit, sfalerit, kremeň]
+    origin: slovensko
+    locality: banská štiavnica
+    listed: {bazos: 54}
+
+  - id: polymetal-hodrusa
+    segment: minerals
+    title: "Polymetál: chalkopyrit, sfalerit, galenit, kalcit, kremeň"
+    species: [chalkopyrit, sfalerit, galenit, kalcit, kremeň]
+    form: drúza
+    origin: slovensko
+    locality: hodruša-hámre
+    weight_g: 168
+    listed: {bazos: 14, vinted: 14, ebay: 15}
+    ship_eur: 13
+
+  - id: kalcit-zlatak
+    segment: minerals
+    title: 100g kalcit kryštály s kovovým nábehom - zlaťák
+    species: [kalcit]
+    form: kryštál
+    origin: slovensko
+    locality: banská štiavnica
+    weight_g: 100
+    listed: {bazos: 9, aukro: 10, vinted: 9, ebay: 13}
+    ship_eur: 13
+
+  - id: chalcedon-kremenisko
+    segment: minerals
+    title: 61g ružový chalcedón, Kremenisko
+    species: [chalcedón]
+    origin: slovensko
+    locality: banská štiavnica
+    weight_g: 61
+    listed: {bazos: 6, aukro: 8, vinted: 7, ebay: 7}
+    ship_eur: 14
+
+  - id: apatit-durango
+    segment: minerals
+    title: Priehľadný žltý neporušený kryštál apatitu z Mexika
+    species: [apatit]
+    form: kryštál
+    origin: mexiko
+    locality: Cerro del Mercado, Durango
+    listed: {bazos: 13, ebay: 14}
+    ship_eur: 10
+
+  - id: pseudomalachit-lubietova
+    segment: minerals
+    title: Kontrastný agregát pseudomalachitu s leskom v kremeni
+    species: [pseudomalachit, kremeň]
+    form: agregát
+    origin: slovensko
+    locality: ľubietová
+    listed: {vinted: 29}
+
+  - id: celestin-madagaskar
+    segment: minerals
+    title: Drúza - nepoškodene modré kryštály Celestínu
+    species: [celestín]
+    form: drúza
+    origin: madagaskar
+    listed: {vinted: 22}
+
+  - id: jaspis-zemplin
+    segment: minerals
+    title: "Leštený rez: červeno-hnedý Jaspis s jemnou kresbou"
+    species: [jaspis]
+    form: leštený rez
+    origin: slovensko
+    locality: zemplín
+    listed: {vinted: 22}
+
+  - id: zeolit-agregat
+    segment: minerals
+    title: "Agregát zeolitu: ilicovité kryštály natrolit/skolecit, analcím"
+    species: [zeolit]
+    form: agregát
+    listed: {vinted: 15}
+
+  - id: jadeit-brus
+    segment: minerals
+    title: Prírodný Jadeit - vybrúsený a vyleštený, na výrobu šperkov
+    species: [jadeit]
+    listed: {vinted: 12}
+
+  - id: apatit-privesok
+    segment: minerals
+    title: Prívesok z prírodného lešteného modrého apatitu
+    species: [apatit]
+    form: prívesok
+    listed: {vinted: 6}
+
+  - id: vic2-8565r2-1993
+    segment: retro
+    title: Videochip CSG 8565 R2 VIC-II z roku 1993 pre Commodore C64C
+    part_numbers: ["8565R2", "VIC-II"]
+    keywords: ["1993", "PAL"]
+    listed: {bazos: 32, ebay: 33}
+    ship_eur: 10
+
+  - id: vic2-8565r2-1991
+    segment: retro
+    title: Videochip CSG 8565 R2 VIC-II z roku 1991 pre Commodore C64C
+    part_numbers: ["8565R2", "VIC-II"]
+    keywords: ["1991", "PAL"]
+    listed: {ebay: 30}
+    ship_eur: 10
+
+  - id: vic2-6569r5
+    segment: retro
+    title: Videochip Commodore CSG 6569R5 VIC-II pre Commodore C64
+    part_numbers: ["6569R5", "VIC-II"]
+    keywords: ["PAL"]
+    listed: {bazos: 35}
+
+  - id: cpu-8500
+    segment: retro
+    title: Commodore CSG 8500 procesor pre C64, rok výroby 1990
+    part_numbers: ["8500"]
+    keywords: ["1990", "CSG"]
+    listed: {ebay: 32}
+    ship_eur: 10
+
+  - id: cpu-6510
+    segment: retro
+    title: "Commodore MOS 6510 CBM: procesor pre všetky varianty C64"
+    part_numbers: ["6510"]
+    keywords: ["MOS", "CBM"]
+    listed: {vinted: 25, ebay: 25}
+    ship_eur: 10
+
+  - id: via-6522
+    segment: retro
+    title: "MOS 6522 VIA čip pre Commodore 1541, 1541 II, 1571, Atari 810"
+    part_numbers: ["6522", "VIA"]
+    keywords: ["MOS", "Atari 810"]
+    listed: {ebay: 11}
+    ship_eur: 10
+
+  - id: psu-1541
+    segment: retro
+    title: Nový zdroj na disketovú jednotku Commodore 1541 II, 1581, 1571
+    part_numbers: ["1541", "1581", "1571", "1570"]
+    weight_g: 90
+    listed: {bazos: 22, vinted: 22, ebay: 24}
+    ship_eur: 13
+
+  - id: psu-c64-new
+    segment: retro
+    title: Nový spoľahlivý zdroj pre Commodore C64, všetky typy
+    part_numbers: ["C64", "PSU"]
+    listed: {vinted: 31, ebay: 32}
+    ship_eur: 15
+
+  - id: psu-c64-original
+    segment: retro
+    title: Originálny funkčný zdroj pre Commodore C64, C64C, C64G
+    part_numbers: ["C64", "PSU"]
+    listed: {ebay: 25}
+    ship_eur: 15
+
+  - id: joystick-boeder
+    segment: retro
+    title: Boeder BitStar Digital Joystick H-6 pre Commodore, Atari, Spectrum, Amstrad
+    part_numbers: ["Boeder BitStar H-6"]
+    listed: {bazos: 20, vinted: 20}
+
+  - id: joystick-quickshot
+    segment: retro
+    title: Joystick SVI Spectravideo QuickShot I pre Commodore, Atari, Spectrum, Amstrad
+    part_numbers: ["Spectravideo QuickShot I"]
+    listed: {bazos: 20}
+
+  - id: safepal-x1
+    segment: commodity
+    title: SafePal X1 hardvérová kryptomenová peňaženka
+    listed: {bazos: 43, vinted: 42}
+
+  - id: ledger-case
+    segment: commodity
+    title: Púzdro pre hardvérovú krypto peňaženku Ledger Nano X
+    weight_g: 67
+    listed: {bazos: 11, ebay: 14}
+    ship_eur: 13
+
+  - id: watch-charger-or825
+    segment: commodity
+    title: Samsung EP-OR825 nabíjačka s kolískou pre Watch 1, 2, 3, 4
+    listed: {bazos: 12, ebay: 13}
+    ship_eur: 10
+
+  - id: watch-glass-44
+    segment: commodity
+    title: 2 ochranné sklá pre Samsung Galaxy Watch Active 2, 44mm
+    listed: {bazos: 5, vinted: 5, ebay: 5}
+    ship_eur: 10
+
+  - id: watch-glass-40
+    segment: commodity
+    title: 2 ochranné sklá pre Samsung Galaxy Watch Active 2, 40mm
+    listed: {ebay: 5}
+    ship_eur: 10
+
+  - id: watch-strap
+    segment: commodity
+    title: Silikónový remienok na Samsung Galaxy Watch 7, 6, 5, 4
+    listed: {vinted: 6}
+
+  - id: usb-cable-dg925u
+    segment: commodity
+    title: Samsung EP-DG925U 1.2m biely dátový a nabíjací microUSB kábel
+    listed: {bazos: 4}
+
+  - id: winkhaus-handles
+    segment: commodity
+    title: Kovové kľučky na eurookná Winkhaus - ergonomické, dural
+    listed: {bazos: 4, aukro: 4, vinted: 30}
+
+  - id: outdoor-lamp
+    segment: commodity
+    title: Vodeodolná minimalistická vonkajšia nástenná lampa 16cm
+    listed: {vinted: 10}
+
+  - id: euro-coins
+    segment: commodity
+    title: Pamätné 2 Eur mince
+    listed: {vinted: 2.80}
