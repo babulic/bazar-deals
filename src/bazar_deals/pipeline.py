@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from decimal import Decimal
@@ -21,6 +23,7 @@ from bazar_deals.domain import (
     Vertical,
 )
 from bazar_deals.identity import ItemSpecs, identify, identity_subject, with_specs
+from bazar_deals.progress import emit, set_phase, start_heartbeat, stop_heartbeat
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
@@ -79,6 +82,7 @@ class HuntRun:
     funnel: Counter[str]
     source_stats: dict[Marketplace, Counter[str]]
     fetch_notes: list[str] = field(default_factory=list)
+    listings: list[Listing] = field(default_factory=list)
 
 
 def hunt(
@@ -109,48 +113,69 @@ def hunt_sources(
     sold: SoldCompClient | None = None,
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
+    score: bool = True,
 ) -> HuntRun:
     settings = settings or Settings()
     listings: list[Listing] = []
     enrichers: dict[Marketplace, ListingSource] = {}
     fetch_notes: list[str] = []
     sold_client = sold or SoldCompClient(settings)
-    for source in sources:
-        enrichers[Marketplace(source.marketplace)] = source
-        try:
-            if Marketplace(source.marketplace) is Marketplace.EBAY:
-                note = (
-                    f"{source.marketplace}: skipped "
-                    "(valuation uses Bazos/Aukro/Vinted price book, not eBay)"
-                )
-                print(note, flush=True)
+    if os.environ.get("GITHUB_ACTIONS") or os.environ.get("HUNT_HEARTBEAT"):
+        start_heartbeat()
+    try:
+        for source in sources:
+            enrichers[Marketplace(source.marketplace)] = source
+            try:
+                if Marketplace(source.marketplace) is Marketplace.EBAY:
+                    note = (
+                        f"{source.marketplace}: skipped "
+                        "(valuation uses Bazos/Aukro/Vinted price book, not eBay)"
+                    )
+                    emit(note)
+                    fetch_notes.append(note)
+                    continue
+                set_phase(f"{source.marketplace} fetch")
+                emit(f"{source.marketplace}: fetching")
+                started = time.monotonic()
+                batch = source.fetch_new(vertical)
+                elapsed = int(time.monotonic() - started)
+                note = f"{source.marketplace}: fetched {len(batch)}"
+                emit(f"{note} in {elapsed}s")
                 fetch_notes.append(note)
-                continue
-            print(f"{source.marketplace}: fetching…", flush=True)
-            batch = source.fetch_new(vertical)
-            note = f"{source.marketplace}: fetched {len(batch)}"
-            print(note, flush=True)
-            fetch_notes.append(note)
-            listings.extend(batch)
-        except (RuntimeError, httpx.HTTPError) as exc:
-            note = f"{source.marketplace}: fetched 0 ({exc})"
-            print(note, flush=True)
-            fetch_notes.append(note)
-    run = score_listings(
-        listings,
-        settings,
-        sold_client,
-        enrichers=enrichers,
-        reviewer=reviewer,
-        identifier=identifier,
-    )
-    extra = [
-        note
-        for note in getattr(sold_client, "notes", [])
-        if note and note not in fetch_notes
-    ]
-    run.fetch_notes = fetch_notes + extra
-    return run
+                listings.extend(batch)
+            except (RuntimeError, httpx.HTTPError) as exc:
+                note = f"{source.marketplace}: fetched 0 ({exc})"
+                emit(note)
+                fetch_notes.append(note)
+        if not score:
+            return HuntRun(
+                deals=[],
+                funnel=Counter(fetched=len(listings)),
+                source_stats={},
+                fetch_notes=fetch_notes,
+                listings=listings,
+            )
+        set_phase("scoring")
+        emit(f"scoring {len(listings)} fetched listing(s)")
+        run = score_listings(
+            listings,
+            settings,
+            sold_client,
+            enrichers=enrichers,
+            reviewer=reviewer,
+            identifier=identifier,
+        )
+        extra = [
+            note
+            for note in getattr(sold_client, "notes", [])
+            if note and note not in fetch_notes
+        ]
+        run.fetch_notes = fetch_notes + extra
+        run.listings = listings
+        return run
+    finally:
+        stop_heartbeat()
+        set_phase("done")
 
 
 def score_listings(
@@ -214,7 +239,8 @@ def score_listings(
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for index, listing in enumerate(usable, start=1):
         if index == 1 or index % 50 == 0 or index == len(usable):
-            print(f"scoring {index}/{len(usable)}", flush=True)
+            set_phase(f"scoring {index}/{len(usable)}")
+            emit(f"scoring {index}/{len(usable)}")
         enricher = enrichers.get(listing.marketplace)
         if enricher is not None:
             listing = enricher.enrich_listing(listing)
@@ -285,8 +311,8 @@ def score_listings(
         if deal.action is Action.BUY:
             source_stats[deal.item.listing.marketplace]["buy"] += 1
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
-    print(_format_funnel(funnel), flush=True)
-    print(_format_source_health(source_stats), flush=True)
+    emit(_format_funnel(funnel))
+    emit(_format_source_health(source_stats))
     return HuntRun(deals=deals, funnel=funnel, source_stats=source_stats)
 
 

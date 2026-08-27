@@ -197,6 +197,19 @@ the comment says profit was never computed (missing price-book sample),
 not that every usable ad is a loss. The assignee is mentioned only when
 at least one BUY card is present.
 
+**Funnel** is the drop-off counter printed as `filter: usable=… scored=… buy=…`.
+It is not a status headline. Each key is how many ads left that step:
+fetched → usable (buy-now, 20–110 €, not bulky/damaged) → scored (had a
+price-book value) → buy (expected net profit ≥ 30 €). `no_sold_comps` means
+the ad was never valued. `below_net_profit` means it was valued and missed
+the 30 € floor.
+
+Hunt GitHub Actions is split into **Fetch Bazos / Fetch Aukro / Fetch Vinted /
+Score and comment**. The yellow step is the one still running. Progress also
+goes to the job summary and `hunt` notices on the run page, including a
+heartbeat every 60 seconds, because `gh run view --log` cannot download logs
+until the job ends.
+
 Hunt does not use eBay keys. Selling own stock on eBay.at is a separate
 `sell` command.
 
