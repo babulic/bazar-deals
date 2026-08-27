@@ -20,7 +20,10 @@ Bazoš a Aukro sa zbierajú kompletne bez prihlásenia. eBay blokuje sťahovanie
 HTML z dátových centier, takže potrebuje `EBAY_CLIENT_ID` a `EBAY_CLIENT_SECRET`;
 Vinted načítava mriežku nekonečným scrollovaním za DataDome, takže potrebuje
 `VINTED_ACCESS_KEY` a `VINTED_SIGNING_KEY` z Pro Integrations. Kým tie chýbajú,
-tieto dva zdroje si podržia posledné známe ceny a označia sa ako neúplné.
+tieto dva zdroje si podržia posledné známe ceny a plán povie, koľko položiek
+oproti účtu chýba.
+
+Snapshot v repozitári je kompletný za všetky štyri účty k 27. 8. 2026.
 
 ## 1. Nepredávaš jeden sortiment, ale tri
 
@@ -165,20 +168,25 @@ Commodore C64C`, nie `Videochip CSG 8565 R2 ... pre Commodore`.
 
 ## 5. Diery v pokrytí
 
-Z 36 spárovaných položiek (Bazoš 19, Aukro 27, eBay 19, Vinted 20 z 29):
+Všetky štyri účty sú prejdené do konca: Bazoš 19, Aukro 27, Vinted 29, eBay 19,
+dokopy 36 rôznych predmetov. Slovensko je pokryté dobre — na Aukre chýba 9
+položiek a na Vinted 7. Problém je celý vonku.
 
-- **Zberateľské minerály chýbajú na eBay**, teda na jedinom kanáli, ktorý dnes
-  dosiahne na nemecky hovoriacich zberateľov: pseudomalachit z Ľubietovej (29 €),
-  celestín z Madagaskaru (26 €), jaspis zo Zemplína (22 €), zeolit (18 €),
-  jadeit (12 €). Všetky visia iba na Aukre a Vinted, čiže na slovenskom publiku.
+**Na eBay chýba 11 položiek a sú to práve tie, ktoré by tam patrili najviac:**
+
+- **Zberateľské minerály**: pseudomalachit z Ľubietovej (29 €), celestín
+  z Madagaskaru (26 €), jaspis zo Zemplína (22 €), zeolit (18 €), jadeit (12 €).
+  Všetky visia iba na Aukre a Vinted, čiže výhradne pred slovenským publikom,
+  hoci eBay je tvoj jediný živý kanál na nemecky hovoriacich zberateľov.
 - **Galenit z Terézie za 54 €** je tvoj druhý najdrahší kus a je len na Bazoši.
-- **6569R5 je len na Bazoši a Aukre** za 39 €, hoci práve tento čip je
-  v Nemecku vypredaný a Polyplay zaň pýta 29 €. Na eBay chýba.
-- **Joysticky sú len na SK kanáloch**, hoci ich hlavný trh je nemecká a poľská
-  retro scéna.
-- **Na eBay chýba 11 položiek, na Aukre 9.** Allegro by pribralo 26 z 36.
-- Jediný kus, ktorý sa neoplatí vyvážať vôbec, je ružový chalcedón za 8 € —
-  tam poštovné prekročí podiel ceny všade okrem Slovenska.
+- **6569R5 za 39 €** — v Nemecku vypredaný, Polyplay zaň pýta 29 €, a na eBay
+  ho nemáš.
+- **Oba joysticky**, hoci ich hlavný trh je nemecká a poľská retro scéna.
+
+Allegro by naraz pribralo 26 z 36 položiek a bazos.cz všetkých 36.
+
+Jediný kus, ktorý sa neoplatí vyvážať samostatne, je ružový chalcedón za 8 € —
+tam poštovné prekročí únosný podiel ceny všade okrem Slovenska.
 
 ## 6. Poradie krokov
 

@@ -178,10 +178,10 @@ def test_channel_ids_and_inventory_keys_are_unique() -> None:
 def test_inventory_snapshot_loads_with_prices_per_marketplace() -> None:
     stock = load_inventory(PACKAGED_INVENTORY)
     assert stock.collected == "2026-08-27"
-    # Only Vinted still hides items behind infinite scroll.
-    assert stock.partial == ["vinted"]
+    # Every account has been paginated to the end.
+    assert stock.partial == []
     assert stock.segments() == ["commodity", "minerals", "retro"]
-    assert stock.coverage() == {"aukro": 27, "bazos": 19, "ebay": 19, "vinted": 20}
+    assert stock.coverage() == {"aukro": 27, "bazos": 19, "ebay": 19, "vinted": 29}
     item = stock.get("amethyst-namibia-74mm")
     assert item.price() == Decimal("115")
     assert item.home_price() == Decimal("110")
@@ -267,13 +267,27 @@ def test_sell_command_runs_without_network(capsys) -> None:
 
 
 def test_plan_names_the_exact_shortfall_against_the_account() -> None:
-    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
-    # The Vinted profile advertises 29 items; infinite scroll hides the rest.
-    assert plan.shortfall() == {"vinted": (20, 29)}
-    assert "9 are unaccounted for" in format_markdown(plan, segment="minerals")
+    from bazar_deals.selling.inventory import Inventory
+
+    behind = Inventory(
+        counts={"vinted": 29, "bazos": 1},
+        items=[
+            InventoryItem(
+                id="one",
+                segment="minerals",
+                title="Ametyst",
+                species=["ametyst"],
+                listed={"vinted": Decimal("10"), "bazos": Decimal("9")},
+            )
+        ],
+    )
+    plan = build_plan(behind)
+    assert plan.shortfall() == {"vinted": (1, 29)}
+    assert "28 are unaccounted for" in format_markdown(plan)
+    # Bazos holds everything it advertises, so it must not be reported.
+    assert "bazos advertises" not in format_markdown(plan)
 
 
-def test_no_shortfall_is_reported_for_complete_accounts() -> None:
+def test_no_shortfall_once_every_account_is_paginated_to_the_end() -> None:
     plan = build_plan(load_inventory(PACKAGED_INVENTORY))
-    for marketplace in ("bazos", "aukro", "ebay"):
-        assert marketplace not in plan.shortfall()
+    assert plan.shortfall() == {}

