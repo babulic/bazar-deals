@@ -51,8 +51,8 @@ The hunt looks for **small, working, fast-moving goods that fit a shoebox and we
 
 - **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
 - **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
-- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports.
-- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
+- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop. GitHub Actions often gets DataDome instead of the catalog (`fetched 0` with an explicit block note).
+- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia. Those are the production **App ID (Client ID)** and **Cert ID (Client Secret)** — application `client_credentials`, not a user purchase token. Hunt only searches listings. Public HTML cannot prove `deliveryCountry=SK`, and GitHub Actions also cannot read sold-search HTML (sign-in wall), so the same keys are the Browse fallback for asking comps.
 
 ## Identification
 
@@ -149,9 +149,11 @@ Default BUY floor: **30 EUR**.
 
 ## eBay Germany
 
-Live eBay purchasing requires `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`.
+Live eBay **search** (not buying) requires `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`.
 
-The Browse API search includes `deliveryCountry:SK`. Public eBay search HTML is not accepted as a purchase source because it cannot reliably prove that the specific listing ships to Slovakia. When the API exposes a shipping cost, that cost is used; otherwise the conservative configured shipping allowance is used.
+These are the production App ID and Cert ID from developer.ebay.com. Sandbox keys and the Dev ID are rejected (`invalid_client`). The hunt never places orders; the keys are application client credentials so the Browse API can filter `deliveryCountry:SK`. Public eBay search HTML is not accepted as a purchase source because it cannot reliably prove that the specific listing ships to Slovakia. When the API exposes a shipping cost, that cost is used; otherwise the conservative configured shipping allowance is used.
+
+The same keys are the fallback when sold-comps HTML from GitHub Actions hits eBay's sign-in wall. Without a working token, usable Bazos/Aukro ads stay at `scored=0` — profit is not computed, they are not proven losses.
 
 ## Sold comps cache
 
@@ -189,10 +191,12 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 The hourly GitHub Actions hunt always comments on the Deal alerts collector
 issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). Cards are
-**BUY only**, ranked by expected net profit, at most 5 per hunt. If nothing
-clears the 30 EUR net-profit floor, the comment is status and funnel only —
-losing items are not posted as fillers. The assignee is mentioned only when at
-least one BUY card is present.
+**BUY only**, ranked by expected net profit, at most 5 per hunt. If listings
+were valued and nothing clears the 30 EUR net-profit floor, the comment is
+status and funnel only — losing items are not posted as fillers. If `scored=0`,
+the comment says profit was never computed (missing sold comps / lookup cap /
+OAuth), not that every usable ad is a loss. The assignee is mentioned only when
+at least one BUY card is present.
 
 eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
 `EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but

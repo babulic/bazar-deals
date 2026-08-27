@@ -160,3 +160,35 @@ def test_bazos_detail_extracts_meta_description() -> None:
 def test_vinted_pro_still_sell_side() -> None:
     with pytest.raises(RuntimeError, match="sell-side"):
         VintedProClient().fetch_new(Vertical.APPLE)
+
+
+def test_vinted_datadome_is_a_fetch_error(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import vinted as vinted_mod
+
+    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    response = httpx.Response(
+        403,
+        text="<html>datadome captcha-delivery blocked</html>",
+        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
+    )
+    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="DataDome"):
+        VintedHuntClient().fetch_new()
+
+
+def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import vinted as vinted_mod
+
+    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    response = httpx.Response(
+        200,
+        text="<html><title>Please wait</title></html>",
+        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
+    )
+    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="DataDome"):
+        VintedHuntClient().fetch_new()

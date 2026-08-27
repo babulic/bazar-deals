@@ -23,6 +23,30 @@ _CATALOGS = tuple(str(path) for path in _VINTED.get("catalogs") or ())
 NO_PUBLIC_CATALOG = (
     "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
 )
+VINTED_BLOCKED = (
+    "Vinted catalog blocked (DataDome/captcha). Hunt uses public HTML only — "
+    "VINTED_ACCESS_KEY is sell-side Pro, not catalog search"
+)
+
+
+def vinted_catalog_blocked(response: httpx.Response) -> bool:
+    """Datacentre GETs often get a DataDome/captcha page instead of the catalog."""
+    if response.status_code in {401, 403, 429, 503}:
+        return True
+    snippet = (response.text or "")[:12000].casefold()
+    return any(
+        marker in snippet
+        for marker in (
+            "datadome",
+            "captcha-delivery",
+            "geo.captcha-delivery.com",
+            "please enable js and disable any ad blocker",
+        )
+    )
+
+
+def _looks_like_vinted_catalog(html: str) -> bool:
+    return "self.__next_f.push" in html or "/items/" in html
 
 
 def _catalog_url(path: str | None, *, lo: int, hi: int, page: int) -> str:
@@ -53,6 +77,7 @@ class VintedHuntClient(ListingSource):
         hi = int(self.settings.max_buy_eur)
         found: list[Listing] = []
         seen: set[str] = set()
+        last_html = ""
         paths = _CATALOGS or (None,)
         gap = min(0.8, max(0.0, self.settings.bazos_request_gap_seconds))
         for index, path in enumerate(paths):
@@ -68,14 +93,19 @@ class VintedHuntClient(ListingSource):
                 timeout=30.0,
                 follow_redirects=True,
             )
+            if vinted_catalog_blocked(response):
+                raise RuntimeError(VINTED_BLOCKED)
             response.raise_for_status()
-            batch = parse_vinted_items(response.text)
+            last_html = response.text or ""
+            batch = parse_vinted_items(last_html)
             for item in batch:
                 key = item.external_id or str(item.url)
                 if key in seen:
                     continue
                 seen.add(key)
                 found.append(item)
+        if not found and last_html and not _looks_like_vinted_catalog(last_html):
+            raise RuntimeError(VINTED_BLOCKED)
         return found
 
     def enrich_listing(self, listing: Listing) -> Listing:

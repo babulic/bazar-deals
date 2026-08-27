@@ -6,7 +6,7 @@ from bazar_deals.catalog import is_bulky
 from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Listing, Marketplace, Money
-from bazar_deals.pipeline import hunt, score_listings
+from bazar_deals.pipeline import hunt, hunt_sources, score_listings
 from bazar_deals.soldcomps import SoldComp, SoldCompClient
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bazos_rss.xml"
@@ -193,3 +193,24 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
     ]
     deals = score_listings(listings, Settings(), _Sold()).deals
     assert len(deals) == 2
+
+
+def test_hunt_sources_appends_sold_comp_notes() -> None:
+    from bazar_deals.adapters.base import ListingSource
+    from bazar_deals.domain import Vertical
+
+    class _Empty(ListingSource):
+        marketplace = Marketplace.BAZOS.value
+
+        def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+            return []
+
+    class _Sold:
+        notes = ["ebay sold comps: sign-in wall from this host"]
+
+        def median_sold(self, listing, **kwargs):
+            return None
+
+    run = hunt_sources([_Empty()], settings=Settings(), sold=_Sold())
+    assert "bazos: fetched 0" in run.fetch_notes
+    assert "ebay sold comps: sign-in wall from this host" in run.fetch_notes

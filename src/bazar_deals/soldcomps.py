@@ -147,6 +147,11 @@ class SoldCompClient:
         self._cache: dict[str, list[Listing]] = {}
         self._failed: dict[str, int] = {}
         self._asking_catalog: list[Listing] | None = None
+        self.notes: list[str] = []
+        self._noted: set[str] = set()
+        self._sold_html_blocked = False
+        self._sold_html_status: int | None = None
+        self._browse_failed = False
         self._fixture_html = fixture_html
         if fixture_path is not None:
             self._fixture_html = fixture_path.read_text(encoding="utf-8")
@@ -155,6 +160,16 @@ class SoldCompClient:
         else:
             self._db_path = Path(db_path) if db_path is not None else Path(self.settings.comps_db)
             self._init_db()
+
+    @property
+    def sold_html_blocked(self) -> bool:
+        return self._sold_html_blocked
+
+    def _note(self, message: str) -> None:
+        if not message or message in self._noted:
+            return
+        self._noted.add(message)
+        self.notes.append(message)
 
     def median_sold(
         self,
@@ -276,6 +291,8 @@ class SoldCompClient:
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
         if query in self._cache:
             return self._cache[query], self._failed.get(query), query in self._failed
+        if self._sold_html_blocked:
+            return [], self._sold_html_status, True
         if query in self._failed:
             return [], self._failed[query], True
         if self._fixture_html is not None:
@@ -296,8 +313,18 @@ class SoldCompClient:
             follow_redirects=True,
         )
         status = int(response.status_code)
-        if status >= 400 or "signin.ebay." in str(response.url):
+        signin = "signin.ebay." in str(response.url)
+        if status >= 400 or signin:
             self._failed[query] = status
+            if status in {401, 403} or signin:
+                self._sold_html_blocked = True
+                self._sold_html_status = status
+                reason = "sign-in wall" if signin else f"HTTP {status}"
+                self._note(
+                    "ebay sold comps: "
+                    f"{reason} from this host; Browse asking fallback needs working "
+                    "EBAY_CLIENT_ID/SECRET (production App ID + Cert ID)"
+                )
             return [], status, True
         hits = parse_ebay_html(response.text)
         self._cache[query] = hits
@@ -358,6 +385,8 @@ class SoldCompClient:
         )
 
     def _ebay_browse_search(self, query: str) -> list[Listing]:
+        if self._browse_failed:
+            return []
         if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
             return []
         from bazar_deals.adapters.ebay import EbayBrowseClient
@@ -365,7 +394,9 @@ class SoldCompClient:
         try:
             client = EbayBrowseClient(self.settings)
             data = client.search_query(query)
-        except (httpx.HTTPError, RuntimeError):
+        except (httpx.HTTPError, RuntimeError) as exc:
+            self._browse_failed = True
+            self._note(f"ebay browse comps: {exc}")
             return []
         return [
             client._to_listing(item)

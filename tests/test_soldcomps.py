@@ -151,3 +151,48 @@ def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None
         client.median_sold(listing)
     assert seen
     assert "128gb" in seen[0]
+
+
+def test_signin_wall_blocks_further_sold_html(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    signin = _Resp(200, "please sign in", url="https://signin.ebay.de/ws/eBayISAPI.dll")
+    second = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="2",
+        title="Apple iPhone 13 128GB",
+        url="https://mobil.bazos.sk/inzerat/iphone/",
+        price=Money(amount=Decimal("80"), currency="EUR"),
+    )
+    with patch("bazar_deals.soldcomps.httpx.get", return_value=signin) as fetch, patch.object(
+        client, "_market_hits", return_value=[]
+    ):
+        assert client.median_sold(_listing()) is None
+        assert client.median_sold(second) is None
+    assert fetch.call_count == 1
+    assert client.sold_html_blocked is True
+    assert any("sold comps" in note and "sign-in wall" in note for note in client.notes)
+
+
+def test_browse_oauth_failure_is_noted_once(tmp_path: Path) -> None:
+    settings = _settings(tmp_path / "comps.sqlite")
+    settings = settings.model_copy(
+        update={"ebay_client_id": "app-id", "ebay_client_secret": "cert-id"}
+    )
+    client = SoldCompClient(settings)
+    with patch.object(client, "_sold_hits", return_value=([], 403, True)), patch.object(
+        client, "_bazos_search", return_value=[]
+    ), patch.object(client, "_public_asking_catalog", return_value=[]), patch(
+        "bazar_deals.adapters.ebay.EbayBrowseClient.search_query",
+        side_effect=RuntimeError("eBay OAuth 401: client authentication failed"),
+    ) as browse:
+        assert client.median_sold(_listing()) is None
+        other = _listing().model_copy(
+            update={
+                "external_id": "2",
+                "title": "Apple iPhone 13 128GB",
+                "url": "https://mobil.bazos.sk/inzerat/iphone/",
+            }
+        )
+        assert client.median_sold(other) is None
+    assert browse.call_count == 1
+    assert sum("browse comps" in note for note in client.notes) == 1

@@ -84,19 +84,29 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
         f"bulky={run.funnel.get('bulky', 0)}",
         f"skip_keyword={run.funnel.get('skip_keyword', 0)}",
         f"heavy={run.funnel.get('heavy', 0)}",
+        f"identity_weak={run.funnel.get('identity_weak', 0)}",
+        f"detail_failed={run.funnel.get('detail_failed', 0)}",
         f"scored={run.funnel.get('scored', 0)}",
         f"buy={run.funnel.get('buy', 0)}",
         f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
         f"sold_lookup_cap={run.funnel.get('sold_lookup_cap', 0)}",
+        f"asking_only_comps={run.funnel.get('asking_only_comps', 0)}",
         f"below_net_profit={run.funnel.get('below_net_profit', 0)}",
         f"identity_ai_rescued={run.funnel.get('identity_ai_rescued', 0)}",
         f"ai_rejected={run.funnel.get('ai_rejected', 0)}",
         f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
     ]
+    scored = int(run.funnel.get("scored", 0) or 0)
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
             f"(prah {min_profit} €)."
+        )
+    elif scored == 0:
+        headline = (
+            f"**0 BUY áno** · zisk sa nerátal — usable inzeráty nie sú ocenené "
+            f"(chýbajú eBay sold comps / lookup cap / OAuth). "
+            f"Toto nie je dôkaz, že sú stratové. Stratové položky sa neposielajú."
         )
     else:
         headline = (
