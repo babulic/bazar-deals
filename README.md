@@ -204,10 +204,25 @@ eBay is skipped.
 listed on the four seller accounts (bazos.sk, aukro.sk, vinted.sk, ebay.at) and
 works out where the buyers are.
 
-It now also searches **other people's want-to-buy ads** (`kúpim`, `koupím`,
-`suche`, `kaufe`) on bazos.sk, bazos.cz, Aukro, vinted.sk / .cz / .at / .de,
-ebay.de and ebay.at. Only ads whose title is the buyer's own dopyt are kept.
-When that dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
+It now also searches **other people's want-to-buy ads** across Europe, not
+only Slovak `kúpim`. Query words are local to the board: `kúpim` / `hľadám`,
+`koupím` / `hledám`, `suche` / `kaufe`, `szukam` / `kupię`, `keresek`,
+`cherche`, `cerco`, `zoek`, `busco`. Only ads whose **title is the buyer's
+own dopyt** are kept.
+
+| Server | What is searched |
+|---|---|
+| bazos.sk, bazos.cz | kúpim, hľadám, koupím, hledám, suche, szukam |
+| Aukro | koupím, kúpim, suche, szukam, keresek |
+| vinted.sk / .cz / .at / .de / .pl / .hu / .fr / .it / .nl / .be / .es | local WTB word |
+| kleinanzeigen.de | `suche {part or locality}` |
+| willhaben.at | `Suche {part or locality}` |
+| ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{wtb} {part}` via Browse API |
+
+Allegro, Delcampe and Forum64 are not scraped (need an account or are not
+classifieds search). Facebook is out of scope.
+
+When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
 hourly at minute 30) posts a digest on a **Sell buyers** issue — not hunt
 issue #1 — pairing the buyer (where, title, identification, offered price if
 stated) with your own listings for that product.

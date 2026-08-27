@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import time
 from collections import Counter
@@ -31,11 +32,15 @@ _BAZOS_SEARCH = {
     "cz": "https://www.bazos.cz/search.php",
 }
 _WANT_PREFIX = re.compile(
-    r"(?i)^[^\w]{0,8}(kúpim|kupim|koupím|koupim|hľadám|hladam|hledám|hledam|"
-    r"suche|kaufe|szukam|keresek|wanted|wtb)\b"
+    r"(?i)^[^\w]{0,8}((je|ich|i|ja)\s+)?"
+    r"(kúpim|kupim|koupím|koupim|hľadám|hladam|hledám|hledam|"
+    r"suche|kaufe|gesucht|gesuch|szukam|kupię|kupie|poszukuję|poszukuje|"
+    r"keresek|keresem|wanted|wtb|looking\s+for|cherche|achète|achete|"
+    r"cerco|compro|busco|zoek|gezocht|cumpăr|cumpar)\b"
 )
 _SELL_PREFIX = re.compile(
-    r"(?i)^[^\w]{0,8}(predám|predam|prodám|prodam|verkaufe|sprzedam|eladó)\b"
+    r"(?i)^[^\w]{0,8}(predám|predam|prodám|prodam|verkaufe|sprzedam|eladó|"
+    r"vends|vendo|verkopen|ofertuję)\b"
 )
 _BAZOS_BLOCK_RE = re.compile(
     r'<div class="inzeraty inzeratyflex">.*?'
@@ -43,14 +48,59 @@ _BAZOS_BLOCK_RE = re.compile(
     r'(?:.*?<div class="inzeratycena"><b><span[^>]*>(?P<price>[^<]*)</span>)?',
     re.S,
 )
+_KA_ITEM_RE = re.compile(
+    r'<article class="aditem"[^>]*data-adid="(?P<id>\d+)"[^>]*data-href="(?P<href>[^"]+)".*?'
+    r'<a class="ellipsis"[^>]*>(?P<title>.*?)</a>'
+    r'(?:.*?<p class="aditem-main--middle--price-shipping--price">(?P<price>[^<]+))?',
+    re.S,
+)
 _MAX_BROAD_PAGES = 2
-_MAX_TARGETED = 24
+_MAX_TARGETED = 12
 _MATCH_FLOOR = 0.5
+_GENERIC_TITLE_WORDS = {
+    "pre",
+    "pro",
+    "na",
+    "the",
+    "and",
+    "und",
+    "alle",
+    "vsetky",
+    "všetky",
+    "varianty",
+    "procesor",
+    "krytal",
+    "kristal",
+    "leskly",
+    "priehladny",
+}
+_BAZOS_PHRASES = {
+    "sk": ("kúpim", "hľadám", "suche", "szukam"),
+    "cz": ("koupím", "hledám", "suche", "szukam"),
+}
+_AUKRO_PHRASES = ("koupím", "kúpim", "suche", "szukam", "keresek")
 _VINTED_SITES = (
     ("vinted.sk", "kúpim"),
     ("vinted.cz", "koupím"),
     ("vinted.at", "suche"),
     ("vinted.de", "suche"),
+    ("vinted.pl", "szukam"),
+    ("vinted.hu", "keresek"),
+    ("vinted.fr", "cherche"),
+    ("vinted.it", "cerco"),
+    ("vinted.nl", "zoek"),
+    ("vinted.be", "cherche"),
+    ("vinted.es", "busco"),
+)
+_EBAY_BOARDS = (
+    ("EBAY_DE", "ebay.de", "suche"),
+    ("EBAY_AT", "ebay.at", "suche"),
+    ("EBAY_FR", "ebay.fr", "cherche"),
+    ("EBAY_IT", "ebay.it", "cerco"),
+    ("EBAY_PL", "ebay.pl", "szukam"),
+    ("EBAY_NL", "ebay.nl", "zoek"),
+    ("EBAY_ES", "ebay.es", "busco"),
+    ("EBAY_BE", "ebay.be", "cherche"),
 )
 
 
@@ -75,6 +125,16 @@ class BuyerDigest:
     matches: list[DemandMatch] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     fetched: Counter[str] = field(default_factory=Counter)
+
+
+def searched_sites() -> list[str]:
+    """Classifieds and marketplaces scanned for other people's want-to-buy ads."""
+    sites = ["bazos.sk", "bazos.cz", "aukro.cz"]
+    sites.extend(host for host, _phrase in _VINTED_SITES)
+    sites.append("kleinanzeigen.de")
+    sites.append("willhaben.at")
+    sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
+    return sites
 
 
 def is_want_to_buy(title: str) -> bool:
@@ -102,9 +162,12 @@ def queries_for(item: InventoryItem) -> list[str]:
         if len(token) >= 4:
             found.append(token)
     if item.species:
-        place = (item.locality or item.origin).split(",")[0].strip()
+        place = (item.locality or item.origin).split(",")[-1].strip()
         head = item.species[0]
         found.append(f"{head} {place}".strip() if place else head)
+        de_name = _german_locality(item)
+        if de_name and de_name.casefold() != place.casefold():
+            found.append(f"{head} {de_name}".strip())
     if not found:
         words = [word for word in re.findall(r"[A-Za-z0-9\-]+", item.title) if len(word) >= 4]
         if words:
@@ -122,24 +185,55 @@ def queries_for(item: InventoryItem) -> list[str]:
     return unique
 
 
+def _german_locality(item: InventoryItem) -> str:
+    blob = _fold(f"{item.locality} {item.origin} {item.title}")
+    glossary = ((rules().get("selling") or {}).get("localities") or {})
+    if not isinstance(glossary, dict):
+        return ""
+    for key, names in glossary.items():
+        if _fold(str(key)) in blob:
+            return str((names or {}).get("de") or "")
+    return ""
+
+
 def match_want(title: str, item: InventoryItem) -> float:
     """Score a want-ad against one inventory item. Part numbers beat fuzzy titles."""
     score = max(score_match(title, item), similarity(title, item.title), closeness(title, item.title))
     folded = _fold(title)
     title_tokens = tokens(title)
+    support = _support_tokens(item)
     for part in item.part_numbers:
         token = _fold(part)
-        if len(token) >= 4 and _part_in_title(token, title_tokens):
-            score = max(score, 0.82 if token.isdigit() or len(token) >= 5 else 0.7)
+        if len(token) < 4 or not _part_in_title(token, title_tokens):
+            continue
+        if token.isdigit() and not _numeric_part_fits(token, title_tokens, support):
+            continue
+        score = max(score, 0.82 if token.isdigit() or len(token) >= 5 else 0.7)
     species_hits = [spec for spec in item.species if _fold(spec) in folded]
     places = []
     if item.locality:
         places.extend(part.strip() for part in item.locality.split(","))
     if item.origin:
         places.append(item.origin)
+    german = _german_locality(item)
+    if german:
+        places.append(german)
     if species_hits and any(_place_in_title(place, folded) for place in places):
         score = max(score, 0.85)
     return score
+
+
+def _support_tokens(item: InventoryItem) -> set[str]:
+    blob = " ".join([*item.keywords, *item.species, *item.part_numbers, item.title])
+    return {token for token in tokens(blob) if not token.isdigit() and token not in _GENERIC_TITLE_WORDS}
+
+
+def _numeric_part_fits(token: str, title_tokens: set[str], support: set[str]) -> bool:
+    """'Koupím 6510' is a hit; 'SUCHE John Deere 6510' is a tractor, not a MOS chip."""
+    remainder = {word for word in title_tokens if word not in _GENERIC_TITLE_WORDS and not _WANT_PREFIX.match(word)}
+    if remainder & support:
+        return True
+    return remainder <= {token} | support
 
 
 def _place_in_title(place: str, folded: str) -> bool:
@@ -182,42 +276,56 @@ def find_buyers(
     queries = _unique_queries(items)
     ads: dict[str, WantAd] = {}
 
-    for site, phrase in (("sk", "kúpim"), ("cz", "koupím")):
-        batch, note = _search_bazos(phrase, site, settings, client=client)
+    def ingest(batch: list[WantAd], note: str, bucket: str) -> None:
         digest.notes.append(note)
-        digest.fetched[f"bazos.{site}"] += len(batch)
+        digest.fetched[bucket] += len(batch)
         for ad in batch:
             ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
 
-    for phrase in ("koupím", "kúpim"):
+    for site, phrases in _BAZOS_PHRASES.items():
+        for phrase in phrases:
+            batch, note = _search_bazos(phrase, site, settings, client=client)
+            ingest(batch, note, f"bazos.{site}")
+
+    for phrase in _AUKRO_PHRASES:
         batch, note = _search_aukro(phrase, settings, client=client)
-        digest.notes.append(note)
-        digest.fetched["aukro"] += len(batch)
-        for ad in batch:
-            ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+        ingest(batch, note, "aukro")
 
     for site, phrase in _VINTED_SITES:
         batch, note = _search_vinted(phrase, site, settings, client=client)
-        digest.notes.append(note)
-        digest.fetched[site] += len(batch)
-        for ad in batch:
-            ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+        ingest(batch, note, site)
 
-    for marketplace_id, site in (("EBAY_DE", "ebay.de"), ("EBAY_AT", "ebay.at")):
-        site_count = 0
-        blocked = False
-        for query in queries:
-            batch, note = _search_ebay(f"suche {query}", marketplace_id, site, settings, client=client)
-            if note:
-                digest.notes.append(note)
-                blocked = True
-                break
-            site_count += len(batch)
-            for ad in batch:
-                ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
-        if not blocked:
-            digest.fetched[site] += site_count
-            digest.notes.append(f"{site}: fetched {site_count} rows")
+    for query in queries:
+        batch, note = _search_kleinanzeigen(query, settings, client=client)
+        ingest(batch, note, "kleinanzeigen.de")
+
+    for query in queries:
+        batch, note = _search_willhaben(f"Suche {query}", settings, client=client)
+        ingest(batch, note, "willhaben.at")
+
+    if not settings.ebay_client_id or not settings.ebay_client_secret:
+        digest.notes.append(
+            "ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 "
+            "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
+        )
+    else:
+        for marketplace_id, site, wtb in _EBAY_BOARDS:
+            site_count = 0
+            blocked = False
+            for query in queries:
+                batch, note = _search_ebay(
+                    f"{wtb} {query}", marketplace_id, site, settings, client=client
+                )
+                if note:
+                    digest.notes.append(note)
+                    blocked = True
+                    break
+                site_count += len(batch)
+                for ad in batch:
+                    ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+            if not blocked:
+                digest.fetched[site] += site_count
+                digest.notes.append(f"{site}: fetched {site_count} rows")
 
     matches: list[DemandMatch] = []
     seen_pair: set[str] = set()
@@ -243,9 +351,11 @@ def format_buyer_digest(digest: BuyerDigest, *, mention: str = "") -> str:
     ping = f"@{mention}\n\n" if mention and digest.matches else ""
     if not digest.matches:
         notes = "\n".join(f"- {note}" for note in digest.notes) or "- (no sources fetched)"
+        boards = ", ".join(searched_sites())
         return (
             f"{ping}**0 kupcov** na tvoj tovar. Digest je prázdny, kým sa nenájde "
-            f"inzerát typu kúpim/suche spárovaný so skladom.\n\nZdroje:\n{notes}\n"
+            f"inzerát typu kúpim/koupím/suche/szukam/cherche spárovaný so skladom.\n\n"
+            f"Servery: {boards}\n\nZdroje:\n{notes}\n"
         )
     markers = "\n".join(
         f"<!-- want:{row.want.site}:{row.want.external_id}:{row.item.id} -->"
@@ -380,7 +490,7 @@ def _search_aukro(
                     query=query,
                 )
             )
-            _pause(settings, client)
+        _pause(settings, client)
     return ads, f"aukro: fetched {len(ads)} rows for {query!r}"
 
 
@@ -417,6 +527,111 @@ def _search_vinted(
         )
     _pause(settings, client)
     return ads, f"{site}: fetched {len(ads)} rows for {query!r}"
+
+
+def _search_kleinanzeigen(
+    query: str,
+    settings: Settings,
+    *,
+    client: httpx.Client | None,
+) -> tuple[list[WantAd], str]:
+    slug = re.sub(r"[^a-z0-9]+", "-", _fold(f"suche {query}")).strip("-")
+    url = f"https://www.kleinanzeigen.de/s-{slug}/k0"
+    try:
+        response = _get(url, settings, client=client)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        return [], f"kleinanzeigen.de: fetched 0 ({exc})"
+    ads: list[WantAd] = []
+    for match in _KA_ITEM_RE.finditer(response.text):
+        href = match.group("href")
+        if href.startswith("/"):
+            href = "https://www.kleinanzeigen.de" + href
+        raw_price = match.group("price") or ""
+        amount = _price(raw_price) if raw_price.strip() else Decimal("0")
+        ads.append(
+            WantAd(
+                marketplace="kleinanzeigen",
+                site="kleinanzeigen.de",
+                external_id=match.group("id"),
+                title=_clean(match.group("title")),
+                url=href,
+                offer_eur=amount or None,
+                query=query,
+            )
+        )
+    _pause(settings, client)
+    return ads, f"kleinanzeigen.de: fetched {len(ads)} rows for {query!r}"
+
+
+def _search_willhaben(
+    query: str,
+    settings: Settings,
+    *,
+    client: httpx.Client | None,
+) -> tuple[list[WantAd], str]:
+    url = "https://www.willhaben.at/iad/kaufen-und-verkaufen/marktplatz?" + urlencode(
+        {"keyword": query}
+    )
+    try:
+        response = _get(url, settings, client=client)
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        return [], f"willhaben.at: fetched 0 ({exc})"
+    ads: list[WantAd] = []
+    blob = re.search(
+        r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+        response.text,
+        re.S,
+    )
+    if not blob:
+        _pause(settings, client)
+        return [], f"willhaben.at: fetched 0 (no listings payload) for {query!r}"
+    try:
+        payload = json.loads(blob.group(1))
+        rows = (
+            payload.get("props", {})
+            .get("pageProps", {})
+            .get("searchResult", {})
+            .get("advertSummaryList", {})
+            .get("advertSummary")
+            or []
+        )
+    except ValueError as exc:
+        return [], f"willhaben.at: fetched 0 ({exc})"
+    if isinstance(rows, dict):
+        rows = [rows]
+    for node in rows:
+        attrs = {
+            item.get("name"): (item.get("values") or [""])[0]
+            for item in ((node.get("attributes") or {}).get("attribute") or [])
+            if isinstance(item, dict)
+        }
+        title = str(attrs.get("HEADING") or node.get("description") or "").strip()
+        identifier = str(node.get("id") or attrs.get("ADID") or "")
+        seo = str(attrs.get("SEO_URL") or "").strip()
+        if not title or not identifier:
+            continue
+        try:
+            amount = Decimal(str(attrs.get("PRICE") or "0"))
+        except InvalidOperation:
+            amount = Decimal("0")
+        href = f"https://www.willhaben.at/iad/{seo}" if seo else (
+            f"https://www.willhaben.at/iad/object?adId={identifier}"
+        )
+        ads.append(
+            WantAd(
+                marketplace="willhaben",
+                site="willhaben.at",
+                external_id=identifier,
+                title=title,
+                url=href,
+                offer_eur=amount or None,
+                query=query,
+            )
+        )
+    _pause(settings, client)
+    return ads, f"willhaben.at: fetched {len(ads)} rows for {query!r}"
 
 
 def _search_ebay(

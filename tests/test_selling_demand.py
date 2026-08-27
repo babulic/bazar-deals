@@ -15,6 +15,7 @@ from bazar_deals.selling.demand import (
     is_want_to_buy,
     match_want,
     queries_for,
+    searched_sites,
 )
 from bazar_deals.selling.inventory import Inventory, InventoryItem
 
@@ -46,6 +47,12 @@ def test_want_to_buy_requires_the_buyers_own_ad() -> None:
     assert is_want_to_buy("Kúpim MOS 6510")
     assert is_want_to_buy("Koupím Commodore AMIGA 600")
     assert is_want_to_buy("Suche Amethyst Brandberg")
+    assert is_want_to_buy("Szukam MOS 6510")
+    assert is_want_to_buy("Cherche améthyste Brandberg")
+    assert is_want_to_buy("Cerco MOS 6510")
+    assert is_want_to_buy("Keresek ametiszt Brandberg")
+    assert is_want_to_buy("Zoek MOS 6510")
+    assert is_want_to_buy("Kupię Commodore 6510")
     assert is_want_to_buy("⚠️Kupim MOS 6510")
     assert not is_want_to_buy("Predám MOS 6510")
     assert not is_want_to_buy("COMMODORE C64 - koupí se zdrojem ZDARMA")
@@ -58,6 +65,34 @@ def test_queries_prefer_part_numbers_and_locality() -> None:
     assert "6510" in queries_for(chip())
     queries = queries_for(crystal())
     assert any("ametyst" in query.casefold() for query in queries)
+
+
+def test_numeric_part_needs_product_context() -> None:
+    assert match_want("Koupím 6510", chip()) >= 0.8
+    assert match_want("SUCHE John Deere 6510", chip()) < 0.5
+    assert best_item("SUCHE John Deere 6510", [chip(), crystal()]) is None
+
+
+def test_searched_sites_cover_central_and_western_europe() -> None:
+    sites = searched_sites()
+    for host in (
+        "bazos.sk",
+        "bazos.cz",
+        "aukro.cz",
+        "vinted.sk",
+        "vinted.pl",
+        "vinted.de",
+        "vinted.fr",
+        "kleinanzeigen.de",
+        "willhaben.at",
+        "ebay.de",
+        "ebay.at",
+        "ebay.fr",
+        "ebay.it",
+        "ebay.pl",
+        "ebay.nl",
+    ):
+        assert host in sites
 
 
 def test_postcard_part_number_does_not_match_chip() -> None:
@@ -167,6 +202,53 @@ def _bazos_card(url: str, title: str, price: str | None = None) -> str:
     )
 
 
+def _kleinanzeigen_card(title: str, price: str) -> str:
+    return (
+        '<article class="aditem" data-adid="3479" '
+        'data-href="/s-anzeige/suche-mos-6510/3479-1-1">'
+        f'<h2 class="text-module-begin"><a class="ellipsis" href="/s-anzeige/x/3479-1-1">'
+        f"{title}</a></h2>"
+        f'<p class="aditem-main--middle--price-shipping--price">{price} €</p>'
+        "</article>"
+    )
+
+
+def _willhaben_page(title: str, price: str) -> str:
+    payload = {
+        "props": {
+            "pageProps": {
+                "searchResult": {
+                    "advertSummaryList": {
+                        "advertSummary": [
+                            {
+                                "id": "1622",
+                                "description": title,
+                                "attributes": {
+                                    "attribute": [
+                                        {"name": "HEADING", "values": [title]},
+                                        {"name": "PRICE", "values": [price]},
+                                        {
+                                            "name": "SEO_URL",
+                                            "values": [
+                                                "kaufen-und-verkaufen/d/suche-mos-6510-1622/"
+                                            ],
+                                        },
+                                    ]
+                                },
+                            }
+                        ]
+                    }
+                }
+            }
+        }
+    }
+    return (
+        "<html><script id=\"__NEXT_DATA__\" type=\"application/json\">"
+        + json.dumps(payload)
+        + "</script></html>"
+    )
+
+
 def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
     sk_html = _bazos_card("https://pc.bazos.sk/inzerat/11/mos/", "Kúpim MOS 6510", "18 €")
     cz_html = (
@@ -201,6 +283,10 @@ def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
             return httpx.Response(200, json=aukro)
         if "vinted." in url:
             return httpx.Response(200, text="<html></html>")
+        if "kleinanzeigen.de" in url:
+            return httpx.Response(200, text=_kleinanzeigen_card("Suche MOS 6510", "40"))
+        if "willhaben.at" in url:
+            return httpx.Response(200, text=_willhaben_page("Suche MOS 6510", "35"))
         return httpx.Response(404, json={"message": url})
 
     settings = Settings(ebay_client_id="", ebay_client_secret="")
@@ -211,7 +297,7 @@ def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
 
     sites = {row.want.site for row in digest.matches}
     titles = {row.want.title for row in digest.matches}
-    assert sites >= {"bazos.sk", "bazos.cz", "aukro.cz"}
+    assert sites >= {"bazos.sk", "bazos.cz", "aukro.cz", "kleinanzeigen.de", "willhaben.at"}
     assert "Kúpim MOS 6510" in titles
     assert "Koupím MOS 6510" in titles
     assert all(row.item.id == "cpu-6510" for row in digest.matches)
