@@ -80,6 +80,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
         health.append("- no marketplace reached scoring")
     funnel_bits = [
         f"usable={run.funnel.get('usable', 0)}",
+        f"score_capped={run.funnel.get('score_capped', 0)}",
         f"under_min={run.funnel.get('under_min', 0)}",
         f"bulky={run.funnel.get('bulky', 0)}",
         f"skip_keyword={run.funnel.get('skip_keyword', 0)}",

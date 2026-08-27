@@ -49,6 +49,7 @@ _FUNNEL_KEYS = (
     "skip_keyword",
     "heavy",
     "usable",
+    "score_capped",
     "detail_failed",
     "detail_damaged",
     "detail_bulky",
@@ -230,73 +231,81 @@ def score_listings(
     # Every active marketplace gets one turn per round, with Vinted/Aukro
     # deliberately placed before Bazos in each round.
     usable = _round_robin_listings(usable)
+    score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+    if score_cap > 0 and len(usable) > score_cap:
+        funnel["score_capped"] = len(usable) - score_cap
+        emit(f"scoring cap {score_cap} of {funnel['usable']} usable")
+        usable = usable[:score_cap]
 
     if identifier is None and settings.ai_review_enabled:
         identifier = AIIdentityClient(settings)
 
+    if os.environ.get("GITHUB_ACTIONS") or os.environ.get("HUNT_HEARTBEAT"):
+        start_heartbeat()
     deals: list[Deal] = []
     rescues: Counter[str] = Counter()
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
-    for index, listing in enumerate(usable, start=1):
-        if index == 1 or index % 50 == 0 or index == len(usable):
-            set_phase(f"scoring {index}/{len(usable)}")
-            emit(f"scoring {index}/{len(usable)}")
-        enricher = enrichers.get(listing.marketplace)
-        if enricher is not None:
-            listing = enricher.enrich_listing(listing)
-            if listing.raw.get("detail_fetched") is False and not listing.description.strip():
-                funnel["detail_failed"] += 1
-        if not is_working_listing(listing):
-            funnel["detail_damaged"] += 1
-            continue
-        dropped = reject_physical(f"{listing.title} {listing.description}")
-        if dropped:
-            funnel[f"detail_{dropped}"] += 1
-            continue
+    try:
+        for index, listing in enumerate(usable, start=1):
+            if index == 1 or index % 50 == 0 or index == len(usable):
+                set_phase(f"scoring {index}/{len(usable)}")
+                emit(f"scoring {index}/{len(usable)}")
+            enricher = enrichers.get(listing.marketplace)
+            if enricher is not None and len(listing.description.strip()) < 40:
+                listing = enricher.enrich_listing(listing)
+                if listing.raw.get("detail_fetched") is False and not listing.description.strip():
+                    funnel["detail_failed"] += 1
+            if not is_working_listing(listing):
+                funnel["detail_damaged"] += 1
+                continue
+            dropped = reject_physical(f"{listing.title} {listing.description}")
+            if dropped:
+                funnel[f"detail_{dropped}"] += 1
+                continue
 
-        item = identify(listing)
-        if item.kind in _HIGH_RISK_DETAIL_KINDS and len(listing.description.strip()) < 10:
-            funnel["insufficient_detail"] += 1
-            continue
-        if item.confidence < min_conf or not item.search_query:
-            item = _rescue_identity(listing, item, settings, identifier, funnel, rescues)
-            if item is None:
-                funnel["identity_weak"] += 1
+            item = identify(listing)
+            if item.kind in _HIGH_RISK_DETAIL_KINDS and len(listing.description.strip()) < 10:
+                funnel["insufficient_detail"] += 1
                 continue
-        lookup_key = with_specs(
-            item.search_query,
-            item.specs if isinstance(item.specs, ItemSpecs) else None,
-        ).casefold().strip()
-        item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
-        comp = sold.median_sold(
-            listing,
-            query=lookup_key,
-            specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
-            subject=identity_subject(item),
-        )
-        if comp is None:
-            funnel["no_sold_comps"] += 1
-            continue
-        if not comp.reliable_for_buy:
-            funnel["asking_only_comps"] += 1
-            # Unreliable comps can reach BUY only through the fail-closed
-            # AI web-verification gate. The live price book is reliable.
-            if not settings.ai_review_enabled or not settings.ai_review_required:
+            if item.confidence < min_conf or not item.search_query:
+                item = _rescue_identity(listing, item, settings, identifier, funnel, rescues)
+                if item is None:
+                    funnel["identity_weak"] += 1
+                    continue
+            lookup_key = with_specs(
+                item.search_query,
+                item.specs if isinstance(item.specs, ItemSpecs) else None,
+            ).casefold().strip()
+            item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
+            comp = sold.median_sold(
+                listing,
+                query=lookup_key,
+                specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+                subject=identity_subject(item),
+            )
+            if comp is None:
+                funnel["no_sold_comps"] += 1
                 continue
-            funnel["asking_only_provisional"] += 1
-        item = item.model_copy(
-            update={"asking_sample": comp.sample, "sold_label": comp.label}
-        )
-        shipping = _shipping_eur(listing, settings)
-        deal = score_deal(item, comp.median, shipping, settings=settings)
-        funnel["scored"] += 1
-        source_stats[listing.marketplace]["scored"] += 1
-        if deal.action is Action.BUY:
-            funnel["pre_ai_buy"] += 1
-            source_stats[listing.marketplace]["pre_ai_buy"] += 1
-        else:
-            funnel["below_net_profit"] += 1
-        deals.append(deal)
+            if not comp.reliable_for_buy:
+                funnel["asking_only_comps"] += 1
+                if not settings.ai_review_enabled or not settings.ai_review_required:
+                    continue
+                funnel["asking_only_provisional"] += 1
+            item = item.model_copy(
+                update={"asking_sample": comp.sample, "sold_label": comp.label}
+            )
+            shipping = _shipping_eur(listing, settings)
+            deal = score_deal(item, comp.median, shipping, settings=settings)
+            funnel["scored"] += 1
+            source_stats[listing.marketplace]["scored"] += 1
+            if deal.action is Action.BUY:
+                funnel["pre_ai_buy"] += 1
+                source_stats[listing.marketplace]["pre_ai_buy"] += 1
+            else:
+                funnel["below_net_profit"] += 1
+            deals.append(deal)
+    finally:
+        stop_heartbeat()
 
     skipped = int(getattr(sold, "live_sold_skipped", 0) or 0)
     if skipped:

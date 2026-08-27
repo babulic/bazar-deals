@@ -204,6 +204,83 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
     assert len(deals) == 2
 
 
+def test_score_listings_caps_detail_work(monkeypatch) -> None:
+    from copy import deepcopy
+
+    import bazar_deals.pipeline as pipeline
+
+    configured = deepcopy(pipeline.rules())
+    configured["hunt"]["max_score_listings"] = 3
+    monkeypatch.setattr(pipeline, "rules", lambda: configured)
+
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url=f"https://mobil.bazos.sk/inzerat/cap-{index}/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        )
+        for index in range(10)
+    ]
+    run = score_listings(listings, Settings(), _Sold())
+    assert run.funnel["usable"] == 10
+    assert run.funnel["score_capped"] == 7
+    assert run.funnel["scored"] == 3
+
+
+def test_long_description_skips_detail_http() -> None:
+    class _Enricher:
+        marketplace = Marketplace.BAZOS.value
+
+        def enrich_listing(self, listing):
+            raise AssertionError("catalog text is enough; do not fetch the ad page")
+
+        def fetch_new(self, vertical=None):
+            return []
+
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="body",
+        title="Apple iPhone 13 128GB",
+        description="Plne funkčný telefón, batéria 91 %, bez poškodenia, krabica.",
+        url="https://mobil.bazos.sk/inzerat/body/",
+        price=Money(amount=Decimal("40"), currency="EUR"),
+    )
+    run = score_listings(
+        [listing],
+        Settings(),
+        _Sold(),
+        enrichers={Marketplace.BAZOS: _Enricher()},
+    )
+    assert run.funnel["scored"] == 1
+
+
 def test_price_book_from_hunt_batch_scores_and_can_buy(tmp_path) -> None:
     from unittest.mock import patch
 
