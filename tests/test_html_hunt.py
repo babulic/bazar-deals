@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from bazar_deals.adapters.aukro import AukroHuntClient, _listing_from_public_node
+from bazar_deals.adapters.aukro import AukroHuntClient, _SMALL_CATEGORIES, _listing_from_public_node, _search_body
 from bazar_deals.adapters.vinted import VintedHuntClient, VintedProClient
 from bazar_deals.domain import Marketplace, Vertical
 from bazar_deals.htmlparse import (
@@ -21,6 +21,15 @@ def test_aukro_json_ld_fixture() -> None:
     assert listings[0].title == "iPhone 13"
     assert listings[0].price.amount == 80
     assert listings[0].marketplace is Marketplace.AUKRO
+
+
+def test_aukro_hunts_fast_moving_categories_not_raw_newest() -> None:
+    assert 100838 in _SMALL_CATEGORIES
+    assert 52651 in _SMALL_CATEGORIES
+    assert 144281 in _SMALL_CATEGORIES
+    body = _search_body(100838)
+    assert body["categoryId"] == 100838
+    assert "categoryId" not in _search_body(None)
 
 
 def test_aukro_public_backend_buy_now_mapping() -> None:

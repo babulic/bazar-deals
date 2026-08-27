@@ -1079,40 +1079,92 @@ catalog:
     - naraznik
     - strešný box
     - stresny box
-  # Commodity dumps that fit a shoebox but have no resale spread.
-  skip_keywords:
-    - vánoční osvětlení
-    - vanocni osvetleni
-    - vánoční osvetlení
-    - vianočné osvetlenie
-    - vianocne osvetlenie
-    - vianočné osvetlení
-    - vánoční řetěz
-    - vanocni retez
-    - vianočná reťaz
-    - vianocna retaz
+  # Seasonal Christmas lights only. Headlamps, lamps and general lighting stay in.
+  christmas_markers:
+    - vánočn
+    - vanocn
+    - vianočn
+    - vianocn
+    - weihnachts
+    - christmas
+    - xmas
+  christmas_lighting_terms:
+    - osvětlen
+    - osvetlen
+    - světél
+    - svetylk
+    - svetiel
+    - světýlk
+    - svetielk
+    - lights
+    - lighting
+    - lichter
+    - beleuchtung
+    - řetěz
+    - retez
+    - reťaz
+    - retaz
+    - girlanda
+    - svetlá
+    - světla
+    - svetla
+    - svetlo
+  # SK/CZ product names for Christmas string/fairy lights, even when "vianočné" is omitted.
+  christmas_light_products:
     - světelný řetěz
     - svetelny retez
     - světelná řetěz
     - svetelná reťaz
     - svetelna retaz
     - světelný řetězec
-    - led řetěz
-    - led reťaz
-    - led retaz
-    - led girlanda
-    - girlanda led
-    - světelná girlanda
-    - svetelna girlanda
-    - weihnachtsbeleuchtung
-    - weihnachtslichterkette
-    - weihnachtslichter
-    - christmas lights
-    - christmas lighting
     - světýlka
     - svetylka
     - svetielka
     - svetýlka
+    - christmas lights
+    - christmas lighting
+    - weihnachtsbeleuchtung
+    - weihnachtslichterkette
+    - weihnachtslichter
+    - led girlanda
+    - girlanda led
+    - světelná girlanda
+    - svetelna girlanda
+
+aukro:
+  search_url: https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon
+  page_size: 30
+  pages: 1
+  # Fast-moving shoebox categories. Unfiltered newest is a seasonal lighting dump.
+  small_categories:
+    - 100838   # Mobilní telefony
+    - 251358   # Chytrá elektronika
+    - 100894   # Foto
+    - 100898   # Elektronika
+    - 100892   # Malé elektrospotřebiče
+    - 100705   # Hry
+    - 100699   # Herní zařízení
+    - 100703   # Historické počítače
+    - 100700   # Tablety a čtečky
+    - 100697   # Notebooky
+    - 100701   # PC komponenty
+    - 8525     # Oblečení, obuv a doplňky
+    - 8526     # Kosmetika a parfémy
+    - 90713    # Šperky a hodinky
+    - 88014    # Hudba
+    - 88160    # Film
+    - 8465     # Komiksy
+    - 144281   # Hračky
+    - 17579    # Turistika (incl. headlamps)
+    - 8479     # Numismatika
+    - 8477     # Bankovky
+    - 88874    # Minerály a zkameněliny
+    - 51950    # Sportovní sbírky / karty
+    - 8469     # Modelářství
+    - 52651    # Karetní hry
+    - 52685    # Stolní hry
+    - 8482     # Nářadí
+    - 47108    # Porcelán
 
 ebay:
   marketplace_id: EBAY_DE
@@ -1137,6 +1189,7 @@ ebay:
     - "888"    # Sporting Goods
     - "15032"  # Cell Phones & Accessories
     - "58058"  # Computers/Tablets & Networking
+    - "183454" # Collectible Card Games
   condition_map:
     NEW: new
     NEW_OTHER: like_new

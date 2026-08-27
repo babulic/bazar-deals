@@ -50,7 +50,7 @@ BUY only if expected net profit >= 30 EUR
 The hunt looks for **small, working goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
 
 - **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
-- **Aukro** public newest buy-now window, then the same physical/price filters. Seasonal LED Christmas lighting and string lights are dropped as commodity dumps.
+- **Aukro** fast-moving shoebox categories (phones, smart electronics, photo, games, toys, clothing, cosmetics, jewelry, music, comics, coins, minerals, trading cards, tools, …), then the same physical/price filters. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
 - **Vinted** public catalog newest in the purchase-price range.
 - **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
 

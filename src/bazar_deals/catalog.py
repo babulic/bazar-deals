@@ -23,7 +23,9 @@ VERTICAL_KEYWORDS = {
     Vertical(name): tuple(words) for name, words in _catalog()["vertical_keywords"].items()
 }
 BULKY_KEYWORDS = tuple(_catalog()["bulky_keywords"])
-SKIP_KEYWORDS = tuple(_catalog().get("skip_keywords") or ())
+CHRISTMAS_MARKERS = tuple(_catalog().get("christmas_markers") or ())
+CHRISTMAS_LIGHT_PRODUCTS = tuple(_catalog().get("christmas_light_products") or ())
+CHRISTMAS_LIGHTING_TERMS = tuple(_catalog().get("christmas_lighting_terms") or ())
 MAX_WEIGHT_KG = float(rules()["hunt"].get("max_weight_kg", 5))
 
 # Match "6 kg" / "6,5kg" but not storage like "16GB".
@@ -35,9 +37,18 @@ def is_bulky(text: str) -> bool:
     return any(keyword in hay for keyword in BULKY_KEYWORDS)
 
 
-def is_skip_keyword(text: str) -> bool:
+def is_christmas_lighting(text: str) -> bool:
+    """Seasonal Christmas lights only. Headlamps and ordinary lighting stay in."""
     hay = text.casefold()
-    return any(keyword in hay for keyword in SKIP_KEYWORDS)
+    if any(product in hay for product in CHRISTMAS_LIGHT_PRODUCTS):
+        return True
+    has_season = any(marker in hay for marker in CHRISTMAS_MARKERS)
+    has_light = any(term in hay for term in CHRISTMAS_LIGHTING_TERMS)
+    return has_season and has_light
+
+
+def is_skip_keyword(text: str) -> bool:
+    return is_christmas_lighting(text)
 
 
 def stated_weight_kg(text: str) -> float | None:
@@ -58,7 +69,7 @@ def reject_physical(text: str) -> str | None:
     """Funnel key if the listing is not a small, shippable, shoebox-scale item."""
     if is_bulky(text):
         return "bulky"
-    if is_skip_keyword(text):
+    if is_christmas_lighting(text):
         return "skip_keyword"
     if is_too_heavy(text):
         return "heavy"

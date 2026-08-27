@@ -35,8 +35,14 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "du" in data["catalog"]["small_bazos_rubs"]
     assert "sp" in data["catalog"]["small_bazos_rubs"]
     assert "de" in data["catalog"]["small_bazos_rubs"]
-    assert "vánoční osvětlení" in data["catalog"]["skip_keywords"]
+    assert "vánočn" in data["catalog"]["christmas_markers"]
+    assert "světelný řetěz" in data["catalog"]["christmas_light_products"]
     assert "televízor" in data["catalog"]["bulky_keywords"]
+    assert 100838 in data["aukro"]["small_categories"]
+    assert 52651 in data["aukro"]["small_categories"]
+    assert 144281 in data["aukro"]["small_categories"]
+    assert 88874 in data["aukro"]["small_categories"]
+    assert "183454" in data["ebay"]["small_categories"]
     markers = data["identity"]["kind_markers"]["minerals"]
     assert "topás" in markers
     assert "alexandrit" in markers

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from bazar_deals.catalog import (
     is_bulky,
+    is_christmas_lighting,
     is_skip_keyword,
     is_too_heavy,
     reject_physical,
@@ -16,13 +17,20 @@ from bazar_deals.soldcomps import SoldCompClient
 SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
 
 
-def test_christmas_lights_and_string_lights_are_skipped() -> None:
-    assert is_skip_keyword("Vánoční osvětlení 200 LED")
-    assert is_skip_keyword("Vianočné osvetlenie 300 LED")
-    assert is_skip_keyword("Světelný řetěz 200 LED")
-    assert is_skip_keyword("Christmas lights 300 LED")
-    assert not is_skip_keyword("Petzl čelovka Actik Core")
+def test_christmas_lights_are_skipped_headlamps_and_lamps_are_not() -> None:
+    assert is_christmas_lighting("Vánoční osvětlení 200 LED")
+    assert is_christmas_lighting("Vianočné osvetlenie 300 LED")
+    assert is_christmas_lighting("Vianočné svetlá na stromček")
+    assert is_christmas_lighting("Christmas lights 300 LED")
+    assert is_christmas_lighting("Světelný řetěz 200 LED")
+    assert is_skip_keyword("Weihnachtsbeleuchtung 200 LED")
+    assert not is_christmas_lighting("Petzl čelovka Actik Core")
+    assert not is_christmas_lighting("Čelovka 1000 lm LED")
+    assert not is_christmas_lighting("LED osvetlenie na bicykel")
+    assert not is_christmas_lighting("Stolná lampa Philips")
+    assert not is_christmas_lighting("Nabíjačka a osvetlenie stanu")
     assert reject_physical("Vánoční osvětlení 200 LED") == "skip_keyword"
+    assert reject_physical("Petzl čelovka Actik Core") is None
 
 
 def test_weight_cap_ignores_storage_and_allows_five_kg() -> None:
@@ -58,3 +66,15 @@ def test_christmas_lights_above_min_price_still_dropped() -> None:
     run = score_listings([listing], Settings(), SoldCompClient(fixture_path=SOLD))
     assert run.deals == []
     assert run.funnel["skip_keyword"] == 1
+
+
+def test_headlamp_above_min_price_is_not_treated_as_christmas_lights() -> None:
+    listing = Listing(
+        marketplace=Marketplace.AUKRO,
+        external_id="headlamp",
+        title="Petzl čelovka Actik Core",
+        url="https://aukro.sk/inzerat/headlamp",
+        price=Money(amount=Decimal("45"), currency="EUR"),
+    )
+    run = score_listings([listing], Settings(), SoldCompClient(fixture_path=SOLD))
+    assert run.funnel["skip_keyword"] == 0
