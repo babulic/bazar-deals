@@ -82,6 +82,17 @@ def test_under_min_price_is_dropped() -> None:
 def test_hunt_batch_price_book_scores_without_ebay(tmp_path) -> None:
     from unittest.mock import patch
 
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title="Commodore 1541-II disk drive",
+            description="Funkčná mechanika, krabica.",
+            url=f"https://pc.bazos.sk/inzerat/1541-{index}/",
+            price=Money(amount=Decimal(str(price)), currency="EUR"),
+        )
+        for index, price in enumerate((38, 80, 85, 90, 95, 100))
+    ]
     settings = Settings(comps_db=str(tmp_path / "comps.sqlite"))
     sold = SoldCompClient(settings)
     with (
@@ -89,13 +100,15 @@ def test_hunt_batch_price_book_scores_without_ebay(tmp_path) -> None:
         patch.object(sold, "_aukro_search", return_value=[]),
         patch.object(sold, "_vinted_search", return_value=[]),
     ):
-        deals = hunt(BazosRssClient(fixture_path=FIXTURE), settings=settings, sold=sold)
-    cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
+        run = score_listings(listings, settings, sold)
+    cheap = [deal for deal in run.deals if deal.item.listing.price.amount == 38]
     assert cheap
     assert cheap[0].action is Action.SKIP
     assert cheap[0].costs.net_profit < 30
-    assert all(deal.action is not Action.BUY for deal in deals)
+    assert all(deal.action is not Action.BUY for deal in run.deals)
     assert cheap[0].item.sold_label.startswith("trhová rýchlopredajná cena")
+    assert run.funnel["scored"] == 6
+    assert run.funnel["no_sold_comps"] == 0
     import sqlite3
 
     with sqlite3.connect(settings.comps_db) as conn:
