@@ -5,17 +5,10 @@ from unittest.mock import patch
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money
-from bazar_deals.soldcomps import SoldCompClient
+from bazar_deals.soldcomps import SoldCompClient, _lower_quartile, _market_value
 
 ROOT = Path(__file__).parent / "fixtures"
 SOLD_HTML = (ROOT / "ebay_sold_1541.html").read_text(encoding="utf-8")
-
-
-class _Resp:
-    def __init__(self, status: int, text: str = "", url: str = "https://www.ebay.de/sch/i.html") -> None:
-        self.status_code = status
-        self.text = text
-        self.url = url
 
 
 def _listing() -> Listing:
@@ -32,64 +25,128 @@ def _settings(db: Path, ttl: int = 7) -> Settings:
     return Settings(comps_db=str(db), comps_ttl_days=ttl)
 
 
+def _peers(n: int = 6) -> list[Listing]:
+    prices = [Decimal("80"), Decimal("85"), Decimal("90"), Decimal("95"), Decimal("100"), Decimal("110")]
+    return [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"peer-{index}",
+            title="Commodore 1541-II disk drive",
+            url=f"https://pc.bazos.sk/inzerat/peer-{index}/",
+            price=Money(amount=prices[index], currency="EUR"),
+        )
+        for index in range(n)
+    ]
+
+
 def test_cache_hit_skips_network(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     listing = _listing()
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)) as fetch:
-        first = SoldCompClient(_settings(db)).median_sold(listing)
+    peers = _peers()
+    first_client = SoldCompClient(_settings(db))
+    with (
+        patch.object(first_client, "_bazos_search", return_value=peers) as bazos,
+        patch.object(first_client, "_aukro_search", return_value=[]) as aukro,
+        patch.object(first_client, "_vinted_search", return_value=[]) as vinted,
+    ):
+        first = first_client.median_sold(listing)
     assert first is not None
-    assert fetch.call_count == 1
-    with patch("bazar_deals.soldcomps.httpx.get", side_effect=AssertionError("network")) as fetch:
-        second = SoldCompClient(_settings(db)).median_sold(listing)
+    assert bazos.call_count == 1
+    assert aukro.call_count == 1
+    assert vinted.call_count == 1
+    second_client = SoldCompClient(_settings(db))
+    with (
+        patch.object(second_client, "_bazos_search", side_effect=AssertionError("network")) as bazos,
+        patch.object(second_client, "_aukro_search", side_effect=AssertionError("network")),
+        patch.object(second_client, "_vinted_search", side_effect=AssertionError("network")),
+    ):
+        second = second_client.median_sold(listing)
     assert second is not None
     assert second.median == first.median
     assert second.sample == first.sample
     assert second.reliable_for_buy is True
-    fetch.assert_not_called()
+    bazos.assert_not_called()
 
 
 def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)) as fetch:
-        comp = SoldCompClient(_settings(db)).median_sold(_listing())
+    peers = _peers()
+    client = SoldCompClient(_settings(db))
+    with (
+        patch.object(client, "_bazos_search", return_value=peers),
+        patch.object(client, "_aukro_search", return_value=[]),
+        patch.object(client, "_vinted_search", return_value=[]),
+    ):
+        comp = client.median_sold(_listing())
     assert comp is not None
     assert comp.sample == 6
-    assert comp.median == Decimal("85.00")
+    assert comp.median == _market_value(peers)
+    assert comp.median == Decimal("63.75")
     assert comp.reliable_for_buy is True
-    fetch.assert_called_once()
+    import sqlite3
+
+    with sqlite3.connect(db) as conn:
+        row = conn.execute("SELECT n, median_eur, source FROM sold_queries").fetchone()
+    assert row is not None
+    assert int(row[0]) == 6
+    assert Decimal(row[1]) == Decimal("63.75")
+    assert row[2] == "market"
 
 
 def test_forbidden_uses_stale_db(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     listing = _listing()
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)):
-        stored = SoldCompClient(_settings(db, ttl=7)).median_sold(listing)
+    peers = _peers()
+    first = SoldCompClient(_settings(db, ttl=7))
+    with (
+        patch.object(first, "_bazos_search", return_value=peers),
+        patch.object(first, "_aukro_search", return_value=[]),
+        patch.object(first, "_vinted_search", return_value=[]),
+    ):
+        stored = first.median_sold(listing)
     assert stored is not None
     stale = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     import sqlite3
 
     with sqlite3.connect(db) as conn:
         conn.execute("UPDATE sold_queries SET fetched_at = ?", (stale,))
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(403, "blocked")) as fetch:
-        fallback = SoldCompClient(_settings(db, ttl=7)).median_sold(listing)
+    second = SoldCompClient(_settings(db, ttl=7))
+    with (
+        patch.object(second, "_bazos_search", return_value=[]) as bazos,
+        patch.object(second, "_aukro_search", return_value=[]),
+        patch.object(second, "_vinted_search", return_value=[]),
+    ):
+        fallback = second.median_sold(listing)
     assert fallback is not None
     assert fallback.median == stored.median
-    fetch.assert_called_once()
+    bazos.assert_called_once()
 
 
 def test_ttl_expiry_refetches(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     listing = _listing()
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)):
-        SoldCompClient(_settings(db, ttl=7)).median_sold(listing)
+    peers = _peers()
+    first = SoldCompClient(_settings(db, ttl=7))
+    with (
+        patch.object(first, "_bazos_search", return_value=peers),
+        patch.object(first, "_aukro_search", return_value=[]),
+        patch.object(first, "_vinted_search", return_value=[]),
+    ):
+        first.median_sold(listing)
     stale = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
     import sqlite3
 
     with sqlite3.connect(db) as conn:
         conn.execute("UPDATE sold_queries SET fetched_at = ?", (stale,))
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=_Resp(200, SOLD_HTML)) as fetch:
-        SoldCompClient(_settings(db, ttl=7)).median_sold(listing)
-    fetch.assert_called_once()
+    second = SoldCompClient(_settings(db, ttl=7))
+    with (
+        patch.object(second, "_bazos_search", return_value=peers) as bazos,
+        patch.object(second, "_aukro_search", return_value=[]),
+        patch.object(second, "_vinted_search", return_value=[]),
+    ):
+        refreshed = second.median_sold(listing)
+    assert refreshed is not None
+    bazos.assert_called_once()
 
 
 def test_empty_db_file_is_created(tmp_path: Path) -> None:
@@ -120,13 +177,14 @@ def test_long_marketplace_descriptions_do_not_hide_exact_title_match(tmp_path: P
         url="https://www.vinted.sk/items/candidate",
         price=Money(amount=Decimal("80"), currency="EUR"),
     )
-    with patch.object(client, "_sold_hits", return_value=([], 403, True)), patch.object(
-        client, "_market_hits", return_value=peers
-    ):
+    with patch.object(client, "_market_hits", return_value=peers):
         comp = client.median_sold(listing)
     assert comp is not None
-    assert comp.reliable_for_buy is False
+    assert comp.reliable_for_buy is True
     assert comp.sample == 5
+    assert comp.median == _market_value(peers)
+    assert _lower_quartile([item.price.amount for item in peers]) == Decimal("201.00")
+    assert comp.median == Decimal("150.75")
 
 
 def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None:
@@ -135,7 +193,7 @@ def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None
 
     def fake_hits(query: str):
         seen.append(query)
-        return [], 403, True
+        return []
 
     listing = Listing(
         marketplace=Marketplace.BAZOS,
@@ -145,54 +203,39 @@ def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None
         url="https://mobil.bazos.sk/inzerat/iphone-body/",
         price=Money(amount=Decimal("80"), currency="EUR"),
     )
-    with patch.object(client, "_sold_hits", side_effect=fake_hits), patch.object(
-        client, "_market_hits", return_value=[]
-    ):
+    with patch.object(client, "_market_hits", side_effect=fake_hits):
         client.median_sold(listing)
     assert seen
     assert "128gb" in seen[0]
 
 
-def test_signin_wall_blocks_further_sold_html(tmp_path: Path) -> None:
+def test_fixture_html_still_uses_ebay_p25() -> None:
+    client = SoldCompClient(fixture_html=SOLD_HTML)
+    comp = client.median_sold(_listing())
+    assert comp is not None
+    assert comp.sample == 6
+    assert comp.median == Decimal("85.00")
+    assert comp.reliable_for_buy is True
+    assert "ebay.de sold P25" in comp.label
+
+
+def test_unique_queries_share_one_live_price_book_search(tmp_path: Path) -> None:
     client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
-    signin = _Resp(200, "please sign in", url="https://signin.ebay.de/ws/eBayISAPI.dll")
-    second = Listing(
-        marketplace=Marketplace.BAZOS,
-        external_id="2",
-        title="Apple iPhone 13 128GB",
-        url="https://mobil.bazos.sk/inzerat/iphone/",
-        price=Money(amount=Decimal("80"), currency="EUR"),
-    )
-    with patch("bazar_deals.soldcomps.httpx.get", return_value=signin) as fetch, patch.object(
-        client, "_market_hits", return_value=[]
+    peers = _peers()
+    with (
+        patch.object(client, "_bazos_search", return_value=peers) as bazos,
+        patch.object(client, "_aukro_search", return_value=[]),
+        patch.object(client, "_vinted_search", return_value=[]),
     ):
-        assert client.median_sold(_listing()) is None
-        assert client.median_sold(second) is None
-    assert fetch.call_count == 1
-    assert client.sold_html_blocked is True
-    assert any("sold comps" in note and "sign-in wall" in note for note in client.notes)
-
-
-def test_browse_oauth_failure_is_noted_once(tmp_path: Path) -> None:
-    settings = _settings(tmp_path / "comps.sqlite")
-    settings = settings.model_copy(
-        update={"ebay_client_id": "app-id", "ebay_client_secret": "cert-id"}
-    )
-    client = SoldCompClient(settings)
-    with patch.object(client, "_sold_hits", return_value=([], 403, True)), patch.object(
-        client, "_bazos_search", return_value=[]
-    ), patch.object(client, "_public_asking_catalog", return_value=[]), patch(
-        "bazar_deals.adapters.ebay.EbayBrowseClient.search_query",
-        side_effect=RuntimeError("eBay OAuth 401: client authentication failed"),
-    ) as browse:
-        assert client.median_sold(_listing()) is None
-        other = _listing().model_copy(
-            update={
-                "external_id": "2",
-                "title": "Apple iPhone 13 128GB",
-                "url": "https://mobil.bazos.sk/inzerat/iphone/",
-            }
+        first = client.median_sold(_listing())
+        second = client.median_sold(
+            _listing().model_copy(
+                update={
+                    "external_id": "2",
+                    "url": "https://pc.bazos.sk/inzerat/1541-other/",
+                }
+            )
         )
-        assert client.median_sold(other) is None
-    assert browse.call_count == 1
-    assert sum("browse comps" in note for note in client.notes) == 1
+    assert first is not None and second is not None
+    assert bazos.call_count == 1
+    assert first.median == second.median

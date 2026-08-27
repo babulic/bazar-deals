@@ -110,7 +110,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
         },
         fetch_notes=[
             "bazos: fetched 12",
-            "ebay: fetched 0 (set GitHub Actions secrets EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)",
+            "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)",
         ],
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
@@ -118,7 +118,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "**0 BUY áno**" in body
     assert "Stratové položky sa neposielajú" in body
     assert "**BUY:" not in body
-    assert "EBAY_CLIENT_ID" in body
+    assert "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)" in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body

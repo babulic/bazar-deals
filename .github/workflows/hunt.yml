@@ -45,28 +45,10 @@ jobs:
       - run: python -m pip install -e .
       - name: Install Copilot CLI for final AI verification
         run: npm install -g @github/copilot
-      - name: Ensure conservative price DB exists
+      - name: Ensure price book DB exists
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
-      - name: Warn when eBay secrets are missing
-        env:
-          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
-          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-        run: |
-          if [ -z "$EBAY_CLIENT_ID" ] || [ -z "$EBAY_CLIENT_SECRET" ]; then
-            echo "::warning::EBAY_CLIENT_ID is not set in repo Actions secrets. eBay hunt is skipped and sold comps cannot use the Browse API."
-            exit 0
-          fi
-          CODE=$(curl -sS -o /tmp/ebay-oauth.json -w "%{http_code}" \
-            -u "${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}" \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            --data-urlencode "grant_type=client_credentials" \
-            --data-urlencode "scope=https://api.ebay.com/oauth/api_scope" \
-            https://api.ebay.com/identity/v1/oauth2/token || true)
-          if [ "$CODE" != "200" ]; then
-            echo "::warning::eBay OAuth HTTP ${CODE} — secrets are present but eBay rejected them. Use the production App ID (Client ID) and Cert ID (Client Secret), not sandbox and not Dev ID. Response: $(tr '\n' ' ' < /tmp/ebay-oauth.json)"
-          fi
       - name: Hunt all marketplaces
         run: python -m bazar_deals hunt --source all --notify
         env:
@@ -85,9 +67,6 @@ jobs:
           NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
-          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
-          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-          EBAY_CAMPAIGN_ID: ${{ secrets.EBAY_CAMPAIGN_ID }}
           AI_PROVIDER: copilot
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"

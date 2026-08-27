@@ -118,13 +118,10 @@ def hunt_sources(
     for source in sources:
         enrichers[Marketplace(source.marketplace)] = source
         try:
-            if (
-                Marketplace(source.marketplace) is Marketplace.EBAY
-                and not (settings.ebay_client_id and settings.ebay_client_secret)
-            ):
+            if Marketplace(source.marketplace) is Marketplace.EBAY:
                 note = (
-                    f"{source.marketplace}: fetched 0 "
-                    "(set GitHub Actions secrets EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
+                    f"{source.marketplace}: skipped "
+                    "(valuation uses Bazos/Aukro/Vinted price book, not eBay)"
                 )
                 print(note)
                 fetch_notes.append(note)
@@ -203,8 +200,8 @@ def score_listings(
     if callable(seeder):
         seeder(converted)
 
-    # Do not let a large/cheap Bazos batch consume the global sold lookup budget.
-    # Every active marketplace gets one turn per round, with Vinted/Aukro/eBay
+    # Do not let a large/cheap Bazos batch consume the global price-book budget.
+    # Every active marketplace gets one turn per round, with Vinted/Aukro
     # deliberately placed before Bazos in each round.
     usable = _round_robin_listings(usable)
 
@@ -253,9 +250,8 @@ def score_listings(
             continue
         if not comp.reliable_for_buy:
             funnel["asking_only_comps"] += 1
-            # Asking prices are allowed only as a deliberately haircutted
-            # provisional valuation. They can reach BUY only through the
-            # mandatory fail-closed AI web-verification gate.
+            # Unreliable comps can reach BUY only through the fail-closed
+            # AI web-verification gate. The live price book is reliable.
             if not settings.ai_review_enabled or not settings.ai_review_required:
                 continue
             funnel["asking_only_provisional"] += 1
@@ -301,9 +297,9 @@ def _rescue_identity(
 ) -> IdentifiedItem | None:
     """Ask the AI to name an item the rules could not, reading the whole ad.
 
-    This only establishes identity. The valuation still comes from completed
-    sales and every rescued candidate must clear the same net-profit floor and
-    the same fail-closed price review as any other.
+    This only establishes identity. The valuation still comes from the
+    stored price book and every rescued candidate must clear the same
+    net-profit floor and the same fail-closed price review as any other.
     """
     if identifier is None:
         return None

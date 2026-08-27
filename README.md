@@ -7,9 +7,8 @@ Purchase sources:
 - `vinted.sk`
 - `aukro.sk`
 - `bazos.sk`
-- `ebay.de` — only listings for which delivery to Slovakia is confirmed by the eBay Browse API
 
-Buy-now only. Auctions and for-parts / damaged listings are excluded.
+Buy-now only. Auctions and for-parts / damaged listings are excluded. eBay is not a purchase source and is not used for valuation.
 
 ## Decision rule
 
@@ -22,17 +21,16 @@ newest buy-now listing
     ↓
 small + working + shoebox-scale (max 5 kg) + purchase at least 20 EUR
     ↓
-for ebay.de: deliveryCountry=SK must be confirmed
-    ↓
 identify the product from the whole ad, not the headline
 (title + body + marketplace fields; AI names what the rules cannot)
     ↓
 strict identity / variant matching
 (storage, year, part number, lot size, phone model, Pro/Max/Plus/Mini/Ultra)
     ↓
-minimum sold sample
+minimum similar sample (5 ads)
     ↓
-quick-sale resale value = P25 of similar working ebay.de SOLD comps
+quick-sale resale value = P25 × 0.75 of similar Bazos/Aukro/Vinted asking prices
+stored in `.cache/bazar-comps-v2.sqlite` and reused on the next hunt
     ↓
 subtract:
   purchase price
@@ -52,7 +50,8 @@ The hunt looks for **small, working, fast-moving goods that fit a shoebox and we
 - **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
 - **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
 - **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt uses the public catalog JSON (`/api/v2/catalog/items`) after an anonymous homepage session, then HTML hydration as fallback. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
-- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia. Those are the production **App ID (Client ID)** and **Cert ID (Client Secret)** — application `client_credentials`, not a user purchase token. Hunt only searches listings. Public HTML cannot prove `deliveryCountry=SK`, and GitHub Actions also cannot read sold-search HTML (sign-in wall), so the same keys are the Browse fallback for asking comps.
+
+eBay is skipped on hunt. Want-to-buy ads on eBay still belong to `sell --buyers`, not to buying.
 
 ## Identification
 
@@ -89,13 +88,14 @@ reads the entire advertisement rather than the headline.
   nameless specimen. "Slovensko" on a domestic ad is ignored — that is the
   seller, not the origin of the stone.
 
-The sold-comps budget (`hunt.max_sold_lookups`, default 80) counts **unique
-normalized product queries** for live eBay.de sold HTML, not listings. After
-that budget, or when sold HTML is blocked from GitHub Actions, the hunt still
-values remaining ads from asking prices already fetched this run (Bazoš/Aukro/Vinted)
-with a 25% haircut. Those asking-only candidates can become BUY only through the
-fail-closed AI review. Ten ads for the same iPhone 13 128GB still cost one eBay
-sold search.
+The price-book budget (`hunt.max_sold_lookups`, default 80) counts **unique
+normalized product queries**, not listings. Each new query searches Bazos RSS
+`hledat`, Aukro `searchItemsCommon` text, and Vinted `/api/v2/catalog/items?search_text=`.
+The hunt also keeps asking prices already fetched this run. P25×0.75 of similar
+working ads is written to `.cache/bazar-comps-v2.sqlite` under that query and
+reused for `COMPS_TTL_DAYS` (default 7). After the live-search budget, remaining
+ads still use the hunt-batch catalog plus any stored row. Ten ads for the same
+iPhone 13 128GB still cost one price-book search.
 
 ### AI identification
 
@@ -105,7 +105,7 @@ reads the full text and returns a canonical name, a search query and the specs
 it can quote from the ad.
 
 This decides **what the item is, never what it is worth**. A rescued candidate
-goes through exactly the same completed-sales valuation, the same >=30 EUR
+goes through exactly the same price-book valuation, the same >=30 EUR
 net-profit floor and the same fail-closed AI price review as any other. Results
 are cached in the comps database, so one advertisement costs one Copilot call,
 and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
@@ -125,8 +125,8 @@ to make a deal pass.
 For BUY decisions:
 
 1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
-2. The valuation uses the **lower quartile (P25)** of sufficiently similar working sold comps, not their median.
-3. Current asking prices from Bazoš/Aukro/Vinted/eBay may be collected as a deliberately haircutted fallback. They can create only a provisional candidate and **never create BUY without the required fail-closed AI web verification**. With AI disabled or unavailable, asking-only candidates remain SKIP.
+2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working Bazos/Aukro/Vinted asking prices, not their median and not eBay.
+3. That P25×0.75 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 5 similar ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
 
@@ -149,23 +149,20 @@ conservative quick-sale resale value
 
 Default BUY floor: **30 EUR**.
 
-## eBay Germany
+## Price book
 
-Live eBay **search** (not buying) requires `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`.
-
-These are the production App ID and Cert ID from developer.ebay.com. Sandbox keys and the Dev ID are rejected (`invalid_client`). The hunt never places orders; the keys are application client credentials so the Browse API can filter `deliveryCountry:SK`. Public eBay search HTML is not accepted as a purchase source because it cannot reliably prove that the specific listing ships to Slovakia. When the API exposes a shipping cost, that cost is used; otherwise the conservative configured shipping allowance is used.
-
-The same keys are the fallback when sold-comps HTML from GitHub Actions hits eBay's sign-in wall. Without a working token, usable Bazos/Aukro ads stay at `scored=0` — profit is not computed, they are not proven losses.
-
-## Sold comps cache
-
-Conservative sold valuations use a new cache database:
+Discovered comparable prices live in:
 
 ```text
 .cache/bazar-comps-v2.sqlite
 ```
 
-The v2 cache intentionally does not reuse the older median/asking-price cache, preventing stale inflated values from leaking into the new decision model.
+Tables `sold_queries` (product query → P25×0.75, sample size, source, fetched_at)
+and `sold_listings` (the peer ads behind that row). GitHub Actions restores and
+saves this file with `actions/cache`, so the next hourly hunt starts from the
+prices already found. `COMPS_TTL_DAYS` (default 7) is the reuse window.
+
+The v2 file intentionally does not reuse the older median cache.
 
 ## Main configuration
 
@@ -181,8 +178,8 @@ Environment overrides used by GitHub Actions:
 | `RESALE_FEE_RATE` | `0.10` | Conservative resale fee reserve |
 | `SELLER_RISK_RESERVE_RATE` | `0.05` | General valuation / seller risk reserve |
 | `NO_BOX_HAIRCUT_EUR` | `5` | Resale-value reduction when listing explicitly says no box |
-| `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Sold comps cache |
-| `COMPS_TTL_DAYS` | `7` | Cache reuse period |
+| `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Price book of discovered comparable prices |
+| `COMPS_TTL_DAYS` | `7` | Reuse stored P25×0.75 without a live search |
 | `AI_MAX_IDENTIFICATIONS` | `12` | Cap on AI identifications per hunt |
 
 Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
@@ -196,13 +193,12 @@ issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). Cards are
 **BUY only**, ranked by expected net profit, at most 5 per hunt. If listings
 were valued and nothing clears the 30 EUR net-profit floor, the comment is
 status and funnel only — losing items are not posted as fillers. If `scored=0`,
-the comment says profit was never computed (missing sold comps / lookup cap /
-OAuth), not that every usable ad is a loss. The assignee is mentioned only when
+the comment says profit was never computed (missing price-book sample),
+not that every usable ad is a loss. The assignee is mentioned only when
 at least one BUY card is present.
 
-eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
-`EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but
-eBay is skipped.
+Hunt does not use eBay keys. Selling own stock on eBay.at is a separate
+`sell` command.
 
 ## Selling own stock
 
