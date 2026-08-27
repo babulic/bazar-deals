@@ -195,6 +195,55 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
     assert len(deals) == 2
 
 
+def test_blocked_ebay_sold_html_still_scores_asking_from_hunt_batch(tmp_path) -> None:
+    from unittest.mock import patch
+
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url=f"https://mobil.bazos.sk/inzerat/iphone-{index}/",
+            price=Money(amount=Decimal("20") if index == 0 else Decimal("110"), currency="EUR"),
+        )
+        for index in range(6)
+    ]
+
+    class _Reviewer:
+        def review(self, deal):
+            return AIReview(
+                approved=True,
+                complete_product=True,
+                canonical_name="Apple iPhone 13 128GB",
+                kind="phones",
+                quick_sale_price_eur=Decimal("110"),
+                confidence=0.9,
+                reason="Exact model verified.",
+                source_urls=["https://example.com/evidence"],
+                model="copilot:auto",
+            )
+
+    settings = Settings(
+        comps_db=str(tmp_path / "comps.sqlite"),
+        ai_review_enabled=True,
+        ai_review_required=True,
+        min_net_profit_eur=30,
+    )
+    sold = SoldCompClient(settings)
+    with patch.object(sold, "_sold_hits", return_value=([], 403, True)), patch.object(
+        sold, "_bazos_search", return_value=[]
+    ), patch.object(sold, "_ebay_browse_search", return_value=[]):
+        run = score_listings(listings, settings, sold, reviewer=_Reviewer())
+    assert run.funnel["scored"] == 6
+    assert run.funnel["asking_only_comps"] == 6
+    assert run.funnel["no_sold_comps"] == 0
+    assert any(deal.action is Action.BUY for deal in run.deals)
+    cheap = [deal for deal in run.deals if deal.item.listing.external_id == "0"][0]
+    assert cheap.action is Action.BUY
+    assert cheap.costs.net_profit >= 30
+
+
 def test_hunt_sources_appends_sold_comp_notes() -> None:
     from bazar_deals.adapters.base import ListingSource
     from bazar_deals.domain import Vertical

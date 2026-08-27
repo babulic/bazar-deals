@@ -93,14 +93,19 @@ def parse_vinted_items(html: str) -> list[Listing]:
     hydrated = _next_hydration_text(html)
     if hydrated:
         decoder = json.JSONDecoder()
+        starts: list[int] = []
         for match in re.finditer(r'\{"content_source"\s*:', hydrated):
+            starts.append(match.start())
+        for match in re.finditer(r'"productItem"\s*:\s*\{', hydrated):
+            starts.append(match.end() - 1)
+        for start in starts:
             try:
-                node, _ = decoder.raw_decode(hydrated, match.start())
+                node, _ = decoder.raw_decode(hydrated, start)
             except json.JSONDecodeError:
                 continue
             if not isinstance(node, dict):
                 continue
-            listing = _vinted_listing_from_node(node)
+            listing = vinted_listing_from_node(node)
             if listing is None or listing.external_id in seen:
                 continue
             seen.add(listing.external_id)
@@ -140,44 +145,86 @@ def parse_vinted_items(html: str) -> list[Listing]:
     return listings
 
 
-def _vinted_listing_from_node(node: dict) -> Listing | None:
+def parse_vinted_catalog_payload(payload: dict) -> list[Listing]:
+    """Map the public `/api/v2/catalog/items` JSON body to listings."""
+    listings: list[Listing] = []
+    seen: set[str] = set()
+    for node in payload.get("items") or []:
+        if not isinstance(node, dict):
+            continue
+        listing = vinted_listing_from_node(node)
+        if listing is None or listing.external_id in seen:
+            continue
+        seen.add(listing.external_id)
+        listings.append(listing)
+    return listings
+
+
+def vinted_listing_from_node(node: dict) -> Listing | None:
+    if isinstance(node.get("productItem"), dict):
+        node = node["productItem"]
     item_id = str(node.get("id") or "")
     title = str(node.get("title") or "").strip()
     price = node.get("price") or {}
-    url = str(node.get("url") or "")
-    if not item_id.isdigit() or not title or not isinstance(price, dict) or not url.startswith("/items/"):
+    raw_url = str(node.get("url") or node.get("path") or "")
+    item_url = _vinted_item_url(raw_url)
+    if not item_id.isdigit() or not title or not isinstance(price, dict) or not item_url:
         return None
     amount = _decimal(price.get("amount"))
     if amount <= 0:
         return None
-    currency = str(price.get("currency_code") or "EUR")
+    currency = str(price.get("currency_code") or price.get("currencyCode") or "EUR")
     item_box = node.get("item_box") if isinstance(node.get("item_box"), dict) else {}
+    if not item_box and isinstance(node.get("itemBox"), dict):
+        item_box = node["itemBox"]
     description = _plain_text(
-        str(item_box.get("accessibility_label") or item_box.get("second_line") or "")
+        str(
+            item_box.get("accessibility_label")
+            or item_box.get("accessibilityLabel")
+            or item_box.get("second_line")
+            or item_box.get("secondLine")
+            or ""
+        )
     )
     user = node.get("user") if isinstance(node.get("user"), dict) else {}
     brand = ""
     raw_brand = node.get("brand")
     if isinstance(raw_brand, dict):
         brand = str(raw_brand.get("title") or raw_brand.get("name") or "")
-    brand = brand or str(node.get("brand_title") or "")
-    size = str(item_box.get("size_title") or node.get("size_title") or "")
+    brand = brand or str(node.get("brand_title") or node.get("brandTitle") or "")
+    size = str(
+        item_box.get("size_title")
+        or item_box.get("sizeTitle")
+        or node.get("size_title")
+        or node.get("sizeTitle")
+        or ""
+    )
     return Listing(
         marketplace=Marketplace.VINTED,
         external_id=item_id,
         title=title,
         description=description,
-        url=f"https://www.vinted.sk{url.split('?')[0]}",
+        url=item_url,
         price=Money(amount=amount, currency=currency),
         seller_id=str(user.get("login") or "") or None,
         raw={
-            "service_fee": node.get("service_fee"),
-            "total_item_price": node.get("total_item_price"),
-            "content_source": node.get("content_source"),
+            "service_fee": node.get("service_fee") or node.get("serviceFee"),
+            "total_item_price": node.get("total_item_price") or node.get("totalItemPrice"),
+            "content_source": node.get("content_source") or node.get("contentSource"),
             "brand": brand or None,
             "size": size or None,
         },
     )
+
+
+def _vinted_item_url(raw_url: str) -> str:
+    path = (raw_url or "").split("?")[0].strip()
+    if path.startswith("/items/"):
+        return f"https://www.vinted.sk{path}"
+    marker = "/items/"
+    if marker in path and path.startswith("http"):
+        return path
+    return ""
 
 
 def parse_vinted_detail(html: str) -> str:
