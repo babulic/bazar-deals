@@ -53,8 +53,26 @@ jobs:
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
-      - name: Hunt all marketplaces
-        run: python -u -m bazar_deals hunt --source all --notify
+      - name: Fetch Bazos
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source bazos --fetch-only --listings-out .cache/hunt-bazos.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Fetch Aukro
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source aukro --fetch-only --listings-out .cache/hunt-aukro.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Fetch Vinted
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source vinted --fetch-only --listings-out .cache/hunt-vinted.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Score and comment
+        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}

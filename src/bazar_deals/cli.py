@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,10 +11,17 @@ from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.adapters.ebay import EbayBrowseClient
 from bazar_deals.adapters.vinted import VintedHuntClient
 from bazar_deals.config import Settings
-from bazar_deals.domain import Action, Vertical
+from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
 from bazar_deals.notify import format_deal
-from bazar_deals.pipeline import hunt_sources
+from bazar_deals.pipeline import hunt_sources, score_listings
+from bazar_deals.progress import emit
+from bazar_deals.selling.collect import collect_all, refresh_inventory
+from bazar_deals.selling.demand import find_buyers, format_buyer_digest
+from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
+from bazar_deals.selling.plan import build_plan
+from bazar_deals.selling.report import format_json, format_markdown
+from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest
 from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
@@ -78,6 +86,22 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Post hunt BUY cards, or with sell --buyers the buyer digest, to GitHub issues",
     )
+    parser.add_argument(
+        "--fetch-only",
+        action="store_true",
+        help="Download listings and stop. Use with --listings-out. GitHub Actions uses this so each marketplace is its own visible step.",
+    )
+    parser.add_argument(
+        "--listings-out",
+        default=None,
+        help="Write fetched listings as JSON (used with --fetch-only).",
+    )
+    parser.add_argument(
+        "--listings-in",
+        action="append",
+        default=[],
+        help="Score previously fetched JSON instead of downloading. Repeatable.",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "sell":
@@ -111,9 +135,34 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = Settings()
     vertical = Vertical(args.vertical) if args.vertical else None
-    sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    run = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
+    if args.listings_in:
+        listings: list[Listing] = []
+        for path in args.listings_in:
+            loaded = _load_listings(Path(path))
+            emit(f"loaded {len(loaded)} listing(s) from {path}")
+            listings.extend(loaded)
+        sources = _sources("all", settings, fixture=None)
+        enrichers = {Marketplace(source.marketplace): source for source in sources}
+        emit(f"scoring {len(listings)} cached listing(s)")
+        run = score_listings(listings, settings, sold, enrichers=enrichers)
+        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)"] + list(
+            getattr(sold, "notes", []) or []
+        )
+    else:
+        sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
+        run = hunt_sources(
+            sources,
+            vertical=vertical,
+            settings=settings,
+            sold=sold,
+            score=not args.fetch_only,
+        )
+        if args.listings_out:
+            _dump_listings(Path(args.listings_out), run.listings)
+            emit(f"wrote {len(run.listings)} listing(s) to {args.listings_out}")
+        if args.fetch_only:
+            return 0
     deals = run.deals
     shown = select_alert_deals(deals)
     actionable = [deal for deal in deals if deal.action is Action.BUY]
@@ -146,6 +195,24 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
     if fixture is not None:
         return [bazos]
     return [bazos, aukro, vinted]
+
+
+def _dump_listings(path: Path, listings: list[Listing]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps([item.model_dump(mode="json") for item in listings], ensure_ascii=False),
+        encoding="utf-8",
+    )
+
+
+def _load_listings(path: Path) -> list[Listing]:
+    if not path.is_file():
+        emit(f"{path} is missing; treating as 0 listings")
+        return []
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, list):
+        return []
+    return [Listing.model_validate(item) for item in payload]
 
 
 if __name__ == "__main__":
