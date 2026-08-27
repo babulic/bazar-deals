@@ -112,6 +112,40 @@ Other catalog, identity and marketplace settings remain in `src/bazar_deals/data
 
 Only **BUY** deals that pass the >=30 EUR expected-net-profit gate are posted to the GitHub Deal alerts collector issue. The alert includes purchase price, conservative quick-sale value, shipping, fees, condition haircut, risk reserve and expected clean profit.
 
+## Selling own stock
+
+`hunt` finds things to buy. `sell` does the opposite: it takes the stock already
+listed on the four seller accounts and works out where the buyers are.
+
+```powershell
+python -m bazar_deals sell
+python -m bazar_deals sell --segment minerals
+python -m bazar_deals sell --format json
+```
+
+It reports, per item:
+
+- which channels reach which buyer countries, and which target countries no live
+  channel reaches at all,
+- what Packeta actually costs to each destination versus what the listing
+  charges today,
+- whether the postage is small enough relative to the price for a cross-border
+  sale to make sense,
+- a title per channel in the buyer's language that fits that platform's
+  character budget.
+
+Titles are rebuilt from structured fields rather than translated, so mineral
+species, part numbers and the historic German and Hungarian locality names that
+collectors search are present in every language. Character limits live in
+`selling.title_limits`; Bazos (60) and eBay (80) are confirmed by mid-word
+truncation in the live listings, Vinted and Aukro are the longest observed.
+
+Packeta prices in `selling.packeta` are public list prices. A business contract
+is cheaper, so override them with the real rates before trusting a margin.
+
+The reasoning behind the channel choices is in
+[`docs/predaj-strategia.md`](docs/predaj-strategia.md).
+
 ## Run
 
 ```powershell
@@ -119,4 +153,5 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m bazar_deals hunt --offline --source bazos
 python -m bazar_deals hunt --notify
+python -m bazar_deals sell
 ```
