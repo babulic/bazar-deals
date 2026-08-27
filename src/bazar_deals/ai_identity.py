@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from bazar_deals.ai_review import AIReviewClient, _fold, _iso, _json_payload, _parse_iso, _utc_now
 from bazar_deals.config import Settings
 from bazar_deals.domain import IdentifiedItem, ItemKind, Listing
-from bazar_deals.identity import ItemSpecs, extract_specs, listing_text
+from bazar_deals.identity import ItemSpecs, extract_specs, listing_text, with_specs
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS ai_identities (
@@ -138,12 +138,13 @@ class AIIdentityClient:
         identity = self.identify(listing)
         if identity is None:
             return None
+        query = with_specs(identity.search_query, identity.specs)
         return item.model_copy(
             update={
                 "canonical_name": identity.canonical_name,
                 "kind": identity.kind,
-                "model": identity.search_query,
-                "search_query": identity.search_query,
+                "model": query,
+                "search_query": query,
                 "specs": identity.specs,
                 "identified_by": identity.model or "ai",
                 "confidence": identity.confidence,
@@ -235,6 +236,7 @@ def _specs_from(raw: dict, listing: Listing) -> ItemSpecs:
         phone=mined.phone,
         model_codes=tokens("model_codes") or mined.model_codes,
         lot_size=lot_size,
+        localities=mined.localities,
     )
 
 

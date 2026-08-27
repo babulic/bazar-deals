@@ -156,6 +156,12 @@ def _vinted_listing_from_node(node: dict) -> Listing | None:
         str(item_box.get("accessibility_label") or item_box.get("second_line") or "")
     )
     user = node.get("user") if isinstance(node.get("user"), dict) else {}
+    brand = ""
+    raw_brand = node.get("brand")
+    if isinstance(raw_brand, dict):
+        brand = str(raw_brand.get("title") or raw_brand.get("name") or "")
+    brand = brand or str(node.get("brand_title") or "")
+    size = str(item_box.get("size_title") or node.get("size_title") or "")
     return Listing(
         marketplace=Marketplace.VINTED,
         external_id=item_id,
@@ -168,6 +174,8 @@ def _vinted_listing_from_node(node: dict) -> Listing | None:
             "service_fee": node.get("service_fee"),
             "total_item_price": node.get("total_item_price"),
             "content_source": node.get("content_source"),
+            "brand": brand or None,
+            "size": size or None,
         },
     )
 
@@ -177,7 +185,12 @@ def parse_vinted_detail(html: str) -> str:
     source = _next_hydration_text(html) or html
     description = _json_string(source, "description")
     status = _json_string(source, "status") or _json_string(source, "condition")
-    parts = [part for part in (_plain_text(description), _plain_text(status)) if part]
+    brand = _json_string(source, "brand_title")
+    parts = [
+        part
+        for part in (_plain_text(description), _plain_text(status), _plain_text(brand))
+        if part
+    ]
     return " ".join(parts).strip()
 
 

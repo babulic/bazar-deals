@@ -19,7 +19,7 @@ from bazar_deals.domain import (
     Money,
     Vertical,
 )
-from bazar_deals.identity import ItemSpecs, identify
+from bazar_deals.identity import ItemSpecs, identify, identity_subject, with_specs
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
@@ -195,17 +195,21 @@ def score_listings(
             if item is None:
                 funnel["identity_weak"] += 1
                 continue
-        lookup_key = item.search_query.casefold().strip()
+        lookup_key = with_specs(
+            item.search_query,
+            item.specs if isinstance(item.specs, ItemSpecs) else None,
+        ).casefold().strip()
         if lookup_key not in lookup_queries:
             if len(lookup_queries) >= lookup_cap:
                 funnel["sold_lookup_cap"] += 1
                 continue
             lookup_queries.add(lookup_key)
+        item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
         comp = sold.median_sold(
             listing,
-            query=item.search_query,
+            query=lookup_key,
             specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
-            subject=item.canonical_name,
+            subject=identity_subject(item),
         )
         if comp is None:
             funnel["no_sold_comps"] += 1
