@@ -126,6 +126,7 @@ def hunt_sources(
                 print(note, flush=True)
                 fetch_notes.append(note)
                 continue
+            print(f"{source.marketplace}: fetching…", flush=True)
             batch = source.fetch_new(vertical)
             note = f"{source.marketplace}: fetched {len(batch)}"
             print(note, flush=True)
@@ -211,7 +212,9 @@ def score_listings(
     deals: list[Deal] = []
     rescues: Counter[str] = Counter()
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
-    for listing in usable:
+    for index, listing in enumerate(usable, start=1):
+        if index == 1 or index % 50 == 0 or index == len(usable):
+            print(f"scoring {index}/{len(usable)}", flush=True)
         enricher = enrichers.get(listing.marketplace)
         if enricher is not None:
             listing = enricher.enrich_listing(listing)

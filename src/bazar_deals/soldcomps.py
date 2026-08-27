@@ -234,6 +234,23 @@ class SoldCompClient:
         if len(seed_peers) >= min_n:
             return self._store_market_comp(query, seed_peers)
 
+        if self._asking_catalog is not None:
+            # A live hunt already fetched Bazos/Aukro/Vinted. Extra per-query
+            # searches of those boards are what blew the 30-minute GHA cap.
+            if cached and cached.n >= min_n:
+                self._note(
+                    "price book: hunt batch had fewer than "
+                    f"{min_n} similar ads; reused stored P25×0.75 "
+                    f"({cached.query_key}, n={cached.n})"
+                )
+                return SoldComp(
+                    median=cached.median,
+                    sample=cached.n,
+                    label=_comp_label(cached.n, cached.source),
+                    reliable_for_buy=True,
+                )
+            return None
+
         peers = self._similar_market_peers(query, subject, specs, kind, self_key)
         if len(peers) >= min_n:
             return self._store_market_comp(query, peers)

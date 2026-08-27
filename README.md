@@ -89,15 +89,13 @@ reads the entire advertisement rather than the headline.
   seller, not the origin of the stone.
 
 The price-book budget (`hunt.max_sold_lookups`, default 80) counts **unique
-normalized product queries**, not listings. If the current hunt already fetched
-at least 5 similar ads, that batch is the valuation (P25×0.75) and the three
-boards are not searched again for that product. Otherwise it searches Bazos RSS
-`hledat`, Aukro `searchItemsCommon` text, and Vinted
-`/api/v2/catalog/items?search_text=`. The value is written to
-`.cache/bazar-comps-v2.sqlite` under that query and reused for
-`COMPS_TTL_DAYS` (default 7). After the live-search budget, remaining ads
-still use the hunt-batch catalog plus any stored row. Ten ads for the same
-iPhone 13 128GB still cost one price-book write.
+normalized product queries**, not listings. A hunt values ads from similar
+listings already fetched this run plus stored rows in
+`.cache/bazar-comps-v2.sqlite`. If the current batch has at least 5 similar ads,
+that P25×0.75 is written to the database and reused for `COMPS_TTL_DAYS`
+(default 7). The hunt does not search Bazos/Aukro/Vinted again per product —
+that is what blew the GitHub Actions time cap. Ten ads for the same iPhone 13
+128GB still cost one price-book write.
 
 ### AI identification
 
