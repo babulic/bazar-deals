@@ -52,15 +52,16 @@ def main(argv: list[str] | None = None) -> int:
     vertical = Vertical(args.vertical) if args.vertical else None
     sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    deals = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
+    run = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
+    deals = run.deals
     actionable = [deal for deal in deals if deal.action is Action.BUY]
     if not actionable:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
-        return 0
-    print("\n\n".join(format_deal(deal) for deal in actionable))
+    else:
+        print("\n\n".join(format_deal(deal) for deal in actionable))
     if args.notify:
         try:
-            posted = GitHubIssueAlerts(settings).post_deals(actionable)
+            posted = GitHubIssueAlerts(settings).post_run(run)
         except RuntimeError as exc:
             print(exc)
             return 2

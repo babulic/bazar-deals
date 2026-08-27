@@ -156,7 +156,7 @@ def test_asking_only_comp_can_reach_required_ai_gate() -> None:
         price=Money(amount=20, currency="EUR"),
     )
     settings = Settings(ai_review_enabled=True, ai_review_required=True, min_net_profit_eur=30)
-    deals = score_listings([listing], settings, _AskingComps(), reviewer=_Reviewer())
+    deals = score_listings([listing], settings, _AskingComps(), reviewer=_Reviewer()).deals
     assert len(deals) == 1
     assert deals[0].action is Action.BUY
     assert deals[0].ai_review is not None
@@ -191,5 +191,5 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
         )
         for index in range(2)
     ]
-    deals = score_listings(listings, Settings(), _Sold())
+    deals = score_listings(listings, Settings(), _Sold()).deals
     assert len(deals) == 2

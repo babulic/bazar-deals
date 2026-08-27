@@ -5,6 +5,7 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import format_github_deal
+from bazar_deals.pipeline import HuntRun
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
@@ -25,6 +26,61 @@ def format_run_comment(deals: list[Deal], *, mention: str) -> str:
         f"{ping}{markers}\n"
         f"**{len(deals)} deal(s)** this hunt\n\n"
         f"{blocks}\n"
+    )
+
+
+def format_hunt_comment(
+    run: HuntRun,
+    *,
+    mention: str,
+    min_profit,
+) -> str:
+    """Always-visible hunt report. Mentions the assignee only when there is a BUY."""
+    buys = [deal for deal in run.deals if deal.action is Action.BUY]
+    ping = f"@{mention}\n\n" if mention and buys else ""
+    markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in buys)
+    status = _format_status(run, min_profit=min_profit, buy_count=len(buys))
+    if not buys:
+        return f"{ping}{status}\n"
+    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in buys)
+    marker_block = f"{markers}\n" if markers else ""
+    return f"{ping}{marker_block}{status}\n\n{blocks}\n"
+
+
+def _format_status(run: HuntRun, *, min_profit, buy_count: int) -> str:
+    notes = "\n".join(f"- {note}" for note in run.fetch_notes) or "- (no sources fetched)"
+    health = []
+    for market, stats in run.source_stats.items():
+        health.append(
+            f"- {market.value}: fetched {stats.get('fetched', 0)}, "
+            f"usable {stats.get('usable', 0)}, scored {stats.get('scored', 0)}, "
+            f"buy {stats.get('buy', 0)}"
+        )
+    if not health:
+        health.append("- no marketplace reached scoring")
+    funnel_bits = [
+        f"usable={run.funnel.get('usable', 0)}",
+        f"scored={run.funnel.get('scored', 0)}",
+        f"buy={run.funnel.get('buy', 0)}",
+        f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
+        f"sold_lookup_cap={run.funnel.get('sold_lookup_cap', 0)}",
+        f"below_net_profit={run.funnel.get('below_net_profit', 0)}",
+        f"identity_ai_rescued={run.funnel.get('identity_ai_rescued', 0)}",
+        f"ai_rejected={run.funnel.get('ai_rejected', 0)}",
+        f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
+    ]
+    if buy_count:
+        headline = f"**{buy_count} BUY deal(s)** this hunt (prah {min_profit} € čistého zisku)"
+    else:
+        headline = (
+            f"**0 BUY** this hunt — žiadny inzerát neprešiel prah {min_profit} € čistého zisku. "
+            "Deal alerty sa posielajú len na BUY."
+        )
+    return (
+        f"{headline}\n\n"
+        f"Zdroje:\n{notes}\n\n"
+        f"Funnel: {' '.join(funnel_bits)}\n\n"
+        f"Marketplace:\n" + "\n".join(health)
     )
 
 
@@ -51,6 +107,22 @@ class GitHubIssueAlerts:
             "POST",
             f"/repos/{self.repo}/issues/{issue}/comments",
             json={"body": format_run_comment(fresh, mention=self._assignee())},
+        )
+        return 1
+
+    def post_run(self, run: HuntRun) -> int:
+        """Post the hunt report even when there is no BUY, so the collector is never blank."""
+        self._require_auth()
+        issue = self.ensure_issue()
+        body = format_hunt_comment(
+            run,
+            mention=self._assignee(),
+            min_profit=self.settings.min_net_profit_eur,
+        )
+        self._request(
+            "POST",
+            f"/repos/{self.repo}/issues/{issue}/comments",
+            json={"body": body},
         )
         return 1
 

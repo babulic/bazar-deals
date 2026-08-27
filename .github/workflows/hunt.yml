@@ -49,6 +49,13 @@ jobs:
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
+      - name: Warn when eBay secrets are missing
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+        run: |
+          if [ -z "$EBAY_CLIENT_ID" ]; then
+            echo "::warning::EBAY_CLIENT_ID is not set in repo Actions secrets. eBay hunt is skipped and sold comps cannot use the Browse API."
+          fi
       - name: Hunt all marketplaces
         run: python -m bazar_deals hunt --source all --notify
         env:
