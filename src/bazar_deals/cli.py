@@ -60,7 +60,7 @@ def main(argv: list[str] | None = None) -> int:
         "--source",
         choices=["all", "bazos", "ebay", "aukro", "vinted"],
         default="all",
-        help="Hunt Bazos + eBay + Aukro + Vinted public listings (default: all).",
+        help="Hunt Bazos + Aukro + Vinted (default: all). eBay is not a purchase source.",
     )
     parser.add_argument(
         "--vertical",
@@ -133,20 +133,19 @@ def main(argv: list[str] | None = None) -> int:
 
 def _sources(name: str, settings: Settings, *, fixture: Path | None):
     bazos = BazosRssClient(settings, fixture_path=fixture)
-    ebay = EbayBrowseClient(settings)
     aukro = AukroHuntClient(settings)
     vinted = VintedHuntClient(settings)
     if name == "bazos":
         return [bazos]
     if name == "ebay":
-        return [ebay]
+        return [EbayBrowseClient(settings)]
     if name == "aukro":
         return [aukro]
     if name == "vinted":
         return [vinted]
     if fixture is not None:
         return [bazos]
-    return [bazos, ebay, aukro, vinted]
+    return [bazos, aukro, vinted]
 
 
 if __name__ == "__main__":

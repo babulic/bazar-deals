@@ -79,6 +79,7 @@ class VintedHuntClient(ListingSource):
         self.settings = settings or Settings()
         self.fixture_path = fixture_path
         self._client = client
+        self._warmed = False
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
@@ -117,6 +118,49 @@ class VintedHuntClient(ListingSource):
             raise RuntimeError(VINTED_BLOCKED)
         return found
 
+    def search(self, query: str, *, limit: int = 48) -> list[Listing]:
+        """Current catalog hits matching `query`, for the price book."""
+        text = query.strip()
+        if self.fixture_path or not text:
+            return []
+        owned = self._client is None
+        client = self._client or httpx.Client(
+            headers={
+                "User-Agent": _BROWSER_UA,
+                "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        try:
+            if owned:
+                self._warmed = False
+            self._warmup(client)
+            response = client.get(
+                _CATALOG_API,
+                params={
+                    "search_text": text,
+                    "order": "newest_first",
+                    "per_page": limit,
+                    "page": 1,
+                },
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Referer": f"{_HOST}/catalog?search_text={text}",
+                },
+            )
+            if vinted_catalog_blocked(response) or response.status_code >= 400:
+                return []
+            payload = response.json()
+            if not isinstance(payload, dict):
+                return []
+            return parse_vinted_catalog_payload(payload)
+        except (httpx.HTTPError, ValueError):
+            return []
+        finally:
+            if owned:
+                client.close()
+
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path:
             return listing
@@ -146,10 +190,13 @@ class VintedHuntClient(ListingSource):
         return listing.model_copy(update={"description": detail, "raw": raw})
 
     def _warmup(self, client: httpx.Client) -> None:
+        if self._warmed:
+            return
         try:
             client.get(_HOST + "/", headers={"Accept": "text/html"})
         except httpx.HTTPError:
             return
+        self._warmed = True
 
     def _fetch_catalog(
         self, client: httpx.Client, path: str | None, *, lo: int, hi: int

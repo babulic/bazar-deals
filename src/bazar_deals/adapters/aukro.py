@@ -84,6 +84,34 @@ class AukroHuntClient(ListingSource):
             reverse=True,
         )
 
+    def search(self, query: str, *, size: int = 40) -> list[Listing]:
+        """Current buy-now offers matching `query`, for the price book."""
+        if self.fixture_path or not query.strip():
+            return []
+        response = httpx.post(
+            _PUBLIC_SEARCH,
+            params={"page": 0, "size": size},
+            headers={
+                "User-Agent": self.settings.bazos_user_agent,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json={
+                **_search_body(None),
+                "text": query.strip(),
+                "fallbackItemsCount": 12,
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        response.raise_for_status()
+        found: list[Listing] = []
+        for node in response.json().get("content") or []:
+            listing = _listing_from_public_node(node)
+            if listing is not None:
+                found.append(listing)
+        return found
+
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path or (listing.description or "").strip():
             return listing

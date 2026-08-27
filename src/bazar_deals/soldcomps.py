@@ -7,14 +7,14 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterator
-from urllib.parse import quote, urlencode
+from urllib.parse import urlencode
 
 import httpx
 
 from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing, Marketplace
+from bazar_deals.domain import Listing
 from bazar_deals.htmlparse import parse_ebay_html
 from bazar_deals.identity import (
     ItemSpecs,
@@ -99,14 +99,6 @@ def _decimal(value: object) -> Decimal:
         return Decimal("0")
 
 
-def _median(amounts: list[Decimal]) -> Decimal:
-    ordered = sorted(amounts)
-    mid = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[mid]
-    return ((ordered[mid - 1] + ordered[mid]) / 2).quantize(Decimal("0.01"))
-
-
 def _lower_quartile(amounts: list[Decimal]) -> Decimal:
     """Conservative quick-sale price: nearest-rank 25th percentile."""
     ordered = sorted(amounts)
@@ -116,9 +108,9 @@ def _lower_quartile(amounts: list[Decimal]) -> Decimal:
     return ordered[index].quantize(Decimal("0.01"))
 
 
-def _comp_label(n: int, source: str = "ebay") -> str:
-    if source == "market":
-        return f"asking-only kontrola trhu, nie BUY podklad (n={n})"
+def _comp_label(n: int, source: str = "market") -> str:
+    if source in {"market", "ask"}:
+        return f"trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n={n})"
     return f"konzervatívna rýchlopredajná cena, ebay.de sold P25 (n={n})"
 
 
@@ -126,13 +118,22 @@ def _url_key(url: object) -> str:
     return str(url).split("?")[0].rstrip("/")
 
 
-class SoldCompClient:
-    """Conservative market value for goods that actually circulate.
+def _market_value(peers: list[Listing]) -> Decimal:
+    if not peers:
+        return Decimal("0")
+    return (_lower_quartile([item.price.amount for item in peers]) * Decimal("0.75")).quantize(
+        Decimal("0.01")
+    )
 
-    BUY valuation uses only a sufficiently large set of similar working sold
-    eBay.de items and the lower quartile (P25), not the median. Current asking
-    prices are kept only as a diagnostic fallback and are explicitly marked as
-    unreliable for BUY decisions.
+
+class SoldCompClient:
+    """Price book of discovered comparable asking prices.
+
+    Live hunts search Bazos, Aukro and Vinted for similar buy-now ads, store
+    P25×0.75 under the product query in SQLite, and reuse that row on the next
+    hunt while it is fresh. eBay is not a comps source. Offline fixtures still
+    parse bundled eBay sold HTML so unit tests can check P25 math without the
+    network.
     """
 
     def __init__(
@@ -145,16 +146,17 @@ class SoldCompClient:
     ) -> None:
         self.settings = settings or Settings()
         self._cache: dict[str, list[Listing]] = {}
+        self._market_cache: dict[str, list[Listing]] = {}
         self._failed: dict[str, int] = {}
         self._asking_catalog: list[Listing] | None = None
         self.notes: list[str] = []
         self._noted: set[str] = set()
         self._sold_html_blocked = False
         self._sold_html_status: int | None = None
-        self._browse_failed = False
         self._live_sold_used = 0
         self.live_sold_skipped = 0
         self._live_sold_budget = int(rules()["hunt"]["max_sold_lookups"])
+        self._vinted = None
         self._fixture_html = fixture_html
         if fixture_path is not None:
             self._fixture_html = fixture_path.read_text(encoding="utf-8")
@@ -175,7 +177,7 @@ class SoldCompClient:
         self.notes.append(message)
 
     def seed_asking(self, listings: list[Listing]) -> None:
-        """Use listings already fetched this hunt as the asking-price pool."""
+        """Use listings already fetched this hunt as extra price-book peers."""
         found: list[Listing] = []
         seen: set[str] = set()
         for item in listings:
@@ -197,175 +199,154 @@ class SoldCompClient:
         specs: ItemSpecs | None = None,
         subject: str | None = None,
     ) -> SoldComp | None:
-        """Value one listing from completed sales.
-
-        `query`, `specs` and `subject` let the caller pass an identity resolved
-        with more context than this method has: a capacity found in the body of
-        the ad, or the product name the AI recovered from an ad whose own title
-        says nothing more than "Predám".
-        """
+        """Conservative resale value from the SQLite price book."""
         full_text = listing_text(listing)
         subject = (subject or "").strip() or listing.title
         query = (query or "").strip() or sold_query(subject) or sold_query(full_text)
         if not query:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        # Specs are mined from the whole ad, similarity is measured on titles.
-        # The lookup key must include those specs, otherwise a 128 GB phone and
-        # a 256 GB phone (or a lot and a single piece) would share one P25.
         specs = specs if specs is not None else extract_specs(full_text)
         query = with_specs(query, specs)
         kind = classify_kind(full_text)
         self_key = _url_key(listing.url)
-        ask_key = f"ask:{query}"
 
-        sold_summary = self._db_summary(query)
-        if sold_summary and self._is_fresh(sold_summary.fetched_at) and sold_summary.n >= min_n:
-            return SoldComp(
-                median=sold_summary.median,
-                sample=sold_summary.n,
-                label=_comp_label(sold_summary.n, "ebay"),
-                reliable_for_buy=True,
+        cached = self._db_summary(query) or self._db_summary(f"ask:{query}")
+        if cached and self._is_fresh(cached.fetched_at) and cached.n >= min_n:
+            self._note(
+                "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB "
+                f"({cached.query_key}, n={cached.n})"
             )
-
-        hits, status, failed = self._sold_hits(query)
-        if not failed:
-            sold = [
-                item
-                for item in hits
-                if item.price.amount > 0
-                and not is_damaged_text(f"{item.title} {item.description}")
-                and _url_key(item.url) != self_key
-            ]
-            # Marketplace descriptions are often long boilerplate. Variant and
-            # capacity matching belongs on titles; including full descriptions
-            # diluted Jaccard similarity enough to reject exact products.
-            peers = [
-                item
-                for item in sold
-                if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
-            ]
-            fetched_at = _utc_now()
-            if self._db_path is not None:
-                self._store_fetch(query, sold, peers, status, fetched_at, source="ebay")
-            if len(peers) >= min_n:
-                n = len(peers)
-                return SoldComp(
-                    median=_lower_quartile([item.price.amount for item in peers]),
-                    sample=n,
-                    label=_comp_label(n, "ebay"),
-                    reliable_for_buy=True,
-                )
-        elif sold_summary and sold_summary.n >= min_n:
             return SoldComp(
-                median=sold_summary.median,
-                sample=sold_summary.n,
-                label=_comp_label(sold_summary.n, "ebay"),
+                median=cached.median,
+                sample=cached.n,
+                label=_comp_label(cached.n, cached.source),
                 reliable_for_buy=True,
-            )
-
-        ask_summary = self._db_summary(ask_key)
-        if ask_summary and self._is_fresh(ask_summary.fetched_at) and ask_summary.n >= min_n:
-            return SoldComp(
-                median=ask_summary.median,
-                sample=ask_summary.n,
-                label=_comp_label(ask_summary.n, "market"),
-                reliable_for_buy=False,
             )
 
         if self._fixture_html is not None:
-            return None
+            return self._comp_from_fixture(subject, query, specs, kind, self_key, min_n)
 
-        market = self._market_hits(query)
-        asking = [
+        peers = self._similar_market_peers(query, subject, specs, kind, self_key)
+        if len(peers) >= min_n:
+            value = _market_value(peers)
+            fetched_at = _utc_now()
+            if self._db_path is not None:
+                self._store_fetch(query, peers, peers, 200, fetched_at, source="market")
+            self._note(
+                "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused "
+                "(eBay is not used)"
+            )
+            return SoldComp(
+                median=value,
+                sample=len(peers),
+                label=_comp_label(len(peers), "market"),
+                reliable_for_buy=True,
+            )
+
+        if cached and cached.n >= min_n:
+            self._note(
+                "price book: live search had fewer than "
+                f"{min_n} similar ads; reused stored P25×0.75 "
+                f"({cached.query_key}, n={cached.n})"
+            )
+            return SoldComp(
+                median=cached.median,
+                sample=cached.n,
+                label=_comp_label(cached.n, cached.source),
+                reliable_for_buy=True,
+            )
+        return None
+
+    def _comp_from_fixture(
+        self,
+        subject: str,
+        query: str,
+        specs: ItemSpecs | None,
+        kind,
+        self_key: str,
+        min_n: int,
+    ) -> SoldComp | None:
+        hits, status, failed = self._sold_hits(query)
+        if failed:
+            return None
+        sold = [
             item
-            for item in market
+            for item in hits
             if item.price.amount > 0
             and not is_damaged_text(f"{item.title} {item.description}")
             and _url_key(item.url) != self_key
         ]
         peers = [
             item
+            for item in sold
+            if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+        ]
+        if self._db_path is not None:
+            self._store_fetch(query, sold, peers, status, _utc_now(), source="ebay")
+        if len(peers) < min_n:
+            return None
+        return SoldComp(
+            median=_lower_quartile([item.price.amount for item in peers]),
+            sample=len(peers),
+            label=_comp_label(len(peers), "ebay"),
+            reliable_for_buy=True,
+        )
+
+    def _similar_market_peers(
+        self,
+        query: str,
+        subject: str,
+        specs: ItemSpecs | None,
+        kind,
+        self_key: str,
+    ) -> list[Listing]:
+        asking = [
+            item
+            for item in self._market_hits(query)
+            if item.price.amount > 0
+            and not is_damaged_text(f"{item.title} {item.description}")
+            and _url_key(item.url) != self_key
+        ]
+        return [
+            item
             for item in asking
             if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
         ]
-        if len(peers) < min_n:
-            return None
-
-        # Asking prices are not realized prices. Apply a strong haircut and, more
-        # importantly, mark them unreliable so the pipeline cannot emit BUY.
-        asking_value = (_lower_quartile([item.price.amount for item in peers]) * Decimal("0.75")).quantize(
-            Decimal("0.01")
-        )
-        if self._db_path is not None:
-            self._store_summary(ask_key, len(peers), asking_value, 200, _utc_now(), source="market")
-        return SoldComp(
-            median=asking_value,
-            sample=len(peers),
-            label=_comp_label(len(peers), "market"),
-            reliable_for_buy=False,
-        )
 
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
+        """Offline fixture path only. Live hunts never fetch eBay HTML."""
         if query in self._cache:
             return self._cache[query], self._failed.get(query), query in self._failed
-        if self._sold_html_blocked:
-            return [], self._sold_html_status, True
-        if query in self._failed:
-            return [], self._failed[query], True
-        if self._fixture_html is not None:
-            hits = parse_ebay_html(self._fixture_html)
-            self._cache[query] = hits
-            return hits, 200, False
-        if self._live_sold_used >= self._live_sold_budget:
-            self.live_sold_skipped += 1
+        if self._fixture_html is None:
             return [], None, True
-        url = (
-            "https://www.ebay.de/sch/i.html?_nkw="
-            f"{quote(query)}&LH_Sold=1&LH_Complete=1&_ipg=60"
-        )
-        self._live_sold_used += 1
-        response = httpx.get(
-            url,
-            headers={
-                "User-Agent": self.settings.bazos_user_agent,
-                "Accept": "text/html",
-            },
-            timeout=30.0,
-            follow_redirects=True,
-        )
-        status = int(response.status_code)
-        signin = "signin.ebay." in str(response.url)
-        if status >= 400 or signin:
-            self._failed[query] = status
-            if status in {401, 403} or signin:
-                self._sold_html_blocked = True
-                self._sold_html_status = status
-                reason = "sign-in wall" if signin else f"HTTP {status}"
-                self._note(
-                    "ebay sold comps: "
-                    f"{reason} from this host; Browse asking fallback needs working "
-                    "EBAY_CLIENT_ID/SECRET (production App ID + Cert ID)"
-                )
-            return [], status, True
-        hits = parse_ebay_html(response.text)
+        hits = parse_ebay_html(self._fixture_html)
         self._cache[query] = hits
-        return hits, status, False
+        return hits, 200, False
 
     def _market_hits(self, query: str) -> list[Listing]:
+        if query in self._market_cache:
+            return self._market_cache[query]
         seen: set[str] = set()
         hits: list[Listing] = []
-        for item in (
-            *self._bazos_search(query),
-            *self._public_asking_catalog(),
-            *self._ebay_browse_search(query),
-        ):
+        extra: list[Listing] = []
+        if self._live_sold_used < self._live_sold_budget:
+            self._live_sold_used += 1
+            extra = [
+                *self._bazos_search(query),
+                *self._aukro_search(query),
+                *self._vinted_search(query),
+            ]
+        else:
+            self.live_sold_skipped += 1
+        for item in (*extra, *(self._asking_catalog or ())):
             item = self._to_eur(item)
             key = _url_key(item.url)
             if key in seen:
                 continue
             seen.add(key)
             hits.append(item)
+        self._market_cache[query] = hits
         return hits
 
     def _bazos_search(self, query: str) -> list[Listing]:
@@ -376,21 +357,31 @@ class SoldCompClient:
             return []
         return BazosRssClient(self.settings)._parse(xml, site="sk")
 
-    def _public_asking_catalog(self) -> list[Listing]:
-        """Fetch current Aukro/Vinted catalogs once per hunt, not once per query."""
-        if self._asking_catalog is not None:
-            return self._asking_catalog
+    def _aukro_search(self, query: str) -> list[Listing]:
         from bazar_deals.adapters.aukro import AukroHuntClient
-        from bazar_deals.adapters.vinted import VintedHuntClient
 
-        found: list[Listing] = []
-        for client in (AukroHuntClient(self.settings), VintedHuntClient(self.settings)):
-            try:
-                found.extend(client.fetch_new())
-            except (httpx.HTTPError, RuntimeError):
-                continue
-        self._asking_catalog = found
-        return found
+        try:
+            return AukroHuntClient(self.settings).search(query)
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            return []
+
+    def _vinted_search(self, query: str) -> list[Listing]:
+        from bazar_deals.adapters.vinted import VintedHuntClient, _BROWSER_UA
+
+        if self._vinted is None:
+            session = httpx.Client(
+                headers={
+                    "User-Agent": _BROWSER_UA,
+                    "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
+                },
+                timeout=30.0,
+                follow_redirects=True,
+            )
+            self._vinted = VintedHuntClient(self.settings, client=session)
+        try:
+            return self._vinted.search(query)
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            return []
 
     def _to_eur(self, item: Listing) -> Listing:
         if item.price.currency.upper() == "EUR":
@@ -405,26 +396,6 @@ class SoldCompClient:
                 )
             }
         )
-
-    def _ebay_browse_search(self, query: str) -> list[Listing]:
-        if self._browse_failed:
-            return []
-        if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
-            return []
-        from bazar_deals.adapters.ebay import EbayBrowseClient
-
-        try:
-            client = EbayBrowseClient(self.settings)
-            data = client.search_query(query)
-        except (httpx.HTTPError, RuntimeError) as exc:
-            self._browse_failed = True
-            self._note(f"ebay browse comps: {exc}")
-            return []
-        return [
-            client._to_listing(item)
-            for item in data.get("itemSummaries", [])
-            if item.get("itemWebUrl") or item.get("itemHref")
-        ]
 
     def _get_text(self, url: str, *, accept: str) -> str:
         response = httpx.get(
@@ -522,12 +493,15 @@ class SoldCompClient:
         status: int | None,
         fetched_at: datetime,
         *,
-        source: str = "ebay",
+        source: str = "market",
     ) -> None:
         if self._db_path is None:
             return
         stamp = _iso(fetched_at)
-        value = _lower_quartile([item.price.amount for item in peers]) if peers else Decimal("0")
+        if source == "market":
+            value = _market_value(peers)
+        else:
+            value = _lower_quartile([item.price.amount for item in peers]) if peers else Decimal("0")
         with self._connect() as conn:
             conn.execute("DELETE FROM sold_listings WHERE query_key = ?", (query_key,))
             conn.executemany(

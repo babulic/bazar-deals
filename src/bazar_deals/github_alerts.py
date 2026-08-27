@@ -105,7 +105,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
     elif scored == 0:
         headline = (
             f"**0 BUY áno** · zisk sa nerátal — usable inzeráty nie sú ocenené "
-            f"(chýbajú eBay sold comps / lookup cap / OAuth). "
+            f"(chýba trhový cenník Bazos/Aukro/Vinted / málo podobných inzerátov). "
             f"Toto nie je dôkaz, že sú stratové. Stratové položky sa neposielajú."
         )
     else:

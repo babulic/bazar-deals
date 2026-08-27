@@ -79,34 +79,30 @@ def test_under_min_price_is_dropped() -> None:
     assert deals == []
 
 
-def test_asking_only_market_comps_cannot_create_buy(tmp_path) -> None:
+def test_hunt_batch_price_book_scores_without_ebay(tmp_path) -> None:
     from unittest.mock import patch
-
-    class _Resp:
-        def __init__(self, status: int, text: str = "", url: str = "https://example.com") -> None:
-            self.status_code = status
-            self.text = text
-            self.url = url
-
-        def raise_for_status(self) -> None:
-            if self.status_code >= 400:
-                raise RuntimeError(f"HTTP {self.status_code}")
-
-    rss = FIXTURE.read_text(encoding="utf-8")
-
-    def fake_get(url, **kwargs):
-        target = str(url)
-        if "ebay.de" in target:
-            return _Resp(403, "blocked", target)
-        if "bazos" in target:
-            return _Resp(200, rss, target)
-        return _Resp(200, "<html></html>", target)
 
     settings = Settings(comps_db=str(tmp_path / "comps.sqlite"))
     sold = SoldCompClient(settings)
-    with patch("bazar_deals.soldcomps.httpx.get", side_effect=fake_get):
+    with (
+        patch.object(sold, "_bazos_search", return_value=[]),
+        patch.object(sold, "_aukro_search", return_value=[]),
+        patch.object(sold, "_vinted_search", return_value=[]),
+    ):
         deals = hunt(BazosRssClient(fixture_path=FIXTURE), settings=settings, sold=sold)
-    assert deals == []
+    cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
+    assert cheap
+    assert cheap[0].action is Action.SKIP
+    assert cheap[0].costs.net_profit < 30
+    assert all(deal.action is not Action.BUY for deal in deals)
+    assert cheap[0].item.sold_label.startswith("trhová rýchlopredajná cena")
+    import sqlite3
+
+    with sqlite3.connect(settings.comps_db) as conn:
+        row = conn.execute("SELECT source, n FROM sold_queries").fetchone()
+    assert row is not None
+    assert row[0] == "market"
+    assert int(row[1]) >= 5
 
 
 def test_invalid_price_has_its_own_funnel_metric(capsys) -> None:
@@ -195,7 +191,7 @@ def test_lookup_budget_counts_unique_queries(monkeypatch) -> None:
     assert len(deals) == 2
 
 
-def test_blocked_ebay_sold_html_still_scores_asking_from_hunt_batch(tmp_path) -> None:
+def test_price_book_from_hunt_batch_scores_and_can_buy(tmp_path) -> None:
     from unittest.mock import patch
 
     listings = [
@@ -231,17 +227,20 @@ def test_blocked_ebay_sold_html_still_scores_asking_from_hunt_batch(tmp_path) ->
         min_net_profit_eur=30,
     )
     sold = SoldCompClient(settings)
-    with patch.object(sold, "_sold_hits", return_value=([], 403, True)), patch.object(
-        sold, "_bazos_search", return_value=[]
-    ), patch.object(sold, "_ebay_browse_search", return_value=[]):
+    with (
+        patch.object(sold, "_bazos_search", return_value=[]),
+        patch.object(sold, "_aukro_search", return_value=[]),
+        patch.object(sold, "_vinted_search", return_value=[]),
+    ):
         run = score_listings(listings, settings, sold, reviewer=_Reviewer())
     assert run.funnel["scored"] == 6
-    assert run.funnel["asking_only_comps"] == 6
+    assert run.funnel["asking_only_comps"] == 0
     assert run.funnel["no_sold_comps"] == 0
     assert any(deal.action is Action.BUY for deal in run.deals)
     cheap = [deal for deal in run.deals if deal.item.listing.external_id == "0"][0]
     assert cheap.action is Action.BUY
     assert cheap.costs.net_profit >= 30
+    assert cheap.item.sold_label.startswith("trhová rýchlopredajná cena")
 
 
 def test_hunt_sources_appends_sold_comp_notes() -> None:
@@ -255,11 +254,34 @@ def test_hunt_sources_appends_sold_comp_notes() -> None:
             return []
 
     class _Sold:
-        notes = ["ebay sold comps: sign-in wall from this host"]
+        notes = ["price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused (eBay is not used)"]
 
         def median_sold(self, listing, **kwargs):
             return None
 
     run = hunt_sources([_Empty()], settings=Settings(), sold=_Sold())
     assert "bazos: fetched 0" in run.fetch_notes
-    assert "ebay sold comps: sign-in wall from this host" in run.fetch_notes
+    assert "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused (eBay is not used)" in run.fetch_notes
+
+
+def test_hunt_sources_skips_ebay() -> None:
+    from bazar_deals.adapters.base import ListingSource
+    from bazar_deals.domain import Vertical
+
+    class _Ebay(ListingSource):
+        marketplace = Marketplace.EBAY.value
+
+        def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+            raise AssertionError("eBay must not be fetched")
+
+    class _Sold:
+        notes: list[str] = []
+
+        def median_sold(self, listing, **kwargs):
+            return None
+
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert-id")
+    run = hunt_sources([_Ebay()], settings=settings, sold=_Sold())
+    assert run.fetch_notes == [
+        "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)"
+    ]
