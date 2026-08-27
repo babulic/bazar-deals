@@ -239,3 +239,20 @@ def test_unique_queries_share_one_live_price_book_search(tmp_path: Path) -> None
     assert first is not None and second is not None
     assert bazos.call_count == 1
     assert first.median == second.median
+
+
+def test_hunt_batch_seed_skips_live_marketplace_search(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    peers = _peers()
+    client.seed_asking(peers)
+    with (
+        patch.object(client, "_bazos_search", side_effect=AssertionError("live")) as bazos,
+        patch.object(client, "_aukro_search", side_effect=AssertionError("live")),
+        patch.object(client, "_vinted_search", side_effect=AssertionError("live")),
+    ):
+        comp = client.median_sold(_listing())
+    assert comp is not None
+    assert comp.reliable_for_buy is True
+    assert comp.sample == 6
+    assert comp.median == _market_value(peers)
+    bazos.assert_not_called()

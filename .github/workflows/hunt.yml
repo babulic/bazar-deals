@@ -21,7 +21,7 @@ jobs:
   hunt:
     needs: cleanup
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -50,8 +50,9 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
       - name: Hunt all marketplaces
-        run: python -m bazar_deals hunt --source all --notify
+        run: python -u -m bazar_deals hunt --source all --notify
         env:
+          PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_ALERT_ISSUE: "1"

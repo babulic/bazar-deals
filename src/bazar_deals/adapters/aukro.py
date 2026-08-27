@@ -101,7 +101,7 @@ class AukroHuntClient(ListingSource):
                 "text": query.strip(),
                 "fallbackItemsCount": 12,
             },
-            timeout=30.0,
+            timeout=12.0,
             follow_redirects=True,
         )
         response.raise_for_status()

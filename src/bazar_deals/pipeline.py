@@ -123,17 +123,17 @@ def hunt_sources(
                     f"{source.marketplace}: skipped "
                     "(valuation uses Bazos/Aukro/Vinted price book, not eBay)"
                 )
-                print(note)
+                print(note, flush=True)
                 fetch_notes.append(note)
                 continue
             batch = source.fetch_new(vertical)
             note = f"{source.marketplace}: fetched {len(batch)}"
-            print(note)
+            print(note, flush=True)
             fetch_notes.append(note)
             listings.extend(batch)
         except (RuntimeError, httpx.HTTPError) as exc:
             note = f"{source.marketplace}: fetched 0 ({exc})"
-            print(note)
+            print(note, flush=True)
             fetch_notes.append(note)
     run = score_listings(
         listings,
@@ -282,8 +282,8 @@ def score_listings(
         if deal.action is Action.BUY:
             source_stats[deal.item.listing.marketplace]["buy"] += 1
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
-    print(_format_funnel(funnel))
-    print(_format_source_health(source_stats))
+    print(_format_funnel(funnel), flush=True)
+    print(_format_source_health(source_stats), flush=True)
     return HuntRun(deals=deals, funnel=funnel, source_stats=source_stats)
 
 
