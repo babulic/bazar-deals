@@ -23,6 +23,7 @@ from bazar_deals.identity import (
     listing_text,
     similar_titles,
     sold_query,
+    with_specs,
 )
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
@@ -177,7 +178,10 @@ class SoldCompClient:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
         # Specs are mined from the whole ad, similarity is measured on titles.
+        # The lookup key must include those specs, otherwise a 128 GB phone and
+        # a 256 GB phone (or a lot and a single piece) would share one P25.
         specs = specs if specs is not None else extract_specs(full_text)
+        query = with_specs(query, specs)
         kind = classify_kind(full_text)
         self_key = _url_key(listing.url)
         ask_key = f"ask:{query}"

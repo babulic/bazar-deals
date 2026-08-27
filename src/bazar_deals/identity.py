@@ -30,18 +30,32 @@ def is_replacement_part_text(text: str) -> bool:
 
 
 # Fields beyond title and description that still describe the goods. eBay puts
-# specs in shortDescription, Aukro in the category path, Vinted in brand/size.
+# specs in shortDescription and localizedAspects, Aukro in the category path,
+# Vinted in brand/size. Nested `detail` copies from marketplace APIs count too.
 _RAW_TEXT_FIELDS = (
     "shortDescription",
     "subtitle",
     "condition",
     "conditionDescription",
     "brand",
+    "brand_title",
     "size",
+    "size_title",
     "categoryPath",
     "itemName",
     "rss_title",
+    "manufacturer",
+    "mpn",
+    "model",
+    "color",
+    "material",
+    "product",
 )
+_NESTED_RAW = ("detail", "product", "item")
+_ASPECT_KEYS = ("localizedAspects", "aspects", "itemSpecifics", "attributes")
+# Seller-home country names appear on almost every ad and are not the origin
+# of the specimen. Mineral deposit names and foreign origins are price-critical.
+_HOME_ORIGINS = frozenset({"slovensko"})
 
 
 def _flatten(value: object, depth: int = 0) -> list[str]:
@@ -75,14 +89,52 @@ def listing_text(listing: Listing) -> str:
     """Every field that can say what the item is, not just the title.
 
     Sellers routinely leave the capacity, the production year or the part number
-    out of the title and state it only in the body of the ad.
+    out of the title and state it only in the body of the ad. Marketplace APIs
+    keep the same facts in structured fields (eBay item specifics, Aukro
+    category path, Vinted brand) which the headline never repeats.
     """
     parts = [listing.title, listing.description]
     raw = listing.raw if isinstance(listing.raw, dict) else {}
-    for key in _RAW_TEXT_FIELDS:
-        if key in raw:
-            parts.extend(_flatten(raw[key]))
+    blobs = [raw]
+    for nest in _NESTED_RAW:
+        nested = raw.get(nest)
+        if isinstance(nested, dict):
+            blobs.append(nested)
+    for blob in blobs:
+        for key in _RAW_TEXT_FIELDS:
+            if key in blob:
+                parts.extend(_flatten(blob[key]))
+        parts.extend(_aspect_text(blob))
     return strip_markup(" ".join(part for part in parts if part))
+
+
+def _aspect_text(blob: dict) -> list[str]:
+    """Turn eBay-style name/value item specifics into searchable prose."""
+    parts: list[str] = []
+    for key in _ASPECT_KEYS:
+        value = blob.get(key)
+        if isinstance(value, list):
+            for item in value:
+                if isinstance(item, dict):
+                    name = item.get("name") or item.get("localizedName") or ""
+                    raw_value = (
+                        item.get("value")
+                        or item.get("localizedValue")
+                        or item.get("values")
+                    )
+                    if isinstance(raw_value, list):
+                        raw_value = " ".join(str(part) for part in raw_value if part)
+                    if raw_value:
+                        parts.append(f"{name} {raw_value}".strip())
+                elif isinstance(item, str) and item.strip():
+                    parts.append(item)
+        elif isinstance(value, dict):
+            for name, raw_value in value.items():
+                if isinstance(raw_value, list):
+                    raw_value = " ".join(str(part) for part in raw_value if part)
+                if raw_value:
+                    parts.append(f"{name} {raw_value}".strip())
+    return parts
 
 
 def identify(listing: Listing, vertical_hint: Vertical | None = None) -> IdentifiedItem:
@@ -103,7 +155,7 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
     specs = extract_specs(hay)
     query = sold_query(hay, kind)
     if query is not None:
-        query = _with_specs(query, specs)
+        query = with_specs(query, specs)
     weak = query is None
     if weak:
         score = float(conf["weak"])
@@ -111,10 +163,15 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
         score = float(conf["generic"])
     else:
         score = float(conf["known"])
+    # A headline like "Predám telefón" is a poor name for alerts and for
+    # matching sold comps. Prefer the product identity mined from the body.
+    canonical = listing.title.strip()
+    if query and sold_query(listing.title, kind) is None:
+        canonical = query
     return IdentifiedItem(
         listing=listing,
         vertical=vertical_hint,
-        canonical_name=listing.title.strip(),
+        canonical_name=canonical,
         model=query,
         search_query=query or "",
         kind=kind.value,
@@ -123,18 +180,39 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
     )
 
 
-def _with_specs(query: str, specs: ItemSpecs) -> str:
+def with_specs(query: str, specs: ItemSpecs | None) -> str:
     """Append decisive spec tokens the token-frequency query dropped.
 
     Searching eBay for `iphone 13` and for `iphone 13 128gb` returns different
     price levels, so a capacity stated anywhere in the ad belongs in the query.
     """
+    if specs is None:
+        return query
     present = set(re.findall(r"[a-z0-9]+", _fold(query)))
     extra = [token for token in specs.query_tokens() if _fold(token) not in present]
     if not extra:
         return query
-    budget = int(_id()["sold_query_tokens"]) + 2
+    budget = int(_id()["sold_query_tokens"]) + 4
     return " ".join([*query.split(), *extra][:budget])
+
+
+def identity_subject(item: IdentifiedItem) -> str:
+    """Text used to match sold comps: the identified product, not a vague title.
+
+    Word overlap for comps is measured on titles so marketplace boilerplate
+    does not dilute Jaccard. When the real model only appears in the body,
+    the original headline ("Predám telefón") would reject the right comps.
+    """
+    title = (item.listing.title or "").strip()
+    named = (item.canonical_name or "").strip()
+    query = (item.search_query or item.model or "").strip()
+    if named and named.casefold() != title.casefold():
+        return named
+    title_tokens = set(significant_tokens(title))
+    query_tokens = set(significant_tokens(query))
+    if query_tokens and query_tokens - title_tokens:
+        return query
+    return named or title
 
 
 def classify_kind(text: str) -> ItemKind:
@@ -200,11 +278,13 @@ class ItemSpecs(BaseModel):
     phone: str | None = None
     model_codes: frozenset[str] = frozenset()
     lot_size: int | None = None
+    # Mining locality or specimen origin, folded (e.g. "banska stiavnica").
+    localities: frozenset[str] = frozenset()
 
     def is_empty(self) -> bool:
         return not (
             self.storage or self.years or self.variants or self.phone
-            or self.model_codes or self.lot_size
+            or self.model_codes or self.lot_size or self.localities
         )
 
     def conflicts_with(self, other: ItemSpecs, *, kind: ItemKind | None = None) -> bool:
@@ -223,6 +303,8 @@ class ItemSpecs(BaseModel):
         # A multi-piece lot and a single piece are different products.
         if (self.lot_size or 1) != (other.lot_size or 1):
             return True
+        if self.localities and not (self.localities & other.localities):
+            return True
         if kind is ItemKind.PHONES:
             if self.phone and self.phone != other.phone:
                 return True
@@ -239,6 +321,10 @@ class ItemSpecs(BaseModel):
         tokens.extend(sorted(self.storage))
         tokens.extend(sorted(self.variants))
         tokens.extend(sorted(self.years))
+        if self.lot_size and self.lot_size > 1:
+            tokens.append(f"{self.lot_size}ks")
+        for place in sorted(self.localities):
+            tokens.extend(part for part in place.split() if part)
         return tokens
 
 
@@ -250,6 +336,7 @@ def extract_specs(text: str) -> ItemSpecs:
         phone=_phone_signature(text),
         model_codes=frozenset(_model_codes(text)),
         lot_size=_lot_size(text),
+        localities=frozenset(_locality_tokens(text)),
     )
 
 
@@ -292,6 +379,54 @@ def _lot_size(text: str) -> int | None:
     found = [int(size) for size in _LOT_RE.findall(_fold(text))]
     sizes = [size for size in found if 1 < size <= 500]
     return max(sizes) if sizes else None
+
+
+def _locality_tokens(text: str) -> set[str]:
+    """Known mining localities and foreign specimen origins stated in the ad.
+
+    Collectors search species plus locality, so a galenite from Banská Štiavnica
+    is not priced from a nameless one. Inflected Slovak ("Banskej Štiavnice")
+    still counts. "Slovensko" on a domestic ad does not — that is the seller.
+    """
+    hay = _fold(text)
+    found: set[str] = set()
+    for key, names in _place_catalog():
+        if _place_mentioned(hay, names):
+            found.add(key)
+    return found
+
+
+def _place_catalog() -> list[tuple[str, tuple[str, ...]]]:
+    selling = rules().get("selling") or {}
+    out: list[tuple[str, tuple[str, ...]]] = []
+    for group in ("localities", "countries"):
+        entries = selling.get(group) or {}
+        for key, names in entries.items():
+            folded_key = _fold(str(key))
+            if group == "countries" and folded_key in _HOME_ORIGINS:
+                continue
+            variants = [str(key)]
+            if isinstance(names, dict):
+                variants.extend(str(value) for value in names.values() if value)
+            out.append((folded_key, tuple(dict.fromkeys(variants))))
+    return out
+
+
+def _place_mentioned(hay: str, names: tuple[str, ...]) -> bool:
+    for name in names:
+        folded = _fold(name)
+        if not folded:
+            continue
+        if re.search(rf"(?<![\w]){re.escape(folded)}(?![\w])", hay):
+            return True
+        # Banskej Štiavnice / Ľubietovej: match a stem of the distinctive word.
+        for word in re.findall(r"[a-z0-9]+", folded):
+            if len(word) < 6:
+                continue
+            stem = word[:-2]
+            if len(stem) >= 5 and re.search(rf"(?<![\w]){re.escape(stem)}\w*", hay):
+                return True
+    return False
 
 
 def _storage_tokens(text: str) -> set[str]:

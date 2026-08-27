@@ -75,5 +75,6 @@ jobs:
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
           AI_MAX_REVIEWS: "8"
+          AI_MAX_IDENTIFICATIONS: "12"
           AI_REVIEW_TTL_DAYS: "14"
           AI_MIN_CONFIDENCE: "0.75"

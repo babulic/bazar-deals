@@ -51,17 +51,23 @@ An item can only be valued once it is known exactly what it is, so identificatio
 reads the entire advertisement rather than the headline.
 
 - **Every field is searched.** Title, body and the marketplace's own fields
-  (eBay `shortDescription`, Aukro category path, Vinted brand and size). Sellers
-  routinely leave the capacity, the production year or the chip number out of
-  the title and state it only in the body.
+  (eBay `shortDescription` and item specifics, Aukro category path, Vinted brand
+  and size), including nested API `detail` payloads. Sellers routinely leave
+  the capacity, the production year or the chip number out of the title and
+  state it only in the body or in structured fields.
 - **Selling boilerplate is discarded.** Without it a listing called
   `Predám, ozvite sa` produced the confident nonsense query `predam ozvite`
   instead of admitting it could not be identified.
 - **Price-critical facts become a spec profile**: storage capacity, production
-  year, part and model codes, lot size, phone model and variant. Two listings
-  must agree on these before one may price the other, and the facts count even
-  when they appear only in the body. A capacity written in the description now
-  rejects a comparable of a different capacity, which a title-only match missed.
+  year, part and model codes, lot size, phone model and variant, and known
+  mineral localities/origins. Two listings must agree on these before one may
+  price the other, and the facts count even when they appear only in the body.
+  A capacity written in the description now rejects a comparable of a different
+  capacity, which a title-only match missed. Those same facts are appended to
+  the sold-comps search so a 128 GB phone and a 256 GB phone never share one
+  cached P25.
+- **Vague headlines do not price the item.** Matching sold comps uses the
+  identified product (`iphone 13 128gb`), not `Predám telefón`.
 - **Part numbers survive being written apart.** `CSG 8565 R2` yields both `8565`
   and `8565r2`, while measurements such as `220V`, `16cm` and `61g` are not
   mistaken for model codes.
@@ -69,6 +75,16 @@ reads the entire advertisement rather than the headline.
   priced from one made in 1993.
 - **A lot is not a single piece.** `8ks kľučky` will not be priced from an ad
   selling one.
+- **Mineral locality is part of identity.** Galenit from Banská Štiavnica
+  (including inflected *Banskej Štiavnice* / Schemnitz) is not priced from a
+  nameless specimen. "Slovensko" on a domestic ad is ignored — that is the
+  seller, not the origin of the stone.
+
+The sold-comps budget (`hunt.max_sold_lookups`, default 80) counts **unique
+normalized product queries**, not listings. Ten ads for the same iPhone 13
+128GB cost one eBay sold search. The previous cap of 40 counted every listing,
+so a pile of duplicate phones exhausted the budget before the 41st distinct
+product was ever priced.
 
 ### AI identification
 
@@ -85,6 +101,11 @@ and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
 
 The funnel reports `identity_ai_rescued` and `identity_ai_failed` alongside
 `identity_weak`, so the value of the AI step is visible per run.
+
+The fail-closed **price** review (also Copilot Free with `COPILOT_MODEL=auto`)
+receives the same whole-advertisement text plus the extracted spec profile. It
+may only lower the deterministic P25 or veto the alert; it cannot raise a value
+to make a deal pass.
 
 ## Conservative valuation
 
