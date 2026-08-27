@@ -1,5 +1,4 @@
 import json
-import re
 from decimal import Decimal
 
 import httpx
@@ -12,6 +11,7 @@ from bazar_deals.github_alerts import (
     format_hunt_comment,
     format_run_comment,
     listing_key,
+    select_alert_deals,
 )
 from bazar_deals.scoring import score_deal
 
@@ -52,7 +52,8 @@ def test_comment_embeds_listing_key_title_and_true_net_profit() -> None:
     assert "- identifikovaný tovar: Commodore 1541-II" in body
     assert "```" not in body
     assert "ALERT" not in body
-    assert not re.search(r"\bBUY\b", body)
+    assert "- BUY: áno" in body
+    assert "**BUY: áno**" in body
     assert "[inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
     assert "- nákupná cena: 38 €" in body
     assert "- finálna konzervatívna rýchlopredajná cena: 120 €" in body
@@ -114,10 +115,52 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
-    assert "**0 BUY**" in body
+    assert "**0 BUY áno**" in body
     assert "EBAY_CLIENT_ID" in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
+
+
+def test_top_five_include_non_buy_with_explicit_flag() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    ranked = []
+    for index in range(6):
+        listing = _deal().item.listing.model_copy(update={"external_id": str(index)})
+        item = _deal().item.model_copy(update={"listing": listing, "confidence": 0.5 + index / 20})
+        # Lower typical → lower net profit; all of these stay under the 30 € BUY floor.
+        ranked.append(score_deal(item, Decimal(str(70 + index)), Decimal("8")))
+    buy = _deal()
+    run = HuntRun(
+        deals=[*ranked, buy],
+        funnel=Counter(scored=7, buy=1),
+        source_stats={},
+        fetch_notes=["aukro: fetched 7"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert body.startswith("@babulic\n")
+    assert body.count("**BUY:") == 5
+    assert "**BUY: áno**" in body
+    assert "**BUY: nie**" in body
+    assert "- BUY: áno" in body
+    assert "- BUY: nie" in body
+    selected = select_alert_deals(run.deals, minimum=5)
+    assert len(selected) == 5
+    assert selected[0].action is Action.BUY
+    assert all(deal.action is Action.SKIP for deal in selected[1:])
+
+
+def test_all_buys_are_kept_even_above_the_minimum() -> None:
+    deals = []
+    for index in range(6):
+        listing = _deal().item.listing.model_copy(update={"external_id": f"buy-{index}"})
+        item = _deal().item.model_copy(update={"listing": listing})
+        deals.append(score_deal(item, Decimal("120"), Decimal("8")))
+    selected = select_alert_deals(deals, minimum=5)
+    assert len(selected) == 6
+    assert all(deal.action is Action.BUY for deal in selected)
 
 
 def test_alert_writer_ignores_non_buy_deals() -> None:
@@ -211,5 +254,5 @@ def test_post_run_writes_a_status_comment_when_there_are_no_buys() -> None:
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
         assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
     assert len(posts) == 1
-    assert "**0 BUY**" in posts[0]
+    assert "**0 BUY áno**" in posts[0]
     assert "vinted: fetched 0" in posts[0]

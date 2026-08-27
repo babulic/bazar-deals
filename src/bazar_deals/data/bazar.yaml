@@ -54,6 +54,8 @@ github:
   alert_label: bazar-alert
   alert_issue: 0
   assignee: ""
+  # Always comment at least this many best-ranked scored items, each with a BUY flag.
+  alert_top_n: 5
 
 fees:
   rates:

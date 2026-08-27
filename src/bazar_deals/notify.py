@@ -67,7 +67,8 @@ def format_deal(deal: Deal) -> str:
         f"poplatky a resale rezerva: {costs.fees} €\n"
         f"stav/výbava haircut: {costs.condition_haircut} €\n"
         f"riziková rezerva: {costs.seller_risk} €\n"
-        f"očakávaný čistý zisk: {costs.net_profit} €  🔥 BUY\n"
+        f"očakávaný čistý zisk: {costs.net_profit} €\n"
+        f"BUY: {_buy_flag(deal)}\n"
         f"{listing.url}{affiliate}"
     )
 
@@ -82,6 +83,7 @@ def format_github_deal(deal: Deal) -> str:
     title = listing.title or item.canonical_name
     kind = _kind_label(item.kind)
     rows: list[tuple[str, str]] = [
+        ("BUY", _buy_flag(deal)),
         ("titulok inzerátu", title),
         ("identifikovaný tovar", item.canonical_name or "—"),
         ("typ tovaru", kind),
@@ -140,7 +142,7 @@ def format_github_deal(deal: Deal) -> str:
     rows.append(("inzerát", f"[inzerát]({url})"))
     if listing.affiliate_url:
         rows.append(("affiliate", f"[affiliate]({listing.affiliate_url})"))
-    heading = f"**{_md_link(title, url)}** · {kind}"
+    heading = f"**BUY: {_buy_flag(deal)}** · {_md_link(title, url)} · {kind}"
     body = "\n".join(f"- {key}: {value}" for key, value in rows)
     return f"{heading}\n\n{body}"
 
@@ -153,6 +155,12 @@ def chat_id_for(settings, vertical: Vertical | None) -> str:
         Vertical.NETWORK: settings.telegram_chat_network,
     }
     return mapping.get(vertical, "") if vertical else ""
+
+
+def _buy_flag(deal: Deal) -> str:
+    if deal.action is Action.BUY:
+        return "áno"
+    return "nie"
 
 
 def _kind_label(kind: str) -> str:
