@@ -4,7 +4,12 @@ import pytest
 
 from bazar_deals.cli import main
 from bazar_deals.selling.channels import channel, channels, reach_matrix, uncovered_countries
-from bazar_deals.selling.inventory import DEFAULT_WEIGHT_G, InventoryItem, load_inventory
+from bazar_deals.selling.inventory import (
+    DEFAULT_WEIGHT_G,
+    PACKAGED_INVENTORY,
+    InventoryItem,
+    load_inventory,
+)
 from bazar_deals.selling.packeta import PacketaRates
 from bazar_deals.selling.plan import build_plan
 from bazar_deals.selling.report import format_json, format_markdown
@@ -171,7 +176,7 @@ def test_channel_ids_and_inventory_keys_are_unique() -> None:
 
 
 def test_inventory_snapshot_loads_with_prices_per_marketplace() -> None:
-    stock = load_inventory()
+    stock = load_inventory(PACKAGED_INVENTORY)
     assert stock.collected == "2026-08-27"
     assert stock.partial == ["aukro", "vinted"]
     assert stock.segments() == ["commodity", "minerals", "retro"]
@@ -182,13 +187,13 @@ def test_inventory_snapshot_loads_with_prices_per_marketplace() -> None:
 
 
 def test_missing_weight_uses_the_default_tier() -> None:
-    item = load_inventory().get("amethyst-namibia-74mm")
+    item = load_inventory(PACKAGED_INVENTORY).get("amethyst-namibia-74mm")
     assert not item.weight_is_known()
     assert item.shipping_weight_g() == DEFAULT_WEIGHT_G
 
 
 def test_plan_flags_ebay_postage_above_the_real_packeta_cost() -> None:
-    plan = build_plan()
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
     amethyst = next(entry for entry in plan.items if entry.item.id == "amethyst-namibia-74mm")
     assert amethyst.overcharge_eur > Decimal("5")
     assert any("postage is suppressing the sale" in note for note in amethyst.notes)
@@ -196,7 +201,7 @@ def test_plan_flags_ebay_postage_above_the_real_packeta_cost() -> None:
 
 
 def test_plan_blocks_export_when_postage_outweighs_the_price() -> None:
-    plan = build_plan()
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
     chalcedony = next(entry for entry in plan.items if entry.item.id == "chalcedon-kremenisko")
     # A 7 EUR specimen cannot carry cross-border postage on its own.
     assert chalcedony.viable_countries() == ["SK"]
@@ -207,7 +212,7 @@ def test_plan_blocks_export_when_postage_outweighs_the_price() -> None:
 
 
 def test_plan_reports_channel_gaps_and_respects_title_limits() -> None:
-    plan = build_plan()
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
     gaps = plan.gaps_by_channel()
     assert gaps["allegro"] > 0
     assert "willhaben" not in gaps
@@ -218,16 +223,28 @@ def test_plan_reports_channel_gaps_and_respects_title_limits() -> None:
 
 
 def test_plan_marks_vinted_only_stock() -> None:
-    plan = build_plan()
-    pseudomalachite = next(
-        entry for entry in plan.items if entry.item.id == "pseudomalachit-lubietova"
+    from bazar_deals.selling.inventory import Inventory
+
+    only_vinted = Inventory(
+        items=[
+            InventoryItem(
+                id="pseudomalachit",
+                segment="minerals",
+                title="Agregát pseudomalachitu v kremeni",
+                species=["pseudomalachit"],
+                locality="ľubietová",
+                origin="slovensko",
+                listed={"vinted": Decimal("29")},
+            )
+        ]
     )
-    assert any("Vinted only" in note for note in pseudomalachite.notes)
-    assert any("Libethen" in note for note in pseudomalachite.notes)
+    entry = build_plan(only_vinted).items[0]
+    assert any("Vinted only" in note for note in entry.notes)
+    assert any("Libethen" in note for note in entry.notes)
 
 
 def test_reports_render_in_both_formats() -> None:
-    plan = build_plan()
+    plan = build_plan(load_inventory(PACKAGED_INVENTORY))
     markdown = format_markdown(plan, segment="retro")
     assert "## Segment: retro" in markdown
     assert "## Segment: minerals" not in markdown

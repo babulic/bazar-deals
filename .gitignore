@@ -13,3 +13,4 @@ htmlcov/
 .cache/*.sqlite
 .cache/*.sqlite-wal
 .cache/*.sqlite-shm
+.cache/sell-inventory.yaml

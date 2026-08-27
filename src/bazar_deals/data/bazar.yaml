@@ -885,6 +885,8 @@ selling:
   accounts:
     bazos: "0948244165"
     aukro: ivqo
+    # The public offer search filters by the numeric id, not the login.
+    aukro_seller_id: 101485136
     vinted: "312914388"
     ebay: berg-kristalle
 

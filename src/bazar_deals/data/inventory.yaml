@@ -147,6 +147,7 @@ items:
     title: Videochip CSG 8565 R2 VIC-II z roku 1993 pre Commodore C64C
     part_numbers: ["8565R2", "VIC-II"]
     keywords: ["1993", "PAL"]
+    match_hints: ["1993"]
     listed: {bazos: 32, ebay: 33}
     ship_eur: 10
 
@@ -155,6 +156,7 @@ items:
     title: Videochip CSG 8565 R2 VIC-II z roku 1991 pre Commodore C64C
     part_numbers: ["8565R2", "VIC-II"]
     keywords: ["1991", "PAL"]
+    match_hints: ["1991"]
     listed: {ebay: 30}
     ship_eur: 10
 
@@ -186,8 +188,17 @@ items:
     title: "MOS 6522 VIA čip pre Commodore 1541, 1541 II, 1571, Atari 810"
     part_numbers: ["6522", "VIA"]
     keywords: ["MOS", "Atari 810"]
+    match_hints: ["mos 6522", "mos6522"]
     listed: {ebay: 11}
     ship_eur: 10
+
+  - id: via-6522-rockwell
+    segment: retro
+    title: "Rockwell 6522P VIA čip pre Commodore 1541, 1571, Atari 810"
+    part_numbers: ["6522P", "VIA"]
+    keywords: ["Rockwell", "Atari 810"]
+    match_hints: ["rockwell", "6522p"]
+    listed: {aukro: 12}
 
   - id: psu-1541
     segment: retro
@@ -201,6 +212,7 @@ items:
     segment: retro
     title: Nový spoľahlivý zdroj pre Commodore C64, všetky typy
     part_numbers: ["C64", "PSU"]
+    match_hints: ["nov", "neu", "new", "spolah", "spoleh"]
     listed: {vinted: 31, ebay: 32}
     ship_eur: 15
 
@@ -208,6 +220,7 @@ items:
     segment: retro
     title: Originálny funkčný zdroj pre Commodore C64, C64C, C64G
     part_numbers: ["C64", "PSU"]
+    match_hints: ["origin"]
     listed: {ebay: 25}
     ship_eur: 15
 
@@ -244,12 +257,14 @@ items:
   - id: watch-glass-44
     segment: commodity
     title: 2 ochranné sklá pre Samsung Galaxy Watch Active 2, 44mm
+    match_hints: ["44"]
     listed: {bazos: 5, vinted: 5, ebay: 5}
     ship_eur: 10
 
   - id: watch-glass-40
     segment: commodity
     title: 2 ochranné sklá pre Samsung Galaxy Watch Active 2, 40mm
+    match_hints: ["40"]
     listed: {ebay: 5}
     ship_eur: 10
 

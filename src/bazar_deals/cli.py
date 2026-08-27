@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 from bazar_deals.adapters.aukro import AukroHuntClient
@@ -13,7 +14,8 @@ from bazar_deals.domain import Action, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources
-from bazar_deals.selling.inventory import known_segments
+from bazar_deals.selling.collect import collect_all, refresh_inventory
+from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
 from bazar_deals.selling.plan import build_plan
 from bazar_deals.selling.report import format_json, format_markdown
 from bazar_deals.soldcomps import SoldCompClient
@@ -44,6 +46,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Sell plan output format (default: md).",
     )
     parser.add_argument(
+        "--refresh",
+        action="store_true",
+        help="Page through every seller account first and refresh the inventory snapshot.",
+    )
+    parser.add_argument(
         "--source",
         choices=["all", "bazos", "ebay", "aukro", "vinted"],
         default="all",
@@ -68,7 +75,17 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     if args.command == "sell":
-        plan = build_plan()
+        inventory = load_inventory()
+        if args.refresh:
+            settings = Settings()
+            inventory, report = refresh_inventory(inventory, collect_all(settings))
+            inventory = inventory.model_copy(
+                update={"collected": datetime.now(timezone.utc).date().isoformat()}
+            )
+            target = save_inventory(inventory)
+            print(f"Refreshed {report.matched} listing(s) into {target}:", file=sys.stderr)
+            print(report.summary(), file=sys.stderr)
+        plan = build_plan(inventory)
         renderer = format_json if args.format == "json" else format_markdown
         print(renderer(plan, segment=args.segment))
         return 0

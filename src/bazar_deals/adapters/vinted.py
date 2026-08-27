@@ -124,8 +124,8 @@ class VintedProClient(ListingSource):
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         raise RuntimeError(NO_PUBLIC_CATALOG)
 
-    def list_own_items(self) -> dict:
-        return self._request("GET", "/api/v1/items")
+    def list_own_items(self, *, page: int = 1, per_page: int = 100) -> dict:
+        return self._request("GET", f"/api/v1/items?page={page}&per_page={per_page}")
 
     def create_items(self, payload: dict) -> dict:
         return self._request("POST", "/api/v1/items", json_body=payload)

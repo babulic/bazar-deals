@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field
 
 from bazar_deals.rules import rules
 
-_PACKAGE_INVENTORY = Path(__file__).resolve().parent.parent / "data" / "inventory.yaml"
+PACKAGED_INVENTORY = Path(__file__).resolve().parent.parent / "data" / "inventory.yaml"
+# `sell --refresh` writes here so a live run never rewrites the annotated seed.
+REFRESHED_INVENTORY = Path(".cache/sell-inventory.yaml")
 
 # Used when a listing never stated a weight. Everything in this inventory is a
 # small specimen or a chip, and every Packeta rate card starts at 1 kg anyway.
@@ -24,6 +26,9 @@ class InventoryItem(BaseModel):
     part_numbers: list[str] = Field(default_factory=list)
     # Low-value terms worth adding only where the channel has spare characters.
     keywords: list[str] = Field(default_factory=list)
+    # Distinguishing substrings for variants whose titles are otherwise
+    # identical, such as the same chip from two production years.
+    match_hints: list[str] = Field(default_factory=list)
     origin: str = ""
     locality: str = ""
     weight_g: int | None = None
@@ -81,7 +86,9 @@ class Inventory(BaseModel):
 
 
 def load_inventory(path: Path | None = None) -> Inventory:
-    source = path or _PACKAGE_INVENTORY
+    source = path
+    if source is None:
+        source = REFRESHED_INVENTORY if REFRESHED_INVENTORY.is_file() else PACKAGED_INVENTORY
     data = yaml.safe_load(source.read_text(encoding="utf-8")) or {}
     meta = data.get("meta") or {}
     return Inventory(
@@ -90,6 +97,25 @@ def load_inventory(path: Path | None = None) -> Inventory:
         counts=dict(meta.get("counts") or {}),
         items=[InventoryItem(**entry) for entry in data.get("items") or []],
     )
+
+
+def save_inventory(inventory: Inventory, path: Path | None = None) -> Path:
+    target = path or REFRESHED_INVENTORY
+    target.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "meta": {
+            "collected": inventory.collected,
+            "counts": inventory.counts,
+            "partial": inventory.partial,
+        },
+        "items": [
+            item.model_dump(mode="json", exclude_defaults=True) for item in inventory.items
+        ],
+    }
+    target.write_text(
+        yaml.safe_dump(payload, allow_unicode=True, sort_keys=False), encoding="utf-8"
+    )
+    return target
 
 
 def known_segments() -> list[str]:
