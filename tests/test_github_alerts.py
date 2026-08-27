@@ -6,7 +6,13 @@ import httpx
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Condition, Deal, IdentifiedItem, Listing, Marketplace, Money, Vertical
-from bazar_deals.github_alerts import ALERT_LABEL, GitHubIssueAlerts, format_run_comment, listing_key
+from bazar_deals.github_alerts import (
+    ALERT_LABEL,
+    GitHubIssueAlerts,
+    format_hunt_comment,
+    format_run_comment,
+    listing_key,
+)
 from bazar_deals.scoring import score_deal
 
 
@@ -89,6 +95,31 @@ def test_comment_includes_affiliate_markdown_link() -> None:
     assert "campid=1" in body
 
 
+def test_hunt_status_comment_is_posted_even_without_buys() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=10, scored=2, buy=0, no_sold_comps=8, sold_lookup_cap=0),
+        source_stats={
+            Marketplace.BAZOS: Counter(fetched=12, usable=10, scored=2, buy=0),
+        },
+        fetch_notes=[
+            "bazos: fetched 12",
+            "ebay: fetched 0 (set GitHub Actions secrets EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)",
+        ],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert not body.startswith("@babulic")
+    assert "**0 BUY**" in body
+    assert "EBAY_CLIENT_ID" in body
+    assert "no_sold_comps=8" in body
+    assert "bazos: fetched 12" in body
+
+
 def test_alert_writer_ignores_non_buy_deals() -> None:
     deal = _deal().model_copy(update={"action": Action.SKIP})
     settings = Settings(github_token="t", github_repository="babulic/bazar-deals")
@@ -147,3 +178,38 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
     assert posts[0].count("[inzerát](") == 2
     assert "<!-- listing:bazos:1541 -->" in posts[0]
     assert "<!-- listing:bazos:1542 -->" in posts[0]
+
+
+def test_post_run_writes_a_status_comment_when_there_are_no_buys() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/labels/" in path and request.method == "GET":
+            return httpx.Response(200, json={"name": "bazar-alert"})
+        if request.method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json={"number": 1})
+        if request.method == "GET" and path.endswith("/issues"):
+            return httpx.Response(200, json=[{"number": 1, "title": "Deal alerts"}])
+        if request.method == "GET" and path.endswith("/comments"):
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and path.endswith("/comments"):
+            posts.append(json.loads(request.content)["body"])
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(404, json={"message": path})
+
+    settings = Settings(
+        github_token="t",
+        github_repository="babulic/bazar-deals",
+        github_alert_issue=1,
+    )
+    run = HuntRun(deals=[], funnel=Counter(buy=0, usable=3), source_stats={}, fetch_notes=["vinted: fetched 0"])
+    with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
+    assert len(posts) == 1
+    assert "**0 BUY**" in posts[0]
+    assert "vinted: fetched 0" in posts[0]

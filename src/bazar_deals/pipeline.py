@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 import httpx
@@ -66,6 +67,16 @@ _FUNNEL_KEYS = (
 )
 
 
+@dataclass
+class HuntRun:
+    """One hunt pass: scored deals plus the funnel that explains missing alerts."""
+
+    deals: list[Deal]
+    funnel: Counter[str]
+    source_stats: dict[Marketplace, Counter[str]]
+    fetch_notes: list[str] = field(default_factory=list)
+
+
 def hunt(
     source: ListingSource,
     *,
@@ -83,7 +94,7 @@ def hunt(
         enrichers={Marketplace(source.marketplace): source},
         reviewer=reviewer,
         identifier=identifier,
-    )
+    ).deals
 
 
 def hunt_sources(
@@ -94,19 +105,35 @@ def hunt_sources(
     sold: SoldCompClient | None = None,
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
-) -> list[Deal]:
+) -> HuntRun:
     settings = settings or Settings()
     listings: list[Listing] = []
     enrichers: dict[Marketplace, ListingSource] = {}
+    fetch_notes: list[str] = []
     for source in sources:
         enrichers[Marketplace(source.marketplace)] = source
         try:
+            if (
+                Marketplace(source.marketplace) is Marketplace.EBAY
+                and not (settings.ebay_client_id and settings.ebay_client_secret)
+            ):
+                note = (
+                    f"{source.marketplace}: fetched 0 "
+                    "(set GitHub Actions secrets EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
+                )
+                print(note)
+                fetch_notes.append(note)
+                continue
             batch = source.fetch_new(vertical)
-            print(f"{source.marketplace}: fetched {len(batch)}")
+            note = f"{source.marketplace}: fetched {len(batch)}"
+            print(note)
+            fetch_notes.append(note)
             listings.extend(batch)
         except (RuntimeError, httpx.HTTPError) as exc:
-            print(f"{source.marketplace}: fetched 0 ({exc})")
-    return score_listings(
+            note = f"{source.marketplace}: fetched 0 ({exc})"
+            print(note)
+            fetch_notes.append(note)
+    run = score_listings(
         listings,
         settings,
         sold or SoldCompClient(settings),
@@ -114,6 +141,8 @@ def hunt_sources(
         reviewer=reviewer,
         identifier=identifier,
     )
+    run.fetch_notes = fetch_notes
+    return run
 
 
 def score_listings(
@@ -124,7 +153,7 @@ def score_listings(
     enrichers: dict[Marketplace, ListingSource] | None = None,
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
-) -> list[Deal]:
+) -> HuntRun:
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
     enrichers = enrichers or {}
@@ -247,7 +276,7 @@ def score_listings(
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
     print(_format_funnel(funnel))
     print(_format_source_health(source_stats))
-    return deals
+    return HuntRun(deals=deals, funnel=funnel, source_stats=source_stats)
 
 
 def _rescue_identity(

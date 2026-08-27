@@ -178,7 +178,18 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 ## Alerts
 
-Only **BUY** deals that pass the >=30 EUR expected-net-profit gate are posted to the GitHub Deal alerts collector issue. The alert includes purchase price, conservative quick-sale value, shipping, fees, condition haircut, risk reserve and expected clean profit.
+The hourly GitHub Actions hunt always comments on the Deal alerts collector
+issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)), even when
+there is no BUY. That comment is the proof the hunt ran: sources fetched,
+funnel counts, and why nothing passed the 30 EUR net-profit floor.
+
+**BUY** deals that do pass the floor are in the same comment and mention the
+assignee. The alert includes purchase price, conservative quick-sale value,
+shipping, fees, condition haircut, risk reserve and expected clean profit.
+
+eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
+`EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but
+eBay is skipped.
 
 ## Run
 
