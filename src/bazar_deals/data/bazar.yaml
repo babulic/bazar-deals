@@ -57,6 +57,9 @@ github:
   assignee: ""
   # Maximum BUY cards in one hunt comment. Losing items are never used as fillers.
   alert_top_n: 5
+  sell_alert_issue_title: Sell buyers
+  sell_alert_label: bazar-sell
+  sell_alert_issue: 0
 
 fees:
   rates:
@@ -1238,6 +1241,356 @@ vinted:
     - 3036-entertainment_music
     - 3811-h_tools_diy
     - 3474-small_kitchen_appliances
+
+selling:
+  # Own seller accounts, keyed by the identifier each collector needs.
+  accounts:
+    bazos: "0948244165"
+    aukro: ivqo
+    # The public offer search filters by the numeric id, not the login.
+    aukro_seller_id: 101485136
+    vinted: "312914388"
+    ebay: berg-kristalle
+
+  # The shared Aukro backend quotes CZK even for the aukro.sk storefront, which
+  # displays whole euros. This rate reproduces every observed displayed price to
+  # within 0.13 EUR, so converted prices are rounded to whole euros.
+  aukro_eur_czk: 24.6
+
+  # Slovakia plus the neighbours and the adjacent Schengen countries Packeta
+  # serves from a Slovak business account.
+  target_countries: [SK, CZ, PL, HU, AT, DE, SI, RO, HR]
+
+  # Above this share of the asking price, cross-border postage stops a sale, so
+  # the item is worth exporting only bundled with something else.
+  max_shipping_ratio: 0.35
+
+  # An eBay listing charging more than this above the real Packeta cost is
+  # losing sales to its own postage line.
+  overcharge_flag_eur: 3
+
+  # Hard title caps. Bazos and eBay are confirmed by mid-word truncation in the
+  # live listings; Vinted and Aukro are the longest titles observed there, so
+  # they are lower bounds rather than proven caps.
+  title_limits:
+    bazos: 60
+    ebay: 80
+    vinted: 100
+    aukro: 100
+
+  # Segment drives who the buyer is, and therefore the channel and title shape.
+  segments:
+    minerals:
+      keywords:
+        - ametyst
+        - amethyst
+        - kryštál
+        - krystal
+        - kremeň
+        - kremen
+        - chalcedón
+        - chalcedon
+        - kalcit
+        - galenit
+        - sfalerit
+        - chalkopyrit
+        - pyrit
+        - malachit
+        - pseudomalachit
+        - topaz
+        - topás
+        - apatit
+        - celestín
+        - celestin
+        - jaspis
+        - jadeit
+        - zeolit
+        - natrolit
+        - skolecit
+        - analcím
+        - analcim
+        - muskovit
+        - fluorit
+        - drúza
+        - druza
+        - agregát
+        - agregat
+        - polymetál
+        - polymetal
+        - ryolit
+        - pegmatit
+        - minerál
+        - mineral
+      # Collectors search species plus locality, so both belong in the title.
+      locality_in_title: true
+      lead_with_part_number: false
+      # Spent only on the leftover character budget of the wider channels.
+      filler_keywords: [zberateľský, nepoškodený]
+    retro:
+      keywords:
+        - commodore
+        - c64
+        - c64c
+        - c64g
+        - amiga
+        - atari
+        - spectrum
+        - amstrad
+        - vic-ii
+        - "6510"
+        - "6522"
+        - "6569"
+        - "8565"
+        - "8500"
+        - "1541"
+        - "1571"
+        - "1581"
+        - "1570"
+        - videochip
+        - joystick
+        - quickshot
+        - bitstar
+      locality_in_title: false
+      # Part numbers are language independent and carry the search volume.
+      lead_with_part_number: true
+      filler_keywords: [testované]
+    commodity:
+      keywords:
+        - kábel
+        - kabel
+        - nabíjačka
+        - nabijacka
+        - ochranné sklo
+        - ochranne sklo
+        - remienok
+        - kľučky
+        - klucky
+        - lampa
+        - púzdro
+        - puzdro
+        - peňaženka
+        - penazenka
+        - safepal
+        - ledger
+      locality_in_title: false
+      lead_with_part_number: false
+
+  # Packeta public list prices, EUR excluding VAT, parcel up to 5 kg. Business
+  # rates are contractual and always lower -- override these with the real ones
+  # from the client zone before trusting any margin number.
+  packeta:
+    max_weight_kg: 10
+    fuel_surcharge_rate: 0.165
+    toll_eur_per_kg: 0.04
+    destinations:
+      SK: {pickup: 2.30, home: 3.60, schengen: true}
+      CZ: {pickup: 2.50, home: 4.20, schengen: true}
+      HU: {pickup: 2.50, home: 4.20, schengen: true}
+      PL: {pickup: 3.00, home: 5.50, schengen: true}
+      AT: {pickup: 4.20, home: 6.50, schengen: true}
+      DE: {pickup: 4.00, home: 6.00, schengen: true}
+      SI: {pickup: 4.00, home: 6.00, schengen: true}
+      RO: {pickup: 2.90, home: 4.60, schengen: true}
+      HR: {pickup: 4.50, home: 6.80, schengen: true}
+      BG: {pickup: 4.50, home: 6.80, schengen: true}
+      IT: {pickup: 5.00, home: 7.50, schengen: true}
+      NL: {pickup: 5.00, home: 7.50, schengen: true}
+      BE: {pickup: 5.00, home: 7.50, schengen: true}
+      LT: {pickup: 4.80, home: 7.00, schengen: true}
+      LV: {pickup: 4.80, home: 7.00, schengen: true}
+      EE: {pickup: 4.80, home: 7.00, schengen: true}
+      FR: {pickup: 5.50, home: 8.00, schengen: true}
+      ES: {pickup: 6.00, home: 9.00, schengen: true}
+
+  # A channel is worth listing on only for the countries it actually exposes
+  # stock to. `reach` is the buyer geography, not where the site is hosted.
+  channels:
+    - id: bazos_sk
+      marketplace: bazos
+      listed_as: bazos
+      country: SK
+      language: sk
+      title_limit: 60
+      fee_rate: 0
+      reach: [SK]
+      segments: [minerals, retro, commodity]
+      status: active
+    - id: bazos_cz
+      marketplace: bazos
+      country: CZ
+      language: cs
+      title_limit: 60
+      fee_rate: 0
+      reach: [CZ]
+      segments: [minerals, retro, commodity]
+      status: missing
+      note: Separate free posting on bazos.cz; Czech text, CZK price.
+    - id: aukro_sk
+      marketplace: aukro
+      listed_as: aukro
+      country: SK
+      language: sk
+      title_limit: 100
+      fee_rate: 0.11
+      reach: [SK]
+      segments: [minerals, retro, commodity]
+      status: active
+    - id: vinted_sk
+      marketplace: vinted
+      listed_as: vinted
+      country: SK
+      language: sk
+      title_limit: 100
+      fee_rate: 0.05
+      # Confirmed cross-border corridors for a Slovak seller: SPS Balikovo
+      # SK<->CZ and SK<->PL, Packeta SK->PL. DE, AT and HU are not reachable.
+      reach: [SK, CZ, PL]
+      segments: [minerals, commodity, retro]
+      status: active
+    - id: ebay_at
+      marketplace: ebay
+      listed_as: ebay
+      country: AT
+      language: de
+      title_limit: 80
+      fee_rate: 0.13
+      reach: [AT, DE, CH, EU]
+      segments: [minerals, retro]
+      status: active
+      note: German-language listings already reach the whole eBay DE/AT pool.
+    - id: allegro
+      marketplace: allegro
+      country: PL
+      language: pl
+      title_limit: 75
+      fee_rate: 0.10
+      # One business account serves allegro.pl, .cz, .sk and .hu. Allegro does
+      # not require registration documents from companies registered in Slovakia.
+      reach: [PL, CZ, SK, HU]
+      segments: [retro, minerals]
+      status: missing
+      note: Largest untapped reach; needs a business account and EPR registration.
+    - id: delcampe
+      marketplace: delcampe
+      country: BE
+      language: de
+      title_limit: 80
+      fee_rate: 0.09
+      reach: [DE, AT, FR, IT, BE, NL, PL, CZ, EU]
+      segments: [minerals]
+      status: missing
+      note: Collectibles-only marketplace with a Mineralien & Fossilien category.
+    - id: catawiki
+      marketplace: catawiki
+      country: NL
+      language: en
+      title_limit: 80
+      fee_rate: 0.125
+      reach: [EU]
+      segments: [minerals]
+      status: missing
+      note: Curated weekly auctions; only worth it above roughly 75 EUR.
+    - id: forum64
+      marketplace: forum64
+      country: DE
+      language: de
+      title_limit: 100
+      fee_rate: 0
+      reach: [DE, AT, CH]
+      segments: [retro]
+      status: missing
+      note: Community marketplace where C64 spare parts sell at retail prices.
+    - id: willhaben
+      marketplace: willhaben
+      country: AT
+      language: de
+      title_limit: 80
+      fee_rate: 0
+      reach: [AT]
+      segments: []
+      status: rejected
+      note: PayLivery is domestic-only and the platform discourages foreign shipping.
+
+  # Historic German and Hungarian exonyms. Collectors of classic Austro-Hungarian
+  # mining localities search these names, not the current Slovak ones.
+  localities:
+    banská štiavnica:
+      sk: Banská Štiavnica
+      cs: Banská Štiavnica
+      de: Schemnitz
+      hu: Selmecbánya
+      pl: Bańska Szczawnica
+      en: Banska Stiavnica
+    hodruša-hámre:
+      sk: Hodruša-Hámre
+      cs: Hodruša-Hámre
+      de: Hodritsch
+      hu: Hodrusbánya
+      pl: Hodrusza
+      en: Hodrusa-Hamre
+    ľubietová:
+      sk: Ľubietová
+      cs: Ľubietová
+      de: Libethen
+      hu: Libetbánya
+      pl: Lubietowa
+      en: Lubietova
+    kremnica:
+      sk: Kremnica
+      cs: Kremnica
+      de: Kremnitz
+      hu: Körmöcbánya
+      pl: Kremnica
+      en: Kremnica
+    zemplín:
+      sk: Zemplín
+      cs: Zemplín
+      de: Zemplin
+      hu: Zemplén
+      pl: Zemplin
+      en: Zemplin
+
+  # Country name used in the title as an origin marker.
+  countries:
+    slovensko: {sk: Slovensko, cs: Slovensko, de: Slowakei, hu: Szlovákia, pl: Słowacja, en: Slovakia}
+    namíbia: {sk: Namíbia, cs: Namibie, de: Namibia, hu: Namíbia, pl: Namibia, en: Namibia}
+    pakistan: {sk: Pakistan, cs: Pákistán, de: Pakistan, hu: Pakisztán, pl: Pakistan, en: Pakistan}
+    mexiko: {sk: Mexiko, cs: Mexiko, de: Mexiko, hu: Mexikó, pl: Meksyk, en: Mexico}
+    madagaskar: {sk: Madagaskar, cs: Madagaskar, de: Madagaskar, hu: Madagaszkár, pl: Madagaskar, en: Madagascar}
+
+  # Species and part vocabulary. Latin-rooted mineral names barely change, which
+  # is exactly why they carry search traffic across all five languages.
+  glossary:
+    ametyst: {sk: Ametyst, cs: Ametyst, de: Amethyst, hu: Ametiszt, pl: Ametyst, en: Amethyst}
+    kryštál: {sk: Kryštál, cs: Krystal, de: Kristall, hu: Kristály, pl: Kryształ, en: Crystal}
+    drúza: {sk: Drúza, cs: Drúza, de: Stufe, hu: Drúza, pl: Druza, en: Cluster}
+    agregát: {sk: Agregát, cs: Agregát, de: Aggregat, hu: Aggregátum, pl: Agregat, en: Aggregate}
+    leštený rez: {sk: Leštený rez, cs: Leštěný řez, de: Polierte Platte, hu: Polírozott szelet, pl: Polerowany plaster, en: Polished slice}
+    prívesok: {sk: Prívesok, cs: Přívěsek, de: Anhänger, hu: Medál, pl: Wisiorek, en: Pendant}
+    kremeň: {sk: Kremeň, cs: Křemen, de: Quarz, hu: Kvarc, pl: Kwarc, en: Quartz}
+    kalcit: {sk: Kalcit, cs: Kalcit, de: Calcit, hu: Kalcit, pl: Kalcyt, en: Calcite}
+    chalcedón: {sk: Chalcedón, cs: Chalcedon, de: Chalcedon, hu: Kalcedon, pl: Chalcedon, en: Chalcedony}
+    galenit: {sk: Galenit, cs: Galenit, de: Galenit, hu: Galenit, pl: Galena, en: Galena}
+    sfalerit: {sk: Sfalerit, cs: Sfalerit, de: Sphalerit, hu: Szfalerit, pl: Sfaleryt, en: Sphalerite}
+    chalkopyrit: {sk: Chalkopyrit, cs: Chalkopyrit, de: Chalkopyrit, hu: Kalkopirit, pl: Chalkopiryt, en: Chalcopyrite}
+    pseudomalachit: {sk: Pseudomalachit, cs: Pseudomalachit, de: Pseudomalachit, hu: Pszeudomalachit, pl: Pseudomalachit, en: Pseudomalachite}
+    topaz: {sk: Topaz, cs: Topaz, de: Topas, hu: Topáz, pl: Topaz, en: Topaz}
+    apatit: {sk: Apatit, cs: Apatit, de: Apatit, hu: Apatit, pl: Apatyt, en: Apatite}
+    celestín: {sk: Celestín, cs: Celestin, de: Coelestin, hu: Cölesztin, pl: Celestyn, en: Celestine}
+    jaspis: {sk: Jaspis, cs: Jaspis, de: Jaspis, hu: Jáspis, pl: Jaspis, en: Jasper}
+    jadeit: {sk: Jadeit, cs: Jadeit, de: Jadeit, hu: Jadeit, pl: Jadeit, en: Jadeite}
+    muskovit: {sk: Muskovit, cs: Muskovit, de: Muskovit, hu: Muszkovit, pl: Muskowit, en: Muscovite}
+    zeolit: {sk: Zeolit, cs: Zeolit, de: Zeolith, hu: Zeolit, pl: Zeolit, en: Zeolite}
+    pegmatit: {sk: Pegmatit, cs: Pegmatit, de: Pegmatit, hu: Pegmatit, pl: Pegmatyt, en: Pegmatite}
+    ryolit: {sk: Ryolit, cs: Ryolit, de: Rhyolith, hu: Riolit, pl: Ryolit, en: Rhyolite}
+    zdroj: {sk: Zdroj, cs: Zdroj, de: Netzteil, hu: Tápegység, pl: Zasilacz, en: PSU}
+    videočip: {sk: Videočip, cs: Videočip, de: Videochip, hu: Videochip, pl: Układ wideo, en: Video chip}
+    procesor: {sk: Procesor, cs: Procesor, de: Prozessor, hu: Processzor, pl: Procesor, en: CPU}
+    disketová jednotka: {sk: Disketová jednotka, cs: Disketová jednotka, de: Diskettenlaufwerk, hu: Floppy meghajtó, pl: Stacja dyskietek, en: Disk drive}
+    joystick: {sk: Joystick, cs: Joystick, de: Joystick, hu: Joystick, pl: Joystick, en: Joystick}
+    nepoškodený: {sk: nepoškodený, cs: nepoškozený, de: unbeschädigt, hu: sértetlen, pl: nieuszkodzony, en: undamaged}
+    zberateľský: {sk: zberateľský kus, cs: sběratelský kus, de: Sammlerstück, hu: gyűjtői darab, pl: okaz kolekcjonerski, en: collector specimen}
+    testované: {sk: testované, cs: testováno, de: getestet, hu: tesztelve, pl: testowane, en: tested}
 
 ebay:
   marketplace_id: EBAY_DE

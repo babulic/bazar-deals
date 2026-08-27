@@ -80,12 +80,13 @@ class Settings(BaseSettings):
     github_token: str = ""
     github_repository: str = ""
     github_alert_issue: int = int(_GITHUB["alert_issue"])
+    github_sell_alert_issue: int = int(_GITHUB.get("sell_alert_issue", 0))
     github_assignee: str = str(_GITHUB["assignee"])
     keepa_api_key: str = ""
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
 
-    @field_validator("github_alert_issue", mode="before")
+    @field_validator("github_alert_issue", "github_sell_alert_issue", mode="before")
     @classmethod
     def empty_issue(cls, value: object) -> object:
         if value in ("", None):

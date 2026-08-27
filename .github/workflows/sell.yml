@@ -1,0 +1,48 @@
+name: Sell buyer alerts
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sell-buyers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Ensure bazar-sell label
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh label create bazar-sell \
+            --repo "${{ github.repository }}" \
+            --description "Kupci na vlastný tovar" \
+            --color 0E8A16 \
+            --force
+      - run: python -m pip install -e .
+      - name: Warn when eBay secrets are missing
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+        run: |
+          if [ -z "$EBAY_CLIENT_ID" ]; then
+            echo "::warning::EBAY_CLIENT_ID is not set. ebay.de / ebay.at want-ads are skipped; Bazos and Aukro still run."
+          fi
+      - name: Find buyers for own stock
+        run: python -m bazar_deals sell --buyers --notify
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ASSIGNEE: babulic
+          GITHUB_SELL_ALERT_ISSUE: ${{ vars.GITHUB_SELL_ALERT_ISSUE }}
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          VINTED_ACCESS_KEY: ${{ secrets.VINTED_ACCESS_KEY }}
+          VINTED_SIGNING_KEY: ${{ secrets.VINTED_SIGNING_KEY }}

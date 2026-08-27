@@ -198,6 +198,93 @@ eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
 `EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but
 eBay is skipped.
 
+## Selling own stock
+
+`hunt` finds things to buy. `sell` does the opposite: it takes the stock already
+listed on the four seller accounts (bazos.sk, aukro.sk, vinted.sk, ebay.at) and
+works out where the buyers are.
+
+It now also searches **other people's want-to-buy ads** across Europe, not
+only Slovak `kúpim`. The search uses the local **I will buy** verb on each
+board, not just "I'm looking for":
+
+| Language | I will buy |
+|---|---|
+| Slovak | kúpim |
+| Czech | koupím |
+| German | kaufe |
+| Polish | kupię |
+| Hungarian | veszek |
+| Italian | compro |
+| French | achète |
+| Dutch | koop |
+
+"I'm looking for" (`suche`, `szukam`, `keresek`, `cherche`, `cerco`, `zoek`)
+is still searched as a second pass. Only ads whose **title is the buyer's own
+dopyt** are kept.
+
+| Server | What is searched |
+|---|---|
+| bazos.sk, bazos.cz | kúpim, koupím, kaufe, kupię, veszek, compro, achète, koop |
+| Aukro | same buy verbs |
+| vinted.sk / .cz / .at / .de / .pl / .hu / .fr / .it / .nl / .be / .es | local I-will-buy, then looking-for |
+| kleinanzeigen.de | `suche {part}` and `kaufe {part}` |
+| willhaben.at | `Suche {part}` and `Kaufe {part}` |
+| ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{kaufe\|kupię\|veszek\|compro\|achète\|koop} {part}` plus looking-for |
+
+Allegro, Delcampe and Forum64 are not scraped (need an account or are not
+classifieds search). Facebook is out of scope.
+
+When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
+hourly at minute 30) posts a digest on a **Sell buyers** issue — not hunt
+issue #1 — pairing the buyer (where, title, identification, offered price if
+stated) with your own listings for that product.
+
+```powershell
+python -m bazar_deals sell
+python -m bazar_deals sell --refresh
+python -m bazar_deals sell --buyers
+python -m bazar_deals sell --buyers --notify
+python -m bazar_deals sell --segment minerals
+python -m bazar_deals sell --format json
+```
+
+`--refresh` pages through every seller account before planning: Bazos by search
+offset until the reported total is reached, Aukro by `totalPages` through the
+public offer search, eBay and Vinted through their official APIs. Results are
+written to `.cache/sell-inventory.yaml`, which then takes precedence over the
+committed snapshot.
+
+Bazos and Aukro need no credentials. eBay blocks datacentre HTML requests, so it
+needs `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET`; Vinted renders its item grid by
+infinite scroll behind DataDome, so it needs `VINTED_ACCESS_KEY` and
+`VINTED_SIGNING_KEY` from Pro Integrations. A source that cannot be collected is
+reported as skipped and keeps its previous prices, so a missing credential is
+never mistaken for a delisted item.
+
+It reports, per item:
+
+- which channels reach which buyer countries, and which target countries no live
+  channel reaches at all,
+- what Packeta actually costs to each destination versus what the listing
+  charges today,
+- whether the postage is small enough relative to the price for a cross-border
+  sale to make sense,
+- a title per channel in the buyer's language that fits that platform's
+  character budget.
+
+Titles are rebuilt from structured fields rather than translated, so mineral
+species, part numbers and the historic German and Hungarian locality names that
+collectors search are present in every language. Character limits live in
+`selling.title_limits`; Bazos (60) and eBay (80) are confirmed by mid-word
+truncation in the live listings, Vinted and Aukro are the longest observed.
+
+Packeta prices in `selling.packeta` are public list prices. A business contract
+is cheaper, so override them with the real rates before trusting a margin.
+
+The reasoning behind the channel choices is in
+[`docs/predaj-strategia.md`](docs/predaj-strategia.md).
+
 ## Run
 
 ```powershell
@@ -205,4 +292,5 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m bazar_deals hunt --offline --source bazos
 python -m bazar_deals hunt --notify
+python -m bazar_deals sell
 ```
