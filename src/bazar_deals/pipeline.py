@@ -170,10 +170,10 @@ def score_listings(
     funnel: Counter[str] = Counter()
     source_stats: dict[Marketplace, Counter[str]] = defaultdict(Counter)
     funnel["fetched"] = len(listings)
+    converted = [_to_eur(listing, settings.eur_czk) for listing in listings]
     usable: list[Listing] = []
-    for listing in listings:
+    for listing in converted:
         source_stats[listing.marketplace]["fetched"] += 1
-        listing = _to_eur(listing, settings.eur_czk)
         if not listing.is_immediate_buy():
             funnel["not_buy_now"] += 1
             continue
@@ -199,6 +199,9 @@ def score_listings(
         usable.append(listing)
         source_stats[listing.marketplace]["usable"] += 1
     funnel["usable"] = len(usable)
+    seeder = getattr(sold, "seed_asking", None)
+    if callable(seeder):
+        seeder(converted)
 
     # Do not let a large/cheap Bazos batch consume the global sold lookup budget.
     # Every active marketplace gets one turn per round, with Vinted/Aukro/eBay
@@ -210,8 +213,6 @@ def score_listings(
 
     deals: list[Deal] = []
     rescues: Counter[str] = Counter()
-    lookup_queries: set[str] = set()
-    lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for listing in usable:
         enricher = enrichers.get(listing.marketplace)
@@ -240,11 +241,6 @@ def score_listings(
             item.search_query,
             item.specs if isinstance(item.specs, ItemSpecs) else None,
         ).casefold().strip()
-        if lookup_key not in lookup_queries:
-            if len(lookup_queries) >= lookup_cap:
-                funnel["sold_lookup_cap"] += 1
-                continue
-            lookup_queries.add(lookup_key)
         item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
         comp = sold.median_sold(
             listing,
@@ -276,6 +272,10 @@ def score_listings(
         else:
             funnel["below_net_profit"] += 1
         deals.append(deal)
+
+    skipped = int(getattr(sold, "live_sold_skipped", 0) or 0)
+    if skipped:
+        funnel["sold_lookup_cap"] = skipped
 
     if settings.ai_review_enabled:
         reviewer = reviewer or AIReviewClient(settings)

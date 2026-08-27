@@ -1,4 +1,5 @@
 import json
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -9,6 +10,7 @@ from bazar_deals.domain import Marketplace, Vertical
 from bazar_deals.htmlparse import (
     parse_bazos_detail,
     parse_json_ld_products,
+    parse_vinted_catalog_payload,
     parse_vinted_detail,
     parse_vinted_items,
 )
@@ -157,6 +159,84 @@ def test_bazos_detail_extracts_meta_description() -> None:
     assert "bez krabice" in detail
 
 
+def test_vinted_product_item_hydration_catalog() -> None:
+    chunk = {
+        "items": [
+            {
+                "id": 9800847268,
+                "productItem": {
+                    "id": 9800847268,
+                    "title": "Obudowa case etui iPhone 17 Air czarny",
+                    "url": "/items/9800847268-obudowa-case-etui-iphone-17-air-czarny",
+                    "price": {"amount": "28.16", "currencyCode": "EUR"},
+                    "itemBox": {
+                        "accessibilityLabel": "Obudowa case etui iPhone 17 Air czarny, 28.16 €",
+                    },
+                },
+            }
+        ]
+    }
+    hydrated = "7:" + json.dumps(chunk, ensure_ascii=False, separators=(",", ":"))
+    html = f"<script>self.__next_f.push([1,{json.dumps(hydrated)}])</script>"
+    listings = parse_vinted_items(html)
+    assert len(listings) == 1
+    assert listings[0].external_id == "9800847268"
+    assert listings[0].price.amount == Decimal("28.16")
+    assert "9800847268" in str(listings[0].url)
+
+
+def test_vinted_catalog_api_payload_accepts_absolute_url() -> None:
+    payload = {
+        "items": [
+            {
+                "id": 9800847268,
+                "title": "Apple iPhone 13 128 GB",
+                "price": {"amount": "90.00", "currency_code": "EUR"},
+                "url": "https://www.vinted.sk/items/9800847268-apple-iphone-13-128-gb",
+                "path": "/items/9800847268-apple-iphone-13-128-gb",
+                "user": {"login": "seller"},
+                "item_box": {"accessibility_label": "Apple iPhone 13 128 GB, 90 €"},
+            }
+        ]
+    }
+    listings = parse_vinted_catalog_payload(payload)
+    assert len(listings) == 1
+    assert listings[0].title == "Apple iPhone 13 128 GB"
+    assert listings[0].price.amount == 90
+    assert listings[0].seller_id == "seller"
+    assert str(listings[0].url).startswith("https://www.vinted.sk/items/9800847268")
+
+
+def test_vinted_hunt_loads_catalog_api(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import vinted as vinted_mod
+
+    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    item = {
+        "id": 9800847268,
+        "title": "Apple iPhone 13 128 GB",
+        "price": {"amount": "90.00", "currency_code": "EUR"},
+        "url": "https://www.vinted.sk/items/9800847268-apple-iphone-13-128-gb",
+        "user": {"login": "seller"},
+        "item_box": {"accessibility_label": "Apple iPhone 13 128 GB, 90 €"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.rstrip("/") in {"", "/"}:
+            return httpx.Response(200, text="<html>ok</html>")
+        if request.url.path == "/api/v2/catalog/items":
+            assert "catalog_ids=3565" in str(request.url)
+            return httpx.Response(200, json={"items": [item]})
+        raise AssertionError(request.url)
+
+    transport = httpx.MockTransport(handler)
+    with httpx.Client(transport=transport, follow_redirects=True) as client:
+        listings = VintedHuntClient(client=client).fetch_new()
+    assert len(listings) == 1
+    assert listings[0].external_id == "9800847268"
+
+
 def test_vinted_pro_still_sell_side() -> None:
     with pytest.raises(RuntimeError, match="sell-side"):
         VintedProClient().fetch_new(Vertical.APPLE)
@@ -168,35 +248,17 @@ def test_vinted_datadome_is_a_fetch_error(monkeypatch) -> None:
     from bazar_deals.adapters import vinted as vinted_mod
 
     monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
-    response = httpx.Response(
-        403,
-        text="<html>datadome captcha-delivery blocked</html>",
-        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
-    )
-    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
-    with pytest.raises(RuntimeError, match="DataDome"):
-        VintedHuntClient().fetch_new()
 
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            403,
+            text="<html>captcha-delivery blocked</html>",
+            request=request,
+        )
 
-def test_vinted_empty_nextjs_shell_is_a_fetch_error(monkeypatch) -> None:
-    import httpx
-
-    from bazar_deals.adapters import vinted as vinted_mod
-
-    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
-    hydrated = "7:" + json.dumps([{"id": 1, "title": "no catalog item"}], separators=(",", ":"))
-    html = (
-        f"<html><script>self.__next_f.push([1,{json.dumps(hydrated)}])</script>"
-        '<a href="https://www.vinted.sk/items/help">help</a></html>'
-    )
-    response = httpx.Response(
-        200,
-        text=html,
-        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
-    )
-    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
-    with pytest.raises(RuntimeError, match="DataDome"):
-        VintedHuntClient().fetch_new()
+    with httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
+        with pytest.raises(RuntimeError, match="DataDome"):
+            VintedHuntClient(client=client).fetch_new()
 
 
 def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
@@ -205,11 +267,12 @@ def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
     from bazar_deals.adapters import vinted as vinted_mod
 
     monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
-    response = httpx.Response(
-        200,
-        text="<html><title>Please wait</title></html>",
-        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
-    )
-    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
-    with pytest.raises(RuntimeError, match="DataDome"):
-        VintedHuntClient().fetch_new()
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "/api/v2/catalog/items" in request.url.path:
+            return httpx.Response(200, json={"items": []})
+        return httpx.Response(200, text="<html><title>Please wait</title></html>")
+
+    with httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
+        with pytest.raises(RuntimeError, match="DataDome"):
+            VintedHuntClient(client=client).fetch_new()

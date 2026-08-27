@@ -51,7 +51,7 @@ The hunt looks for **small, working, fast-moving goods that fit a shoebox and we
 
 - **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
 - **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
-- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop. GitHub Actions often gets DataDome instead of the catalog (`fetched 0` with an explicit block note).
+- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt uses the public catalog JSON (`/api/v2/catalog/items`) after an anonymous homepage session, then HTML hydration as fallback. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
 - **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia. Those are the production **App ID (Client ID)** and **Cert ID (Client Secret)** — application `client_credentials`, not a user purchase token. Hunt only searches listings. Public HTML cannot prove `deliveryCountry=SK`, and GitHub Actions also cannot read sold-search HTML (sign-in wall), so the same keys are the Browse fallback for asking comps.
 
 ## Identification
@@ -90,10 +90,12 @@ reads the entire advertisement rather than the headline.
   seller, not the origin of the stone.
 
 The sold-comps budget (`hunt.max_sold_lookups`, default 80) counts **unique
-normalized product queries**, not listings. Ten ads for the same iPhone 13
-128GB cost one eBay sold search. The previous cap of 40 counted every listing,
-so a pile of duplicate phones exhausted the budget before the 41st distinct
-product was ever priced.
+normalized product queries** for live eBay.de sold HTML, not listings. After
+that budget, or when sold HTML is blocked from GitHub Actions, the hunt still
+values remaining ads from asking prices already fetched this run (Bazoš/Aukro/Vinted)
+with a 25% haircut. Those asking-only candidates can become BUY only through the
+fail-closed AI review. Ten ads for the same iPhone 13 128GB still cost one eBay
+sold search.
 
 ### AI identification
 

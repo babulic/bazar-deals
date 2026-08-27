@@ -12,32 +12,37 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
-from bazar_deals.htmlparse import parse_vinted_detail, parse_vinted_items
+from bazar_deals.htmlparse import parse_vinted_catalog_payload, parse_vinted_detail, parse_vinted_items
 from bazar_deals.rules import rules
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
 _VINTED = rules().get("vinted") or {}
 _CATALOGS = tuple(str(path) for path in _VINTED.get("catalogs") or ())
+_HOST = "https://www.vinted.sk"
+_CATALOG_API = f"{_HOST}/api/v2/catalog/items"
+_BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36"
+)
 
 NO_PUBLIC_CATALOG = (
     "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
 )
 VINTED_BLOCKED = (
-    "Vinted catalog blocked (DataDome/captcha). Hunt uses public HTML only — "
+    "Vinted catalog blocked (DataDome/captcha). Hunt uses public HTML/JSON only — "
     "VINTED_ACCESS_KEY is sell-side Pro, not catalog search"
 )
 
 
 def vinted_catalog_blocked(response: httpx.Response) -> bool:
-    """Datacentre GETs often get a DataDome/captcha page instead of the catalog."""
+    """True for a challenge/error page, not for a normal catalog that also loads DataDome JS."""
     if response.status_code in {401, 403, 429, 503}:
         return True
     snippet = (response.text or "")[:12000].casefold()
     return any(
         marker in snippet
         for marker in (
-            "datadome",
             "captcha-delivery",
             "geo.captcha-delivery.com",
             "please enable js and disable any ad blocker",
@@ -46,14 +51,21 @@ def vinted_catalog_blocked(response: httpx.Response) -> bool:
 
 
 def _catalog_url(path: str | None, *, lo: int, hi: int, page: int) -> str:
-    base = "https://www.vinted.sk/catalog"
+    base = f"{_HOST}/catalog"
     if path:
         base = f"{base}/{path.lstrip('/')}"
     return f"{base}?order=newest_first&price_from={lo}&price_to={hi}&page={page}"
 
 
+def _catalog_id(path: str | None) -> str | None:
+    if not path:
+        return None
+    token = path.split("-", 1)[0].strip()
+    return token if token.isdigit() else None
+
+
 class VintedHuntClient(ListingSource):
-    """Public Vinted catalog pages. No DataDome bypass — polite GET only."""
+    """Public Vinted catalog via the same JSON the site uses after an anon session."""
 
     marketplace = Marketplace.VINTED.value
 
@@ -62,9 +74,11 @@ class VintedHuntClient(ListingSource):
         settings: Settings | None = None,
         *,
         fixture_path: Path | None = None,
+        client: httpx.Client | None = None,
     ) -> None:
         self.settings = settings or Settings()
         self.fixture_path = fixture_path
+        self._client = client
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
@@ -74,58 +88,126 @@ class VintedHuntClient(ListingSource):
         found: list[Listing] = []
         seen: set[str] = set()
         paths = _CATALOGS or (None,)
-        gap = min(0.8, max(0.0, self.settings.bazos_request_gap_seconds))
-        for index, path in enumerate(paths):
-            if index:
-                time.sleep(gap)
-            url = _catalog_url(path, lo=lo, hi=hi, page=1)
-            response = httpx.get(
-                url,
-                headers={
-                    "User-Agent": self.settings.bazos_user_agent,
-                    "Accept": "text/html",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
-            if vinted_catalog_blocked(response):
-                raise RuntimeError(VINTED_BLOCKED)
-            response.raise_for_status()
-            batch = parse_vinted_items(response.text or "")
-            for item in batch:
-                key = item.external_id or str(item.url)
-                if key in seen:
-                    continue
-                seen.add(key)
-                found.append(item)
+        gap = min(0.4, max(0.0, self.settings.bazos_request_gap_seconds))
+        owned = self._client is None
+        client = self._client or httpx.Client(
+            headers={
+                "User-Agent": _BROWSER_UA,
+                "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
+        try:
+            self._warmup(client)
+            for index, path in enumerate(paths):
+                if index:
+                    time.sleep(gap)
+                batch = self._fetch_catalog(client, path, lo=lo, hi=hi)
+                for item in batch:
+                    key = item.external_id or str(item.url)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    found.append(item)
+        finally:
+            if owned:
+                client.close()
         if not found:
-            # Next.js shells still contain __next_f /items/ crumbs after DataDome
-            # strips the catalog, so "looks like HTML" is not enough.
             raise RuntimeError(VINTED_BLOCKED)
         return found
 
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path:
             return listing
+        owned = self._client is None
+        client = self._client or httpx.Client(
+            headers={
+                "User-Agent": _BROWSER_UA,
+                "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
+                "Accept": "text/html",
+            },
+            timeout=30.0,
+            follow_redirects=True,
+        )
         try:
-            response = httpx.get(
-                str(listing.url),
-                headers={
-                    "User-Agent": self.settings.bazos_user_agent,
-                    "Accept": "text/html",
-                },
-                timeout=30.0,
-                follow_redirects=True,
-            )
+            response = client.get(str(listing.url))
             response.raise_for_status()
             detail = parse_vinted_detail(response.text)
         except httpx.HTTPError:
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
+        finally:
+            if owned:
+                client.close()
         raw = dict(listing.raw)
         raw["detail_fetched"] = bool(detail)
         return listing.model_copy(update={"description": detail, "raw": raw})
+
+    def _warmup(self, client: httpx.Client) -> None:
+        try:
+            client.get(_HOST + "/", headers={"Accept": "text/html"})
+        except httpx.HTTPError:
+            return
+
+    def _fetch_catalog(
+        self, client: httpx.Client, path: str | None, *, lo: int, hi: int
+    ) -> list[Listing]:
+        catalog_url = _catalog_url(path, lo=lo, hi=hi, page=1)
+        items = self._fetch_api(client, path, lo=lo, hi=hi, referer=catalog_url)
+        if items:
+            return items
+        response = client.get(catalog_url, headers={"Accept": "text/html"})
+        if vinted_catalog_blocked(response):
+            return []
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError:
+            return []
+        return parse_vinted_items(response.text or "")
+
+    def _fetch_api(
+        self,
+        client: httpx.Client,
+        path: str | None,
+        *,
+        lo: int,
+        hi: int,
+        referer: str,
+    ) -> list[Listing]:
+        params: dict[str, str | int] = {
+            "order": "newest_first",
+            "price_from": lo,
+            "price_to": hi,
+            "per_page": 96,
+            "page": 1,
+        }
+        catalog_id = _catalog_id(path)
+        if catalog_id:
+            params["catalog_ids"] = catalog_id
+        try:
+            response = client.get(
+                _CATALOG_API,
+                params=params,
+                headers={
+                    "Accept": "application/json, text/plain, */*",
+                    "Referer": referer,
+                },
+            )
+        except httpx.HTTPError:
+            return []
+        if vinted_catalog_blocked(response):
+            return []
+        if response.status_code >= 400:
+            return []
+        try:
+            payload = response.json()
+        except ValueError:
+            return []
+        if not isinstance(payload, dict):
+            return []
+        return parse_vinted_catalog_payload(payload)
 
 
 def sign_vinted_request(

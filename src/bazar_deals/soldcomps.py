@@ -152,6 +152,9 @@ class SoldCompClient:
         self._sold_html_blocked = False
         self._sold_html_status: int | None = None
         self._browse_failed = False
+        self._live_sold_used = 0
+        self.live_sold_skipped = 0
+        self._live_sold_budget = int(rules()["hunt"]["max_sold_lookups"])
         self._fixture_html = fixture_html
         if fixture_path is not None:
             self._fixture_html = fixture_path.read_text(encoding="utf-8")
@@ -170,6 +173,21 @@ class SoldCompClient:
             return
         self._noted.add(message)
         self.notes.append(message)
+
+    def seed_asking(self, listings: list[Listing]) -> None:
+        """Use listings already fetched this hunt as the asking-price pool."""
+        found: list[Listing] = []
+        seen: set[str] = set()
+        for item in listings:
+            if item.price.amount <= 0:
+                continue
+            item = self._to_eur(item)
+            key = _url_key(item.url)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(item)
+        self._asking_catalog = found
 
     def median_sold(
         self,
@@ -299,10 +317,14 @@ class SoldCompClient:
             hits = parse_ebay_html(self._fixture_html)
             self._cache[query] = hits
             return hits, 200, False
+        if self._live_sold_used >= self._live_sold_budget:
+            self.live_sold_skipped += 1
+            return [], None, True
         url = (
             "https://www.ebay.de/sch/i.html?_nkw="
             f"{quote(query)}&LH_Sold=1&LH_Complete=1&_ipg=60"
         )
+        self._live_sold_used += 1
         response = httpx.get(
             url,
             headers={
