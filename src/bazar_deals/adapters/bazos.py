@@ -67,7 +67,7 @@ class BazosRssClient(ListingSource):
             response = httpx.get(
                 str(listing.url),
                 headers={"User-Agent": self.settings.bazos_user_agent, "Accept": "text/html"},
-                timeout=20.0,
+                timeout=8.0,
                 follow_redirects=True,
             )
             response.raise_for_status()
@@ -76,7 +76,7 @@ class BazosRssClient(ListingSource):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
-        time.sleep(self.settings.bazos_request_gap_seconds)
+        time.sleep(min(0.25, self.settings.bazos_request_gap_seconds))
         description = detail if len(detail) > len(listing.description or "") else listing.description
         raw = dict(listing.raw)
         raw["detail_fetched"] = bool(description)

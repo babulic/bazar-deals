@@ -12,6 +12,10 @@ permissions:
   issues: write
   copilot-requests: write
 
+concurrency:
+  group: hunt-alerts
+  cancel-in-progress: true
+
 jobs:
   cleanup:
     uses: ./.github/workflows/delete-issue-comments.yml

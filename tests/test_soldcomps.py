@@ -256,3 +256,15 @@ def test_hunt_batch_seed_skips_live_marketplace_search(tmp_path: Path) -> None:
     assert comp.sample == 6
     assert comp.median == _market_value(peers)
     bazos.assert_not_called()
+
+
+def test_thin_hunt_batch_does_not_live_search(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    client.seed_asking(_peers(3))
+    with (
+        patch.object(client, "_bazos_search", side_effect=AssertionError("live")) as bazos,
+        patch.object(client, "_aukro_search", side_effect=AssertionError("live")),
+        patch.object(client, "_vinted_search", side_effect=AssertionError("live")),
+    ):
+        assert client.median_sold(_listing()) is None
+    bazos.assert_not_called()
