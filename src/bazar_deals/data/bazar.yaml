@@ -792,6 +792,43 @@ identity:
     generic: 0.62
     known: 0.78
     min_to_hunt: 0.5
+  # Mining localities and foreign specimen origins. Inflected Slovak
+  # (Banskej Štiavnice) still matches. Slovensko is omitted — that is the seller.
+  localities:
+    banská štiavnica:
+      - Banská Štiavnica
+      - Schemnitz
+      - Selmecbánya
+    hodruša-hámre:
+      - Hodruša-Hámre
+      - Hodritsch
+    ľubietová:
+      - Ľubietová
+      - Libethen
+    kremnica:
+      - Kremnica
+      - Kremnitz
+    zemplín:
+      - Zemplín
+      - Zemplén
+    goboboseb:
+      - Goboboseb
+    brandberg:
+      - Brandberg
+  origins:
+    namíbia:
+      - Namíbia
+      - Namibia
+      - Namibie
+    pakistan:
+      - Pakistan
+      - Pákistán
+    mexiko:
+      - Mexiko
+      - Mexico
+    madagaskar:
+      - Madagaskar
+      - Madagascar
 
 working:
   always_damage:

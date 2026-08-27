@@ -397,17 +397,21 @@ def _locality_tokens(text: str) -> set[str]:
 
 
 def _place_catalog() -> list[tuple[str, tuple[str, ...]]]:
-    selling = rules().get("selling") or {}
+    cfg = _id()
     out: list[tuple[str, tuple[str, ...]]] = []
-    for group in ("localities", "countries"):
-        entries = selling.get(group) or {}
+    for group in ("localities", "origins"):
+        entries = cfg.get(group) or {}
         for key, names in entries.items():
             folded_key = _fold(str(key))
-            if group == "countries" and folded_key in _HOME_ORIGINS:
+            if folded_key in _HOME_ORIGINS:
                 continue
             variants = [str(key)]
             if isinstance(names, dict):
                 variants.extend(str(value) for value in names.values() if value)
+            elif isinstance(names, (list, tuple)):
+                variants.extend(str(value) for value in names if value)
+            else:
+                variants.append(str(names))
             out.append((folded_key, tuple(dict.fromkeys(variants))))
     return out
 

@@ -168,7 +168,7 @@ def test_vague_title_still_matches_sold_comps_from_the_body() -> None:
 def test_mineral_locality_from_inflected_body_is_required_of_comps() -> None:
     ad = listing(
         title="Galenit",
-        description="Pekný vzorok z Banskej Štiavnice, 61g, nepoškodený.",
+        description="Pekný vzorok z Banskej Štiavnice, 61g, zberateľský kus.",
     )
     item = identify(ad)
     assert any("stiavnic" in place for place in item.specs.localities)
