@@ -47,12 +47,12 @@ BUY only if expected net profit >= 30 EUR
 
 ## What is searched
 
-The hunt looks for **small, working goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
+The hunt looks for **small, working, fast-moving goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
 
 - **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
-- **Aukro** fast-moving shoebox categories (phones, smart electronics, photo, games, toys, clothing, cosmetics, jewelry, music, comics, coins, minerals, trading cards, tools, …), then the same physical/price filters. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
-- **Vinted** public catalog newest in the purchase-price range.
-- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
+- **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
+- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports.
+- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
 
 ## Identification
 

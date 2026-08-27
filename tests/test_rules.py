@@ -41,8 +41,14 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert 100838 in data["aukro"]["small_categories"]
     assert 52651 in data["aukro"]["small_categories"]
     assert 144281 in data["aukro"]["small_categories"]
+    assert 144304 in data["aukro"]["small_categories"]
+    assert 148663 in data["aukro"]["small_categories"]
     assert 88874 in data["aukro"]["small_categories"]
     assert "183454" in data["ebay"]["small_categories"]
+    assert "19068" in data["ebay"]["small_categories"]
+    assert "16-footwear" in data["vinted"]["catalogs"]
+    assert "3565-electronics_phones" in data["vinted"]["catalogs"]
+    assert "4874-hc_trading_cards" in data["vinted"]["catalogs"]
     markers = data["identity"]["kind_markers"]["minerals"]
     assert "topás" in markers
     assert "alexandrit" in markers

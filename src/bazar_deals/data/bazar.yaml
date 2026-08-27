@@ -1079,6 +1079,15 @@ catalog:
     - naraznik
     - strešný box
     - stresny box
+    - gitara
+    - kytara
+    - klavír
+    - klavir
+    - saxofón
+    - saxofon
+    - akordeón
+    - akordeon
+    - violončelo
   # Seasonal Christmas lights only. Headlamps, lamps and general lighting stay in.
   christmas_markers:
     - vánočn
@@ -1133,29 +1142,59 @@ catalog:
 
 aukro:
   search_url: https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon
-  page_size: 30
+  page_size: 24
   pages: 1
   # Fast-moving shoebox categories. Unfiltered newest is a seasonal lighting dump.
   small_categories:
+    # Phones & wearables
     - 100838   # Mobilní telefony
     - 251358   # Chytrá elektronika
+    - 100851   # Příslušenství k mobilům
+    - 100840   # Nabíječky
+    - 101208   # Baterie a nabíječky
+    # Photo & electronics
     - 100894   # Foto
+    - 101087   # Objektivy
+    - 101077   # Klasické fotoaparáty
     - 100898   # Elektronika
+    - 101201   # Elektronické součástky
     - 100892   # Malé elektrospotřebiče
+    - 148663   # Svítilny / čelovky
+    # Computers & games
     - 100705   # Hry
     - 100699   # Herní zařízení
+    - 100727   # Herní konzole
     - 100703   # Historické počítače
     - 100700   # Tablety a čtečky
     - 100697   # Notebooky
     - 100701   # PC komponenty
+    - 100702   # Příslušenství k PC
+    - 252973   # Externí disky
+    # Fashion, beauty, jewelry
     - 8525     # Oblečení, obuv a doplňky
+    - 7340     # Módní doplňky
+    - 108364   # Dámské kabelky
     - 8526     # Kosmetika a parfémy
+    - 7368     # Parfémy
     - 90713    # Šperky a hodinky
+    # Media
     - 88014    # Hudba
+    - 88109    # Vinyl
+    - 88063    # Kazety
     - 88160    # Film
     - 8465     # Komiksy
+    - 8464     # Učebnice
+    # Toys
     - 144281   # Hračky
-    - 17579    # Turistika (incl. headlamps)
+    - 144304   # LEGO
+    - 144345   # Figurky
+    - 144327   # Stavebnice
+    # Sport (small gear)
+    - 17579    # Turistika
+    - 17575    # Bojové sporty
+    - 17572    # Kolektivní sporty
+    - 63347    # Šipky
+    # Collectibles
     - 8479     # Numismatika
     - 8477     # Bankovky
     - 88874    # Minerály a zkameněliny
@@ -1163,8 +1202,42 @@ aukro:
     - 8469     # Modelářství
     - 52651    # Karetní hry
     - 52685    # Stolní hry
-    - 8482     # Nářadí
+    - 52684    # Puzzle
+    - 12976    # Odznaky a medaile
+    - 13948    # Sběratelské figurky
+    - 11761    # Autogramy
+    - 257217   # Merch
+    - 8480     # Filatelie
+    - 47040    # Antikvariát
     - 47108    # Porcelán
+    # Tools
+    - 8482     # Nářadí
+    - 78484    # Elektrické nářadí
+    - 78527    # Ruční nářadí
+
+vinted:
+  # Public catalog paths (`/catalog/<id>-<slug>`). Skip TV, garden, bikes, winter sports.
+  catalogs:
+    - 16-footwear
+    - 4-womens
+    - 5-mens
+    - 19-bags_backpacks
+    - 1187-accessories_jewellery
+    - 146-cosmetics_and_beauty_products
+    - 1193-children_new
+    - 3002-electronics_video_games
+    - 3565-electronics_phones
+    - 3564-electronics_computers
+    - 3566-electronics_audio
+    - 3054-electronics_cameras_accessories
+    - 3004-electronics_wearables
+    - 4874-hc_trading_cards
+    - 4881-hc_board_games
+    - 4895-hc_numismatics
+    - 2312-books
+    - 3036-entertainment_music
+    - 3811-h_tools_diy
+    - 3474-small_kitchen_appliances
 
 ebay:
   marketplace_id: EBAY_DE
@@ -1190,6 +1263,18 @@ ebay:
     - "15032"  # Cell Phones & Accessories
     - "58058"  # Computers/Tablets & Networking
     - "183454" # Collectible Card Games
+    - "253"    # Sports Mem, Cards & Fan Shop
+    - "183050" # Non-Sport Trading Cards
+    - "11232"  # DVDs & Movies
+    - "19068"  # LEGO
+    - "11848"  # Fragrances
+    - "31388"  # Portable Audio & Headphones
+    - "31387"  # Watches
+    - "2984"   # Diecast & Toy Vehicles
+    - "63"     # Comics
+    - "175672" # Tablets & eBook Readers
+    - "16212"  # Handbags
+    - "181376" # Vintage Computers
   condition_map:
     NEW: new
     NEW_OTHER: like_new
