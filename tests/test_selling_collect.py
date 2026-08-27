@@ -115,7 +115,7 @@ def test_aukro_follows_total_pages_and_converts_czk(monkeypatch) -> None:
                 {
                     "itemId": 1,
                     "itemName": "Kalcit",
-                    "buyNowPrice": {"amount": 245.0, "currency": "CZK"},
+                    "buyNowPrice": {"amount": 246.0, "currency": "CZK"},
                     "seoUrl": "kalcit",
                 },
                 {
@@ -132,7 +132,7 @@ def test_aukro_follows_total_pages_and_converts_czk(monkeypatch) -> None:
                 {
                     "itemId": 3,
                     "itemName": "Topaz",
-                    "auctionPrice": {"amount": 49.0, "currency": "CZK"},
+                    "auctionPrice": {"amount": 1106.0, "currency": "CZK"},
                     "seoUrl": "topaz",
                 }
             ],
@@ -147,19 +147,19 @@ def test_aukro_follows_total_pages_and_converts_czk(monkeypatch) -> None:
         return httpx.Response(200, json=pages[page], request=REQUEST)
 
     monkeypatch.setattr(httpx, "post", fake_post)
-    config = settings()
-    config.eur_czk = Decimal("24.5")
-    result = collect_aukro(101485136, config)
+    result = collect_aukro(101485136, settings())
 
     assert calls == [0, 1]
     assert result.count == 3
     assert result.complete()
     prices = {item.title: item.price_eur for item in result.listings}
-    assert prices["Kalcit"] == Decimal("10.00")
+    # aukro.sk prices in whole euros, so the CZK figure is rounded, not carried
+    # over with conversion noise.
+    assert prices["Kalcit"] == Decimal("10")
     # An EUR price from the shared backend must not be divided again.
     assert prices["Ametyst"] == Decimal("100")
     # Auction-only offers still carry a price worth planning around.
-    assert prices["Topaz"] == Decimal("2.00")
+    assert prices["Topaz"] == Decimal("45")
 
 
 def test_credentialed_sources_are_skipped_not_faked() -> None:

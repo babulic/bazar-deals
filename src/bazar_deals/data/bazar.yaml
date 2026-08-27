@@ -890,6 +890,11 @@ selling:
     vinted: "312914388"
     ebay: berg-kristalle
 
+  # The shared Aukro backend quotes CZK even for the aukro.sk storefront, which
+  # displays whole euros. This rate reproduces every observed displayed price to
+  # within 0.13 EUR, so converted prices are rounded to whole euros.
+  aukro_eur_czk: 24.6
+
   # Slovakia plus the neighbours and the adjacent Schengen countries Packeta
   # serves from a Slovak business account.
   target_countries: [SK, CZ, PL, HU, AT, DE, SI, RO, HR]

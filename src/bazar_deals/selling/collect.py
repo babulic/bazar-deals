@@ -5,7 +5,7 @@ import html
 import re
 import time
 import unicodedata
-from decimal import Decimal, InvalidOperation
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 
 import httpx
 from pydantic import BaseModel, Field
@@ -133,7 +133,7 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
     listings: dict[str, CollectedListing] = {}
     total: int | None = None
     pages = 0
-    eur_czk = settings.eur_czk
+    eur_czk = Decimal(str(rules()["selling"]["aukro_eur_czk"]))
 
     for page in range(MAX_PAGES):
         try:
@@ -163,9 +163,10 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
         for node in content:
             price = node.get("buyNowPrice") or node.get("auctionPrice") or {}
             amount = Decimal(str(price.get("amount") or "0"))
-            # The shared backend quotes CZK even for the aukro.sk storefront.
+            # The shared backend quotes CZK even for the aukro.sk storefront,
+            # which prices in whole euros.
             if str(price.get("currency") or "").upper() == "CZK" and eur_czk:
-                amount = (amount / eur_czk).quantize(Decimal("0.01"))
+                amount = (amount / eur_czk).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
             identifier = str(node.get("itemId") or "")
             if not identifier:
                 continue

@@ -178,12 +178,15 @@ def test_channel_ids_and_inventory_keys_are_unique() -> None:
 def test_inventory_snapshot_loads_with_prices_per_marketplace() -> None:
     stock = load_inventory(PACKAGED_INVENTORY)
     assert stock.collected == "2026-08-27"
-    assert stock.partial == ["aukro", "vinted"]
+    # Only Vinted still hides items behind infinite scroll.
+    assert stock.partial == ["vinted"]
     assert stock.segments() == ["commodity", "minerals", "retro"]
+    assert stock.coverage() == {"aukro": 27, "bazos": 19, "ebay": 19, "vinted": 20}
     item = stock.get("amethyst-namibia-74mm")
     assert item.price() == Decimal("115")
     assert item.home_price() == Decimal("110")
-    assert item.missing_from({"bazos", "aukro", "vinted", "ebay"}) == ["aukro"]
+    assert item.missing_from({"bazos", "aukro", "vinted", "ebay"}) == []
+    assert stock.get("galenit-terezia").missing_from({"bazos", "ebay"}) == ["ebay"]
 
 
 def test_missing_weight_uses_the_default_tier() -> None:
