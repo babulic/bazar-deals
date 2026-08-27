@@ -10,12 +10,33 @@ from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]
+ALERT_TOP_N = int(rules()["github"].get("alert_top_n", 5))
 _API = "https://api.github.com"
 
 
 def listing_key(deal: Deal) -> str:
     listing = deal.item.listing
     return f"{listing.marketplace.value}:{listing.external_id}"
+
+
+def select_alert_deals(deals: list[Deal], *, minimum: int | None = None) -> list[Deal]:
+    """Best-ranked scored items: every BUY, plus fillers up to `minimum`.
+
+    Rank is expected net profit, then identity confidence. The BUY gate is a
+    flag on each card, not a filter that hides the rest of the top list.
+    """
+    floor = ALERT_TOP_N if minimum is None else max(0, int(minimum))
+    ranked = sorted(
+        deals,
+        key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
+        reverse=True,
+    )
+    buys = [deal for deal in ranked if deal.action is Action.BUY]
+    if len(buys) >= floor:
+        return buys
+    seen = {listing_key(deal) for deal in buys}
+    extra = [deal for deal in ranked if listing_key(deal) not in seen]
+    return [*buys, *extra][:floor]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -35,19 +56,20 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Always-visible hunt report. Mentions the assignee only when there is a BUY."""
-    buys = [deal for deal in run.deals if deal.action is Action.BUY]
-    ping = f"@{mention}\n\n" if mention and buys else ""
-    markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in buys)
-    status = _format_status(run, min_profit=min_profit, buy_count=len(buys))
-    if not buys:
+    """Hunt report plus the best-ranked cards, each with a BUY áno/nie flag."""
+    shown = select_alert_deals(run.deals)
+    buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
+    ping = f"@{mention}\n\n" if mention and buy_count else ""
+    markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
+    status = _format_status(run, min_profit=min_profit, buy_count=buy_count, shown=len(shown))
+    if not shown:
         return f"{ping}{status}\n"
-    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in buys)
+    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in shown)
     marker_block = f"{markers}\n" if markers else ""
     return f"{ping}{marker_block}{status}\n\n{blocks}\n"
 
 
-def _format_status(run: HuntRun, *, min_profit, buy_count: int) -> str:
+def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
     notes = "\n".join(f"- {note}" for note in run.fetch_notes) or "- (no sources fetched)"
     health = []
     for market, stats in run.source_stats.items():
@@ -70,11 +92,14 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int) -> str:
         f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
     ]
     if buy_count:
-        headline = f"**{buy_count} BUY deal(s)** this hunt (prah {min_profit} € čistého zisku)"
+        headline = (
+            f"**{buy_count} BUY áno** · top {shown} podľa očakávaného čistého zisku "
+            f"(prah {min_profit} €). Pri každom kuse je flag BUY áno/nie."
+        )
     else:
         headline = (
-            f"**0 BUY** this hunt — žiadny inzerát neprešiel prah {min_profit} € čistého zisku. "
-            "Deal alerty sa posielajú len na BUY."
+            f"**0 BUY áno** · top {shown} podľa očakávaného čistého zisku "
+            f"(prah {min_profit} € čistého zisku). Pri každom kuse je flag BUY áno/nie."
         )
     return (
         f"{headline}\n\n"
@@ -85,7 +110,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int) -> str:
 
 
 class GitHubIssueAlerts:
-    """Collector issue for actionable BUY deals only."""
+    """Collector issue for the best-ranked hunt cards, each flagged BUY áno/nie."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
