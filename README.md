@@ -202,7 +202,9 @@ It is not a status headline. Each key is how many ads left that step:
 fetched → usable (buy-now, 20–110 €, not bulky/damaged) → scored (had a
 price-book value) → buy (expected net profit ≥ 30 €). `no_sold_comps` means
 the ad was never valued. `below_net_profit` means it was valued and missed
-the 30 € floor.
+the 30 € floor. At most `max_score_listings` (80) usable ads get a detail
+fetch and a price; the rest are `score_capped`. The hourly hunt cannot open
+2000 Vinted pages.
 
 Hunt GitHub Actions is split into **Fetch Bazos / Fetch Aukro / Fetch Vinted /
 Score and comment**. The yellow step is the one still running. Progress also
