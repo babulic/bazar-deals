@@ -6,11 +6,20 @@ from decimal import Decimal
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
 from bazar_deals.catalog import is_bulky
 from bazar_deals.config import Settings
-from bazar_deals.domain import Action, Deal, Listing, Marketplace, Money, Vertical
-from bazar_deals.identity import identify
+from bazar_deals.domain import (
+    Action,
+    Deal,
+    IdentifiedItem,
+    Listing,
+    Marketplace,
+    Money,
+    Vertical,
+)
+from bazar_deals.identity import ItemSpecs, identify
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
@@ -27,6 +36,7 @@ _MARKETPLACE_PRIORITY = (
 _FUNNEL_KEYS = (
     "fetched",
     "not_buy_now",
+    "invalid_price",
     "no_sk_delivery",
     "over_cap",
     "under_min",
@@ -38,9 +48,12 @@ _FUNNEL_KEYS = (
     "detail_bulky",
     "insufficient_detail",
     "identity_weak",
+    "identity_ai_rescued",
+    "identity_ai_failed",
     "sold_lookup_cap",
     "no_sold_comps",
     "asking_only_comps",
+    "asking_only_provisional",
     "scored",
     "pre_ai_buy",
     "ai_reviewed",
@@ -60,6 +73,7 @@ def hunt(
     settings: Settings | None = None,
     sold: SoldCompClient | None = None,
     reviewer: AIReviewClient | None = None,
+    identifier: AIIdentityClient | None = None,
 ) -> list[Deal]:
     settings = settings or Settings()
     return score_listings(
@@ -68,6 +82,7 @@ def hunt(
         sold or SoldCompClient(settings),
         enrichers={Marketplace(source.marketplace): source},
         reviewer=reviewer,
+        identifier=identifier,
     )
 
 
@@ -78,6 +93,7 @@ def hunt_sources(
     settings: Settings | None = None,
     sold: SoldCompClient | None = None,
     reviewer: AIReviewClient | None = None,
+    identifier: AIIdentityClient | None = None,
 ) -> list[Deal]:
     settings = settings or Settings()
     listings: list[Listing] = []
@@ -96,6 +112,7 @@ def hunt_sources(
         sold or SoldCompClient(settings),
         enrichers=enrichers,
         reviewer=reviewer,
+        identifier=identifier,
     )
 
 
@@ -106,6 +123,7 @@ def score_listings(
     *,
     enrichers: dict[Marketplace, ListingSource] | None = None,
     reviewer: AIReviewClient | None = None,
+    identifier: AIIdentityClient | None = None,
 ) -> list[Deal]:
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
@@ -117,8 +135,11 @@ def score_listings(
     for listing in listings:
         source_stats[listing.marketplace]["fetched"] += 1
         listing = _to_eur(listing, settings.eur_czk)
-        if not listing.is_immediate_buy() or listing.price.amount <= 0:
+        if not listing.is_immediate_buy():
             funnel["not_buy_now"] += 1
+            continue
+        if listing.price.amount <= 0:
+            funnel["invalid_price"] += 1
             continue
         if listing.marketplace is Marketplace.EBAY and listing.ships_to_slovakia is not True:
             funnel["no_sk_delivery"] += 1
@@ -144,8 +165,12 @@ def score_listings(
     # deliberately placed before Bazos in each round.
     usable = _round_robin_listings(usable)
 
+    if identifier is None and settings.ai_review_enabled:
+        identifier = AIIdentityClient(settings)
+
     deals: list[Deal] = []
-    lookups = 0
+    rescues: Counter[str] = Counter()
+    lookup_queries: set[str] = set()
     lookup_cap = int(rules()["hunt"]["max_sold_lookups"])
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
     for listing in usable:
@@ -166,19 +191,33 @@ def score_listings(
             funnel["insufficient_detail"] += 1
             continue
         if item.confidence < min_conf or not item.search_query:
-            funnel["identity_weak"] += 1
-            continue
-        if lookups >= lookup_cap:
-            funnel["sold_lookup_cap"] += 1
-            continue
-        lookups += 1
-        comp = sold.median_sold(listing)
+            item = _rescue_identity(listing, item, settings, identifier, funnel, rescues)
+            if item is None:
+                funnel["identity_weak"] += 1
+                continue
+        lookup_key = item.search_query.casefold().strip()
+        if lookup_key not in lookup_queries:
+            if len(lookup_queries) >= lookup_cap:
+                funnel["sold_lookup_cap"] += 1
+                continue
+            lookup_queries.add(lookup_key)
+        comp = sold.median_sold(
+            listing,
+            query=item.search_query,
+            specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+            subject=item.canonical_name,
+        )
         if comp is None:
             funnel["no_sold_comps"] += 1
             continue
         if not comp.reliable_for_buy:
             funnel["asking_only_comps"] += 1
-            continue
+            # Asking prices are allowed only as a deliberately haircutted
+            # provisional valuation. They can reach BUY only through the
+            # mandatory fail-closed AI web-verification gate.
+            if not settings.ai_review_enabled or not settings.ai_review_required:
+                continue
+            funnel["asking_only_provisional"] += 1
         item = item.model_copy(
             update={"asking_sample": comp.sample, "sold_label": comp.label}
         )
@@ -205,6 +244,38 @@ def score_listings(
     print(_format_funnel(funnel))
     print(_format_source_health(source_stats))
     return deals
+
+
+def _rescue_identity(
+    listing: Listing,
+    item: IdentifiedItem,
+    settings: Settings,
+    identifier: AIIdentityClient | None,
+    funnel: Counter[str],
+    rescues: Counter[str],
+) -> IdentifiedItem | None:
+    """Ask the AI to name an item the rules could not, reading the whole ad.
+
+    This only establishes identity. The valuation still comes from completed
+    sales and every rescued candidate must clear the same net-profit floor and
+    the same fail-closed price review as any other.
+    """
+    if identifier is None:
+        return None
+    if rescues["used"] >= max(0, int(settings.ai_max_identifications)):
+        return None
+    rescues["used"] += 1
+    try:
+        rescued = identifier.apply(listing, item)
+    except (RuntimeError, ValueError, httpx.HTTPError):
+        funnel["identity_ai_failed"] += 1
+        return None
+    min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+    if rescued is None or rescued.confidence < min_conf or not rescued.search_query:
+        funnel["identity_ai_failed"] += 1
+        return None
+    funnel["identity_ai_rescued"] += 1
+    return rescued
 
 
 def _apply_ai_gate(

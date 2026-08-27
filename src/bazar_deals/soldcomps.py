@@ -15,8 +15,15 @@ from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace
-from bazar_deals.htmlparse import parse_ebay_html, parse_json_ld_products
-from bazar_deals.identity import similar_titles, sold_query
+from bazar_deals.htmlparse import parse_ebay_html
+from bazar_deals.identity import (
+    ItemSpecs,
+    classify_kind,
+    extract_specs,
+    listing_text,
+    similar_titles,
+    sold_query,
+)
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
@@ -138,6 +145,7 @@ class SoldCompClient:
         self.settings = settings or Settings()
         self._cache: dict[str, list[Listing]] = {}
         self._failed: dict[str, int] = {}
+        self._asking_catalog: list[Listing] | None = None
         self._fixture_html = fixture_html
         if fixture_path is not None:
             self._fixture_html = fixture_path.read_text(encoding="utf-8")
@@ -147,12 +155,30 @@ class SoldCompClient:
             self._db_path = Path(db_path) if db_path is not None else Path(self.settings.comps_db)
             self._init_db()
 
-    def median_sold(self, listing: Listing) -> SoldComp | None:
-        query = sold_query(listing.title) or sold_query(f"{listing.title} {listing.description}")
+    def median_sold(
+        self,
+        listing: Listing,
+        *,
+        query: str | None = None,
+        specs: ItemSpecs | None = None,
+        subject: str | None = None,
+    ) -> SoldComp | None:
+        """Value one listing from completed sales.
+
+        `query`, `specs` and `subject` let the caller pass an identity resolved
+        with more context than this method has: a capacity found in the body of
+        the ad, or the product name the AI recovered from an ad whose own title
+        says nothing more than "Predám".
+        """
+        full_text = listing_text(listing)
+        subject = (subject or "").strip() or listing.title
+        query = (query or "").strip() or sold_query(subject) or sold_query(full_text)
         if not query:
             return None
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        hay = f"{listing.title} {listing.description}"
+        # Specs are mined from the whole ad, similarity is measured on titles.
+        specs = specs if specs is not None else extract_specs(full_text)
+        kind = classify_kind(full_text)
         self_key = _url_key(listing.url)
         ask_key = f"ask:{query}"
 
@@ -174,7 +200,14 @@ class SoldCompClient:
                 and not is_damaged_text(f"{item.title} {item.description}")
                 and _url_key(item.url) != self_key
             ]
-            peers = [item for item in sold if similar_titles(hay, f"{item.title} {item.description}")]
+            # Marketplace descriptions are often long boilerplate. Variant and
+            # capacity matching belongs on titles; including full descriptions
+            # diluted Jaccard similarity enough to reject exact products.
+            peers = [
+                item
+                for item in sold
+                if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+            ]
             fetched_at = _utc_now()
             if self._db_path is not None:
                 self._store_fetch(query, sold, peers, status, fetched_at, source="ebay")
@@ -214,7 +247,11 @@ class SoldCompClient:
             and not is_damaged_text(f"{item.title} {item.description}")
             and _url_key(item.url) != self_key
         ]
-        peers = [item for item in asking if similar_titles(hay, f"{item.title} {item.description}")]
+        peers = [
+            item
+            for item in asking
+            if similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+        ]
         if len(peers) < min_n:
             return None
 
@@ -267,9 +304,10 @@ class SoldCompClient:
         hits: list[Listing] = []
         for item in (
             *self._bazos_search(query),
-            *self._aukro_search(query),
+            *self._public_asking_catalog(),
             *self._ebay_browse_search(query),
         ):
+            item = self._to_eur(item)
             key = _url_key(item.url)
             if key in seen:
                 continue
@@ -285,16 +323,35 @@ class SoldCompClient:
             return []
         return BazosRssClient(self.settings)._parse(xml, site="sk")
 
-    def _aukro_search(self, query: str) -> list[Listing]:
-        url = (
-            "https://aukro.sk/vysledky-vyhladavania?"
-            f"{urlencode({'text': query, 'order': 'newest', 'sellingMode.format': 'BUY_NOW'})}"
+    def _public_asking_catalog(self) -> list[Listing]:
+        """Fetch current Aukro/Vinted catalogs once per hunt, not once per query."""
+        if self._asking_catalog is not None:
+            return self._asking_catalog
+        from bazar_deals.adapters.aukro import AukroHuntClient
+        from bazar_deals.adapters.vinted import VintedHuntClient
+
+        found: list[Listing] = []
+        for client in (AukroHuntClient(self.settings), VintedHuntClient(self.settings)):
+            try:
+                found.extend(client.fetch_new())
+            except (httpx.HTTPError, RuntimeError):
+                continue
+        self._asking_catalog = found
+        return found
+
+    def _to_eur(self, item: Listing) -> Listing:
+        if item.price.currency.upper() == "EUR":
+            return item
+        return item.model_copy(
+            update={
+                "price": item.price.model_copy(
+                    update={
+                        "amount": item.price.to_eur(self.settings.eur_czk),
+                        "currency": "EUR",
+                    }
+                )
+            }
         )
-        try:
-            html = self._get_text(url, accept="text/html")
-        except httpx.HTTPError:
-            return []
-        return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
 
     def _ebay_browse_search(self, query: str) -> list[Listing]:
         if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:

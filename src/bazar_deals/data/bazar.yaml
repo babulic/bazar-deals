@@ -34,7 +34,8 @@ hunt:
   max_price_vs_typical: 0.5
   alert_price_vs_typical: 1.0
   min_sold_sample: 5
-  max_sold_lookups: 40
+  # Counts unique normalized product queries, not duplicate listings.
+  max_sold_lookups: 80
   default_shipping_eur: 8
   max_shipping_eur: 15
   cheap_buy_eur: 20
@@ -681,6 +682,101 @@ identity:
     - aukro
     - vinted
     - bazos
+    # Selling boilerplate. Every Slovak and Czech ad opens with it, so without
+    # this a listing called "Predám, ozvite sa" produces the confident nonsense
+    # query "predam ozvite" instead of admitting it cannot be identified.
+    - predam
+    - predám
+    - prodam
+    - prodám
+    - predaj
+    - prodej
+    - ponukam
+    - ponúkam
+    - nabizim
+    - nabízím
+    - kupim
+    - kúpim
+    - cena
+    - cenu
+    - ceny
+    - dohoda
+    - dohode
+    - dohodu
+    - dohodou
+    - posielam
+    - pošlem
+    - poslem
+    - zaslanie
+    - ihned
+    - ihneď
+    - volajte
+    - sms
+    - mail
+    - email
+    - info
+    - osobny
+    - osobný
+    - osobne
+    - osobne
+    - odber
+    - odber
+    - postovne
+    - poštovné
+    - postovné
+    - dobierka
+    - dobierkou
+    - packeta
+    - packetou
+    - zasielkovna
+    - zásielkovňa
+    - posta
+    - pošta
+    - postou
+    - poštou
+    - zlava
+    - zľava
+    - sleva
+    - akcia
+    - super
+    - lacno
+    # Conversational filler. Once the HTML debris stopped occupying the query
+    # slots, greetings and pronouns from the body started taking them instead.
+    - dobry
+    - dobrý
+    - den
+    - deň
+    - zdravim
+    - zdravím
+    - prosim
+    - prosím
+    - dakujem
+    - ďakujem
+    - mam
+    - mám
+    - mame
+    - máme
+    - tento
+    - tato
+    - táto
+    - toto
+    - tieto
+    - velmi
+    - veľmi
+    - este
+    - ešte
+    - viac
+    - menej
+    - vsetko
+    - všetko
+    - nejaky
+    - nejaký
+    - nejake
+    - nejaké
+    - pouzity
+    - použitý
+    - pouzite
+    - použité
   min_token_len: 3
   min_digit_len: 2
   sold_query_tokens: 6
