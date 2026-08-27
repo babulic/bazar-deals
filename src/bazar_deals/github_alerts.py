@@ -5,16 +5,34 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import format_github_deal
+from bazar_deals.pipeline import HuntRun
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]
+ALERT_TOP_N = int(rules()["github"].get("alert_top_n", 5))
 _API = "https://api.github.com"
 
 
 def listing_key(deal: Deal) -> str:
     listing = deal.item.listing
     return f"{listing.marketplace.value}:{listing.external_id}"
+
+
+def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
+    """BUY deals only, ranked by expected net profit, capped at `alert_top_n`.
+
+    Losing items are never used as fillers. If nothing clears the net-profit
+    floor, the hunt comment is status/funnel only.
+    """
+    cap = ALERT_TOP_N if limit is None else max(0, int(limit))
+    buys = [deal for deal in deals if deal.action is Action.BUY]
+    ranked = sorted(
+        buys,
+        key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
+        reverse=True,
+    )
+    return ranked[:cap]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -28,8 +46,71 @@ def format_run_comment(deals: list[Deal], *, mention: str) -> str:
     )
 
 
+def format_hunt_comment(
+    run: HuntRun,
+    *,
+    mention: str,
+    min_profit,
+) -> str:
+    """Hunt report plus BUY cards only. Losing items are omitted."""
+    shown = select_alert_deals(run.deals)
+    buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
+    ping = f"@{mention}\n\n" if mention and buy_count else ""
+    markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
+    status = _format_status(run, min_profit=min_profit, buy_count=buy_count, shown=len(shown))
+    if not shown:
+        return f"{ping}{status}\n"
+    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in shown)
+    marker_block = f"{markers}\n" if markers else ""
+    return f"{ping}{marker_block}{status}\n\n{blocks}\n"
+
+
+def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
+    notes = "\n".join(f"- {note}" for note in run.fetch_notes) or "- (no sources fetched)"
+    health = []
+    for market, stats in run.source_stats.items():
+        health.append(
+            f"- {market.value}: fetched {stats.get('fetched', 0)}, "
+            f"usable {stats.get('usable', 0)}, scored {stats.get('scored', 0)}, "
+            f"buy {stats.get('buy', 0)}"
+        )
+    if not health:
+        health.append("- no marketplace reached scoring")
+    funnel_bits = [
+        f"usable={run.funnel.get('usable', 0)}",
+        f"under_min={run.funnel.get('under_min', 0)}",
+        f"bulky={run.funnel.get('bulky', 0)}",
+        f"skip_keyword={run.funnel.get('skip_keyword', 0)}",
+        f"heavy={run.funnel.get('heavy', 0)}",
+        f"scored={run.funnel.get('scored', 0)}",
+        f"buy={run.funnel.get('buy', 0)}",
+        f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
+        f"sold_lookup_cap={run.funnel.get('sold_lookup_cap', 0)}",
+        f"below_net_profit={run.funnel.get('below_net_profit', 0)}",
+        f"identity_ai_rescued={run.funnel.get('identity_ai_rescued', 0)}",
+        f"ai_rejected={run.funnel.get('ai_rejected', 0)}",
+        f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
+    ]
+    if buy_count:
+        headline = (
+            f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
+            f"(prah {min_profit} €)."
+        )
+    else:
+        headline = (
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
+            f"Stratové položky sa neposielajú."
+        )
+    return (
+        f"{headline}\n\n"
+        f"Zdroje:\n{notes}\n\n"
+        f"Funnel: {' '.join(funnel_bits)}\n\n"
+        f"Marketplace:\n" + "\n".join(health)
+    )
+
+
 class GitHubIssueAlerts:
-    """Collector issue for actionable BUY deals only."""
+    """Collector issue for BUY hunt cards. Losing items are never posted as deals."""
 
     def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
         self.settings = settings
@@ -51,6 +132,22 @@ class GitHubIssueAlerts:
             "POST",
             f"/repos/{self.repo}/issues/{issue}/comments",
             json={"body": format_run_comment(fresh, mention=self._assignee())},
+        )
+        return 1
+
+    def post_run(self, run: HuntRun) -> int:
+        """Post the hunt report even when there is no BUY, so the collector is never blank."""
+        self._require_auth()
+        issue = self.ensure_issue()
+        body = format_hunt_comment(
+            run,
+            mention=self._assignee(),
+            min_profit=self.settings.min_net_profit_eur,
+        )
+        self._request(
+            "POST",
+            f"/repos/{self.repo}/issues/{issue}/comments",
+            json={"body": body},
         )
         return 1
 

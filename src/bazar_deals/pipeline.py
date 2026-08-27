@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass, field
 from decimal import Decimal
 
 import httpx
@@ -8,7 +9,7 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import is_bulky
+from bazar_deals.catalog import reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -19,7 +20,7 @@ from bazar_deals.domain import (
     Money,
     Vertical,
 )
-from bazar_deals.identity import ItemSpecs, identify
+from bazar_deals.identity import ItemSpecs, identify, identity_subject, with_specs
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
 from bazar_deals.soldcomps import SoldCompClient
@@ -42,10 +43,14 @@ _FUNNEL_KEYS = (
     "under_min",
     "damaged",
     "bulky",
+    "skip_keyword",
+    "heavy",
     "usable",
     "detail_failed",
     "detail_damaged",
     "detail_bulky",
+    "detail_skip_keyword",
+    "detail_heavy",
     "insufficient_detail",
     "identity_weak",
     "identity_ai_rescued",
@@ -66,6 +71,16 @@ _FUNNEL_KEYS = (
 )
 
 
+@dataclass
+class HuntRun:
+    """One hunt pass: scored deals plus the funnel that explains missing alerts."""
+
+    deals: list[Deal]
+    funnel: Counter[str]
+    source_stats: dict[Marketplace, Counter[str]]
+    fetch_notes: list[str] = field(default_factory=list)
+
+
 def hunt(
     source: ListingSource,
     *,
@@ -83,7 +98,7 @@ def hunt(
         enrichers={Marketplace(source.marketplace): source},
         reviewer=reviewer,
         identifier=identifier,
-    )
+    ).deals
 
 
 def hunt_sources(
@@ -94,19 +109,35 @@ def hunt_sources(
     sold: SoldCompClient | None = None,
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
-) -> list[Deal]:
+) -> HuntRun:
     settings = settings or Settings()
     listings: list[Listing] = []
     enrichers: dict[Marketplace, ListingSource] = {}
+    fetch_notes: list[str] = []
     for source in sources:
         enrichers[Marketplace(source.marketplace)] = source
         try:
+            if (
+                Marketplace(source.marketplace) is Marketplace.EBAY
+                and not (settings.ebay_client_id and settings.ebay_client_secret)
+            ):
+                note = (
+                    f"{source.marketplace}: fetched 0 "
+                    "(set GitHub Actions secrets EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
+                )
+                print(note)
+                fetch_notes.append(note)
+                continue
             batch = source.fetch_new(vertical)
-            print(f"{source.marketplace}: fetched {len(batch)}")
+            note = f"{source.marketplace}: fetched {len(batch)}"
+            print(note)
+            fetch_notes.append(note)
             listings.extend(batch)
         except (RuntimeError, httpx.HTTPError) as exc:
-            print(f"{source.marketplace}: fetched 0 ({exc})")
-    return score_listings(
+            note = f"{source.marketplace}: fetched 0 ({exc})"
+            print(note)
+            fetch_notes.append(note)
+    run = score_listings(
         listings,
         settings,
         sold or SoldCompClient(settings),
@@ -114,6 +145,8 @@ def hunt_sources(
         reviewer=reviewer,
         identifier=identifier,
     )
+    run.fetch_notes = fetch_notes
+    return run
 
 
 def score_listings(
@@ -124,7 +157,7 @@ def score_listings(
     enrichers: dict[Marketplace, ListingSource] | None = None,
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
-) -> list[Deal]:
+) -> HuntRun:
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
     enrichers = enrichers or {}
@@ -153,8 +186,9 @@ def score_listings(
         if not is_working_listing(listing):
             funnel["damaged"] += 1
             continue
-        if is_bulky(f"{listing.title} {listing.description}"):
-            funnel["bulky"] += 1
+        dropped = reject_physical(f"{listing.title} {listing.description}")
+        if dropped:
+            funnel[dropped] += 1
             continue
         usable.append(listing)
         source_stats[listing.marketplace]["usable"] += 1
@@ -182,8 +216,9 @@ def score_listings(
         if not is_working_listing(listing):
             funnel["detail_damaged"] += 1
             continue
-        if is_bulky(f"{listing.title} {listing.description}"):
-            funnel["detail_bulky"] += 1
+        dropped = reject_physical(f"{listing.title} {listing.description}")
+        if dropped:
+            funnel[f"detail_{dropped}"] += 1
             continue
 
         item = identify(listing)
@@ -195,17 +230,21 @@ def score_listings(
             if item is None:
                 funnel["identity_weak"] += 1
                 continue
-        lookup_key = item.search_query.casefold().strip()
+        lookup_key = with_specs(
+            item.search_query,
+            item.specs if isinstance(item.specs, ItemSpecs) else None,
+        ).casefold().strip()
         if lookup_key not in lookup_queries:
             if len(lookup_queries) >= lookup_cap:
                 funnel["sold_lookup_cap"] += 1
                 continue
             lookup_queries.add(lookup_key)
+        item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
         comp = sold.median_sold(
             listing,
-            query=item.search_query,
+            query=lookup_key,
             specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
-            subject=item.canonical_name,
+            subject=identity_subject(item),
         )
         if comp is None:
             funnel["no_sold_comps"] += 1
@@ -243,7 +282,7 @@ def score_listings(
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
     print(_format_funnel(funnel))
     print(_format_source_health(source_stats))
-    return deals
+    return HuntRun(deals=deals, funnel=funnel, source_stats=source_stats)
 
 
 def _rescue_identity(

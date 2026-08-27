@@ -181,3 +181,37 @@ def test_round_robin_prevents_bazos_from_consuming_lookup_budget() -> None:
         Marketplace.EBAY,
         Marketplace.BAZOS,
     ]
+
+
+def test_ai_review_prompt_includes_body_specs_and_marketplace_fields(tmp_path) -> None:
+    from bazar_deals.identity import ItemSpecs
+
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="body",
+        title="Predám telefón",
+        description="Apple iPhone 13, kapacita 128 GB, Midnight.",
+        url="https://mobil.bazos.sk/inzerat/body/",
+        price=Money(amount=Decimal("38"), currency="EUR"),
+        raw={"brand": "Apple", "shortDescription": "iPhone 13 128GB"},
+    )
+    item = IdentifiedItem(
+        listing=listing,
+        vertical=None,
+        canonical_name="iphone 13 128gb",
+        model="iphone 13 128gb",
+        search_query="iphone 13 128gb",
+        asking_sample=9,
+        kind="phones",
+        sold_label="konzervatívna rýchlopredajná cena, ebay.de sold P25 (n=9)",
+        confidence=0.9,
+        specs=ItemSpecs(storage=frozenset({"128gb"}), phone="iphone13"),
+    )
+    deal = score_deal(item, Decimal("120"), Decimal("8"))
+    prompt = AIReviewClient(Settings(comps_db=str(tmp_path / "ai.sqlite")))._prompt(deal)
+    assert "Whole advertisement:" in prompt
+    assert "128 GB" in prompt
+    assert "Extracted specs from the whole ad:" in prompt
+    assert "128gb" in prompt
+    assert "brand: Apple" in prompt
+    assert "shortDescription: iPhone 13 128GB" in prompt

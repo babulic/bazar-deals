@@ -11,7 +11,7 @@ from bazar_deals.adapters.ebay import EbayBrowseClient
 from bazar_deals.adapters.vinted import VintedHuntClient
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Vertical
-from bazar_deals.github_alerts import GitHubIssueAlerts
+from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources
 from bazar_deals.selling.collect import collect_all, refresh_inventory
@@ -70,7 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--notify",
         action="store_true",
-        help="Post BUY deals meeting the net-profit floor to the Deal alerts GitHub issue",
+        help="Post the hunt report to the Deal alerts GitHub issue; include BUY cards only",
     )
     args = parser.parse_args(argv)
 
@@ -94,15 +94,17 @@ def main(argv: list[str] | None = None) -> int:
     vertical = Vertical(args.vertical) if args.vertical else None
     sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    deals = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
+    run = hunt_sources(sources, vertical=vertical, settings=settings, sold=sold)
+    deals = run.deals
+    shown = select_alert_deals(deals)
     actionable = [deal for deal in deals if deal.action is Action.BUY]
+    if shown:
+        print("\n\n".join(format_deal(deal) for deal in shown))
     if not actionable:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
-        return 0
-    print("\n\n".join(format_deal(deal) for deal in actionable))
     if args.notify:
         try:
-            posted = GitHubIssueAlerts(settings).post_deals(actionable)
+            posted = GitHubIssueAlerts(settings).post_run(run)
         except RuntimeError as exc:
             print(exc)
             return 2

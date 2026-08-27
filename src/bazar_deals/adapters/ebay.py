@@ -66,8 +66,11 @@ class EbayBrowseClient(ListingSource):
         description = str(data.get("description") or data.get("shortDescription") or "").strip()
         shipping = _shipping_cost(data) or listing.shipping_cost
         raw = dict(listing.raw)
-        raw["detail_fetched"] = bool(description)
+        raw["detail_fetched"] = bool(description) or bool(data.get("localizedAspects"))
         raw["detail"] = data
+        for key in ("shortDescription", "localizedAspects", "brand", "mpn"):
+            if data.get(key) not in (None, "", []):
+                raw[key] = data[key]
         return listing.model_copy(
             update={
                 "description": description,

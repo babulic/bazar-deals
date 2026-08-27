@@ -127,3 +127,27 @@ def test_long_marketplace_descriptions_do_not_hide_exact_title_match(tmp_path: P
     assert comp is not None
     assert comp.reliable_for_buy is False
     assert comp.sample == 5
+
+
+def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    seen: list[str] = []
+
+    def fake_hits(query: str):
+        seen.append(query)
+        return [], 403, True
+
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="iphone-body",
+        title="Apple iPhone 13",
+        description="Kapacita 128 GB, plne funkčný.",
+        url="https://mobil.bazos.sk/inzerat/iphone-body/",
+        price=Money(amount=Decimal("80"), currency="EUR"),
+    )
+    with patch.object(client, "_sold_hits", side_effect=fake_hits), patch.object(
+        client, "_market_hits", return_value=[]
+    ):
+        client.median_sold(listing)
+    assert seen
+    assert "128gb" in seen[0]

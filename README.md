@@ -20,7 +20,7 @@ A listing becomes **BUY only when expected conservative net profit is at least 3
 ```text
 newest buy-now listing
     ↓
-small + working + within purchase cap
+small + working + shoebox-scale (max 5 kg) + purchase at least 20 EUR
     ↓
 for ebay.de: deliveryCountry=SK must be confirmed
     ↓
@@ -45,23 +45,38 @@ subtract:
 BUY only if expected net profit >= 30 EUR
 ```
 
+## What is searched
+
+The hunt looks for **small, working, fast-moving goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
+
+- **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
+- **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
+- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports.
+- **eBay.de** Browse API small categories (clothing, books, toys, electronics, cameras, games, jewelry, collectibles, minerals, coins, stamps, beauty, musical, sporting, phones, computers, card games, sports cards, LEGO, fragrances, headphones, watches, comics, tablets, handbags, vintage computers) only when `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` are set, and only with confirmed delivery to Slovakia.
+
 ## Identification
 
 An item can only be valued once it is known exactly what it is, so identification
 reads the entire advertisement rather than the headline.
 
 - **Every field is searched.** Title, body and the marketplace's own fields
-  (eBay `shortDescription`, Aukro category path, Vinted brand and size). Sellers
-  routinely leave the capacity, the production year or the chip number out of
-  the title and state it only in the body.
+  (eBay `shortDescription` and item specifics, Aukro category path, Vinted brand
+  and size), including nested API `detail` payloads. Sellers routinely leave
+  the capacity, the production year or the chip number out of the title and
+  state it only in the body or in structured fields.
 - **Selling boilerplate is discarded.** Without it a listing called
   `Predám, ozvite sa` produced the confident nonsense query `predam ozvite`
   instead of admitting it could not be identified.
 - **Price-critical facts become a spec profile**: storage capacity, production
-  year, part and model codes, lot size, phone model and variant. Two listings
-  must agree on these before one may price the other, and the facts count even
-  when they appear only in the body. A capacity written in the description now
-  rejects a comparable of a different capacity, which a title-only match missed.
+  year, part and model codes, lot size, phone model and variant, and known
+  mineral localities/origins. Two listings must agree on these before one may
+  price the other, and the facts count even when they appear only in the body.
+  A capacity written in the description now rejects a comparable of a different
+  capacity, which a title-only match missed. Those same facts are appended to
+  the sold-comps search so a 128 GB phone and a 256 GB phone never share one
+  cached P25.
+- **Vague headlines do not price the item.** Matching sold comps uses the
+  identified product (`iphone 13 128gb`), not `Predám telefón`.
 - **Part numbers survive being written apart.** `CSG 8565 R2` yields both `8565`
   and `8565r2`, while measurements such as `220V`, `16cm` and `61g` are not
   mistaken for model codes.
@@ -69,6 +84,16 @@ reads the entire advertisement rather than the headline.
   priced from one made in 1993.
 - **A lot is not a single piece.** `8ks kľučky` will not be priced from an ad
   selling one.
+- **Mineral locality is part of identity.** Galenit from Banská Štiavnica
+  (including inflected *Banskej Štiavnice* / Schemnitz) is not priced from a
+  nameless specimen. "Slovensko" on a domestic ad is ignored — that is the
+  seller, not the origin of the stone.
+
+The sold-comps budget (`hunt.max_sold_lookups`, default 80) counts **unique
+normalized product queries**, not listings. Ten ads for the same iPhone 13
+128GB cost one eBay sold search. The previous cap of 40 counted every listing,
+so a pile of duplicate phones exhausted the budget before the 41st distinct
+product was ever priced.
 
 ### AI identification
 
@@ -85,6 +110,11 @@ and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
 
 The funnel reports `identity_ai_rescued` and `identity_ai_failed` alongside
 `identity_weak`, so the value of the AI step is visible per run.
+
+The fail-closed **price** review (also Copilot Free with `COPILOT_MODEL=auto`)
+receives the same whole-advertisement text plus the extracted spec profile. It
+may only lower the deterministic P25 or veto the alert; it cannot raise a value
+to make a deal pass.
 
 ## Conservative valuation
 
@@ -140,7 +170,7 @@ Environment overrides used by GitHub Actions:
 | Env | Default | Meaning |
 |---|---:|---|
 | `MIN_NET_PROFIT_EUR` | `30` | Minimum expected clean profit for BUY |
-| `MIN_BUY_EUR` | `10` | Minimum purchase price |
+| `MIN_BUY_EUR` | `20` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `110` | Maximum purchase price |
 | `MAX_SHIPPING_EUR` | `15` | Conservative inbound shipping when actual cost is unavailable |
 | `MAX_SHIPPING_CHEAP_EUR` | `11` | Shipping allowance for cheap purchases |
@@ -157,7 +187,16 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 ## Alerts
 
-Only **BUY** deals that pass the >=30 EUR expected-net-profit gate are posted to the GitHub Deal alerts collector issue. The alert includes purchase price, conservative quick-sale value, shipping, fees, condition haircut, risk reserve and expected clean profit.
+The hourly GitHub Actions hunt always comments on the Deal alerts collector
+issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). Cards are
+**BUY only**, ranked by expected net profit, at most 5 per hunt. If nothing
+clears the 30 EUR net-profit floor, the comment is status and funnel only —
+losing items are not posted as fillers. The assignee is mentioned only when at
+least one BUY card is present.
+
+eBay listings require repo Actions secrets `EBAY_CLIENT_ID` and
+`EBAY_CLIENT_SECRET`. Without them the hunt still runs Bazos/Aukro/Vinted, but
+eBay is skipped.
 
 ## Selling own stock
 

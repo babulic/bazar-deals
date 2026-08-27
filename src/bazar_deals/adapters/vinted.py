@@ -13,13 +13,23 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_vinted_detail, parse_vinted_items
+from bazar_deals.rules import rules
 
 _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
+_VINTED = rules().get("vinted") or {}
+_CATALOGS = tuple(str(path) for path in _VINTED.get("catalogs") or ())
 
 NO_PUBLIC_CATALOG = (
     "Vinted Pro Integrations is sell-side only. Catalog hunt uses the public site HTML."
 )
+
+
+def _catalog_url(path: str | None, *, lo: int, hi: int, page: int) -> str:
+    base = "https://www.vinted.sk/catalog"
+    if path:
+        base = f"{base}/{path.lstrip('/')}"
+    return f"{base}?order=newest_first&price_from={lo}&price_to={hi}&page={page}"
 
 
 class VintedHuntClient(ListingSource):
@@ -43,11 +53,12 @@ class VintedHuntClient(ListingSource):
         hi = int(self.settings.max_buy_eur)
         found: list[Listing] = []
         seen: set[str] = set()
-        for page in (1, 2):
-            url = (
-                "https://www.vinted.sk/catalog?order=newest_first"
-                f"&price_from={lo}&price_to={hi}&page={page}"
-            )
+        paths = _CATALOGS or (None,)
+        gap = min(0.8, max(0.0, self.settings.bazos_request_gap_seconds))
+        for index, path in enumerate(paths):
+            if index:
+                time.sleep(gap)
+            url = _catalog_url(path, lo=lo, hi=hi, page=1)
             response = httpx.get(
                 url,
                 headers={
@@ -65,8 +76,6 @@ class VintedHuntClient(ListingSource):
                     continue
                 seen.add(key)
                 found.append(item)
-            if page == 1:
-                time.sleep(min(2.0, max(0.0, self.settings.bazos_request_gap_seconds)))
         return found
 
     def enrich_listing(self, listing: Listing) -> Listing:

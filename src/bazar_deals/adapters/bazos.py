@@ -10,7 +10,7 @@ import feedparser
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_RSS, is_bulky
+from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_RSS, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_bazos_detail
@@ -35,7 +35,11 @@ class BazosRssClient(ListingSource):
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if self.fixture_path:
             parsed = self._parse(self.fixture_path.read_text(encoding="utf-8"), site="sk")
-            return [item for item in parsed if not is_bulky(f"{item.title} {item.description}")]
+            return [
+                item
+                for item in parsed
+                if reject_physical(f"{item.title} {item.description}") is None
+            ]
 
         listings: list[Listing] = []
         if vertical:
@@ -49,7 +53,11 @@ class BazosRssClient(ListingSource):
                 xml = self._get(url)
                 listings.extend(self._parse(xml, site=site))
                 time.sleep(self.settings.bazos_request_gap_seconds)
-        listings = [item for item in listings if not is_bulky(f"{item.title} {item.description}")]
+        listings = [
+            item
+            for item in listings
+            if reject_physical(f"{item.title} {item.description}") is None
+        ]
         return listings
 
     def enrich_listing(self, listing: Listing) -> Listing:

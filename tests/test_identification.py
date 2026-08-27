@@ -12,6 +12,7 @@ from bazar_deals.identity import (
     ItemSpecs,
     extract_specs,
     identify,
+    identity_subject,
     listing_text,
     similar_titles,
 )
@@ -55,6 +56,40 @@ def test_listing_text_reads_past_the_title() -> None:
     assert "128 GB" in text
     assert "Midnight" in text
     assert "Mobily" in text
+
+
+def test_listing_text_reads_nested_ebay_item_specifics() -> None:
+    text = listing_text(
+        listing(
+            title="iPhone 13",
+            description="",
+            raw={
+                "detail": {
+                    "localizedAspects": [
+                        {"name": "Storage Capacity", "value": "128 GB"},
+                        {"name": "Brand", "value": "Apple"},
+                    ]
+                }
+            },
+        )
+    )
+    assert "128 GB" in text
+    assert "Apple" in text
+    item = identify(
+        listing(
+            title="iPhone 13",
+            description="",
+            raw={
+                "detail": {
+                    "localizedAspects": [
+                        {"name": "Storage Capacity", "value": "128 GB"},
+                    ]
+                }
+            },
+        )
+    )
+    assert "128gb" in item.search_query
+    assert item.specs.storage == frozenset({"128gb"})
 
 
 def test_capacity_hidden_in_the_body_still_reaches_the_search_query() -> None:
@@ -105,6 +140,56 @@ def test_a_lot_is_not_priced_from_a_single_piece() -> None:
     )
     assert extract_specs("8ks kovové kľučky Winkhaus").lot_size == 8
     assert extract_specs("Kovové kľučky Winkhaus").lot_size is None
+    lot = identify(listing(title="8ks kovové kľučky na eurookná Winkhaus dural"))
+    assert "8ks" in lot.search_query
+
+
+def test_vague_title_still_matches_sold_comps_from_the_body() -> None:
+    ad = listing(
+        title="Predám telefón",
+        description="Apple iPhone 13, kapacita 128 GB, Midnight, plne funkčný.",
+    )
+    item = identify(ad)
+    assert "iphone" in item.search_query
+    assert "128gb" in item.search_query
+    # The headline alone cannot match a real sold title.
+    assert similar_titles(item.listing.title, "Apple iPhone 13 128GB Midnight") is False
+    assert (
+        similar_titles(
+            identity_subject(item),
+            "Apple iPhone 13 128GB Midnight",
+            left_specs=item.specs,
+            left_kind=ItemKind.PHONES,
+        )
+        is True
+    )
+
+
+def test_mineral_locality_from_inflected_body_is_required_of_comps() -> None:
+    ad = listing(
+        title="Galenit",
+        description="Pekný vzorok z Banskej Štiavnice, 61g, zberateľský kus.",
+    )
+    item = identify(ad)
+    assert any("stiavnic" in place for place in item.specs.localities)
+    assert "stiavnica" in item.search_query
+    assert (
+        similar_titles(
+            "Galenit kryštál Banská Štiavnica",
+            "Galenit kryštál Namibia Goboboseb",
+            left_specs=item.specs,
+            left_kind=ItemKind.MINERALS,
+        )
+        is False
+    )
+    assert similar_titles(
+        "Galenit kryštál Banská Štiavnica",
+        "Galenit kryštál Schemnitz Banská Štiavnica",
+        left_specs=item.specs,
+        left_kind=ItemKind.MINERALS,
+    )
+    # A domestic seller location is not a specimen origin.
+    assert extract_specs("Ametyst, osobný odber Slovensko").localities == frozenset()
 
 
 def test_specs_conflict_is_asymmetric() -> None:
