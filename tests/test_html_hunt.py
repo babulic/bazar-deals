@@ -178,6 +178,27 @@ def test_vinted_datadome_is_a_fetch_error(monkeypatch) -> None:
         VintedHuntClient().fetch_new()
 
 
+def test_vinted_empty_nextjs_shell_is_a_fetch_error(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import vinted as vinted_mod
+
+    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    hydrated = "7:" + json.dumps([{"id": 1, "title": "no catalog item"}], separators=(",", ":"))
+    html = (
+        f"<html><script>self.__next_f.push([1,{json.dumps(hydrated)}])</script>"
+        '<a href="https://www.vinted.sk/items/help">help</a></html>'
+    )
+    response = httpx.Response(
+        200,
+        text=html,
+        request=httpx.Request("GET", "https://www.vinted.sk/catalog"),
+    )
+    monkeypatch.setattr(vinted_mod.httpx, "get", lambda *args, **kwargs: response)
+    with pytest.raises(RuntimeError, match="DataDome"):
+        VintedHuntClient().fetch_new()
+
+
 def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
     import httpx
 
