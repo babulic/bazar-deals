@@ -57,6 +57,9 @@ github:
   assignee: ""
   # Maximum BUY cards in one hunt comment. Losing items are never used as fillers.
   alert_top_n: 5
+  sell_alert_issue_title: Sell buyers
+  sell_alert_label: bazar-sell
+  sell_alert_issue: 0
 
 fees:
   rates:

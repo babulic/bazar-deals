@@ -201,11 +201,22 @@ eBay is skipped.
 ## Selling own stock
 
 `hunt` finds things to buy. `sell` does the opposite: it takes the stock already
-listed on the four seller accounts and works out where the buyers are.
+listed on the four seller accounts (bazos.sk, aukro.sk, vinted.sk, ebay.at) and
+works out where the buyers are.
+
+It now also searches **other people's want-to-buy ads** (`kúpim`, `koupím`,
+`suche`, `kaufe`) on bazos.sk, bazos.cz, Aukro, vinted.sk / .cz / .at / .de,
+ebay.de and ebay.at. Only ads whose title is the buyer's own dopyt are kept.
+When that dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
+hourly at minute 30) posts a digest on a **Sell buyers** issue — not hunt
+issue #1 — pairing the buyer (where, title, identification, offered price if
+stated) with your own listings for that product.
 
 ```powershell
 python -m bazar_deals sell
 python -m bazar_deals sell --refresh
+python -m bazar_deals sell --buyers
+python -m bazar_deals sell --buyers --notify
 python -m bazar_deals sell --segment minerals
 python -m bazar_deals sell --format json
 ```

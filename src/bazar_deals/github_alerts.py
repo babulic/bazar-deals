@@ -11,6 +11,8 @@ from bazar_deals.rules import rules
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]
 ALERT_TOP_N = int(rules()["github"].get("alert_top_n", 5))
+SELL_ALERT_ISSUE_TITLE = str(rules()["github"].get("sell_alert_issue_title") or "Sell buyers")
+SELL_ALERT_LABEL = str(rules()["github"].get("sell_alert_label") or "bazar-sell")
 _API = "https://api.github.com"
 
 
@@ -110,14 +112,40 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
 
 
 class GitHubIssueAlerts:
-    """Collector issue for BUY hunt cards. Losing items are never posted as deals."""
+    """Collector issue for BUY hunt cards, or sell-side buyer digests."""
 
-    def __init__(self, settings: Settings, client: httpx.Client | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        client: httpx.Client | None = None,
+        *,
+        issue_title: str | None = None,
+        issue_label: str | None = None,
+        issue_number: int | None = None,
+        label_color: str = "D93F0B",
+        label_description: str = "Automatické hunt alerty",
+    ) -> None:
         self.settings = settings
         self.repo = (settings.github_repository or "").strip()
         self.token = settings.github_token
-        self._issue_number = settings.github_alert_issue
+        self._issue_title = issue_title or ALERT_ISSUE_TITLE
+        self._issue_label = issue_label or ALERT_LABEL
+        self._issue_number = settings.github_alert_issue if issue_number is None else issue_number
+        self._label_color = label_color
+        self._label_description = label_description
         self._client = client
+
+    @classmethod
+    def for_sell_buyers(cls, settings: Settings, client: httpx.Client | None = None) -> GitHubIssueAlerts:
+        return cls(
+            settings,
+            client,
+            issue_title=SELL_ALERT_ISSUE_TITLE,
+            issue_label=SELL_ALERT_LABEL,
+            issue_number=settings.github_sell_alert_issue,
+            label_color="0E8A16",
+            label_description="Kupci na vlastný tovar",
+        )
 
     def post_deals(self, deals: list[Deal]) -> int:
         deals = [deal for deal in deals if deal.action is Action.BUY]
@@ -151,6 +179,17 @@ class GitHubIssueAlerts:
         )
         return 1
 
+    def post_buyer_digest(self, body: str) -> int:
+        """Post the sell-side buyer digest even when no want-ad matched."""
+        self._require_auth()
+        issue = self.ensure_issue()
+        self._request(
+            "POST",
+            f"/repos/{self.repo}/issues/{issue}/comments",
+            json={"body": body},
+        )
+        return 1
+
     def ensure_issue(self) -> int:
         self._require_auth()
         self._ensure_label()
@@ -159,11 +198,11 @@ class GitHubIssueAlerts:
             for issue in self._request(
                 "GET",
                 f"/repos/{self.repo}/issues",
-                params={"state": "open", "labels": ALERT_LABEL, "per_page": 100},
+                params={"state": "open", "labels": self._issue_label, "per_page": 100},
             ):
                 if issue.get("pull_request"):
                     continue
-                if issue.get("title") == ALERT_ISSUE_TITLE:
+                if issue.get("title") == self._issue_title:
                     number = int(issue["number"])
                     break
         if not number:
@@ -171,11 +210,11 @@ class GitHubIssueAlerts:
                 "POST",
                 f"/repos/{self.repo}/issues",
                 json={
-                    "title": ALERT_ISSUE_TITLE,
-                    "labels": [ALERT_LABEL],
+                    "title": self._issue_title,
+                    "labels": [self._issue_label],
                     "assignees": [self._assignee()],
                     "body": (
-                        "Collector issue for hunt alerts. "
+                        "Collector issue for hunt or sell-buyer alerts. "
                         "`github-actions[bot]` comments here and mentions the assignee."
                     ),
                 },
@@ -184,7 +223,7 @@ class GitHubIssueAlerts:
         self._request(
             "PATCH",
             f"/repos/{self.repo}/issues/{number}",
-            json={"assignees": [self._assignee()], "state": "open", "labels": [ALERT_LABEL]},
+            json={"assignees": [self._assignee()], "state": "open", "labels": [self._issue_label]},
         )
         self._issue_number = number
         return number
@@ -193,7 +232,7 @@ class GitHubIssueAlerts:
         return (self.settings.github_assignee or self.repo.split("/")[0]).lstrip("@")
 
     def _ensure_label(self) -> None:
-        path = f"/repos/{self.repo}/labels/{ALERT_LABEL}"
+        path = f"/repos/{self.repo}/labels/{self._issue_label}"
         try:
             self._request("GET", path)
             return
@@ -205,9 +244,9 @@ class GitHubIssueAlerts:
                 "POST",
                 f"/repos/{self.repo}/labels",
                 json={
-                    "name": ALERT_LABEL,
-                    "color": "D93F0B",
-                    "description": "Automatické hunt alerty",
+                    "name": self._issue_label,
+                    "color": self._label_color,
+                    "description": self._label_description,
                 },
             )
         except httpx.HTTPStatusError as exc:

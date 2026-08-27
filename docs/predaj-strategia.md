@@ -12,9 +12,20 @@ stránky každého účtu:
 
 ```bash
 python -m bazar_deals sell --refresh
+python -m bazar_deals sell --buyers --notify
 python -m bazar_deals sell --segment minerals
 python -m bazar_deals sell --format json
 ```
+
+`--buyers` hľadá cudzie inzeráty typu **kúpim / koupím / suche / kaufe** na
+bazos.sk, bazos.cz, Aukre, vinted.sk / .cz / .at / .de, ebay.de a ebay.at.
+Kupec musí mať vlastný inzerát, ktorý v titulku hovorí, že tovar kúpi — predajné
+inzeráty sa zahodia. Keď dopyt sedí na tvoj tovar, vznikne digest: kde kupec je,
+čo chce, za koľko ak cenu uviedol, identifikácia produktu, a tvoje vlastné
+inzeráty na ten istý kus. GitHub Actions (`.github/workflows/sell.yml`) to
+posiela každú hodinu (minúta 30) na issue **Sell buyers**, oddelene od hunt
+issue #1. Hunt cleanup maže len komentáre na #1, predajný digest sa tým
+neprepisuje.
 
 Bazoš a Aukro sa zbierajú kompletne bez prihlásenia. eBay blokuje sťahovanie
 HTML z dátových centier, takže potrebuje `EBAY_CLIENT_ID` a `EBAY_CLIENT_SECRET`;

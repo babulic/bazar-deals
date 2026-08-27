@@ -15,6 +15,7 @@ from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources
 from bazar_deals.selling.collect import collect_all, refresh_inventory
+from bazar_deals.selling.demand import find_buyers, format_buyer_digest
 from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
 from bazar_deals.selling.plan import build_plan
 from bazar_deals.selling.report import format_json, format_markdown
@@ -31,7 +32,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "command",
         choices=["hunt", "sell"],
-        help="hunt: buy-side deal pipeline. sell: cross-border plan for own stock.",
+        help="hunt: buy-side deal pipeline. sell: own-stock plan and buyer-demand digest.",
     )
     parser.add_argument(
         "--segment",
@@ -49,6 +50,11 @@ def main(argv: list[str] | None = None) -> int:
         "--refresh",
         action="store_true",
         help="Page through every seller account first and refresh the inventory snapshot.",
+    )
+    parser.add_argument(
+        "--buyers",
+        action="store_true",
+        help="Search European kúpim/suche ads and pair them with own stock",
     )
     parser.add_argument(
         "--source",
@@ -70,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--notify",
         action="store_true",
-        help="Post the hunt report to the Deal alerts GitHub issue; include BUY cards only",
+        help="Post hunt BUY cards, or with sell --buyers the buyer digest, to GitHub issues",
     )
     args = parser.parse_args(argv)
 
@@ -85,6 +91,19 @@ def main(argv: list[str] | None = None) -> int:
             target = save_inventory(inventory)
             print(f"Refreshed {report.matched} listing(s) into {target}:", file=sys.stderr)
             print(report.summary(), file=sys.stderr)
+        if args.buyers:
+            settings = Settings()
+            digest = find_buyers(inventory, settings)
+            body = format_buyer_digest(digest, mention=settings.github_assignee)
+            print(body)
+            if args.notify:
+                try:
+                    posted = GitHubIssueAlerts.for_sell_buyers(settings).post_buyer_digest(body)
+                except RuntimeError as exc:
+                    print(exc)
+                    return 2
+                print(f"Posted {posted} sell-buyer comment(s) to the Sell buyers issue.")
+            return 0
         plan = build_plan(inventory)
         renderer = format_json if args.format == "json" else format_markdown
         print(renderer(plan, segment=args.segment))
