@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, AwareDatetime
+from typing import Literal
 
 from bazar_deals.rules import rules
 
@@ -27,16 +28,32 @@ class Money(BaseModel):
     amount: Decimal
     currency: str = _DOMAIN["default_currency"]
 
-    def to_eur(self, eur_czk: Decimal, eur_usd: Decimal | None = None) -> Decimal:
+    def to_eur(self, eur_czk: Decimal | None, eur_usd: Decimal | None = None, *, eur_pln: Decimal | None = None) -> Decimal:
         usd = eur_usd if eur_usd is not None else Decimal(str(_HUNT["eur_usd"]))
         code = self.currency.upper()
         if code == "EUR":
             return self.amount
+        if code == "PLN":
+            if eur_pln is None or not eur_pln.is_finite() or eur_pln <= 0:
+                raise ValueError("No valid EUR_PLN exchange rate")
+            return (self.amount / eur_pln).quantize(Decimal("0.01"))
         if code == "CZK":
+            if eur_czk is None or not eur_czk.is_finite() or eur_czk <= 0:
+                raise ValueError("No valid EUR_CZK exchange rate")
             return (self.amount / eur_czk).quantize(Decimal("0.01"))
         if code in {"USD", "GBP"}:
             return (self.amount / usd).quantize(Decimal("0.01"))
-        return self.amount
+        raise ValueError(f"Unsupported currency: {code}")
+
+
+class PurchaseEvidence(BaseModel):
+    checked_at: AwareDatetime
+    method: Literal["delivery_sk", "pickup_sk"]
+    evidence: str = Field(min_length=10)
+
+    def is_fresh(self) -> bool:
+        age = datetime.now(timezone.utc) - self.checked_at
+        return timedelta(0) <= age <= timedelta(hours=24)
 
 
 class Listing(BaseModel):
@@ -59,6 +76,18 @@ class Listing(BaseModel):
     ships_to_slovakia: bool | None = None
     shipping_cost: Money | None = None
     raw: dict = Field(default_factory=dict)
+    manual_import: bool = False
+    purchase_evidence: PurchaseEvidence | None = None
+
+    def manual_purchase_verified(self) -> bool:
+        return bool(self.purchase_evidence and self.purchase_evidence.is_fresh()
+                    and self.shipping_cost is not None and self.buy_now)
+
+    def purchase_allowed(self, *, require_confirmation: bool = False) -> bool:
+        if self.manual_import:
+            return self.manual_purchase_verified()
+        return (self.ships_to_slovakia is not False and
+                (not require_confirmation or self.ships_to_slovakia is True))
 
     def is_immediate_buy(self) -> bool:
         if not self.buy_now:
@@ -107,6 +136,7 @@ class CostBreakdown(BaseModel):
     seller_risk: Decimal
     net_profit: Decimal
     currency: str = _DOMAIN["default_currency"]
+    fx_fee_reserve: Decimal = Decimal("0")  # Included in fees, not an additional subtraction.
 
 
 class Deal(BaseModel):

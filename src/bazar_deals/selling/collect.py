@@ -5,7 +5,7 @@ import html
 import re
 import time
 import unicodedata
-from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation
 
 import httpx
 from pydantic import BaseModel, Field
@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from bazar_deals.adapters.ebay import EbayBrowseClient
 from bazar_deals.adapters.vinted import VintedProClient
 from bazar_deals.config import Settings
+from bazar_deals.domain import Money
 from bazar_deals.rules import rules
 from bazar_deals.selling.inventory import Inventory, InventoryItem
 
@@ -140,7 +141,6 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
     listings: dict[str, CollectedListing] = {}
     total: int | None = None
     pages = 0
-    eur_czk = Decimal(str(rules()["selling"]["aukro_eur_czk"]))
 
     for page in range(MAX_PAGES):
         try:
@@ -170,10 +170,14 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
         for node in content:
             price = node.get("buyNowPrice") or node.get("auctionPrice") or {}
             amount = Decimal(str(price.get("amount") or "0"))
-            # The shared backend quotes CZK even for the aukro.sk storefront,
-            # which prices in whole euros.
-            if str(price.get("currency") or "").upper() == "CZK" and eur_czk:
-                amount = (amount / eur_czk).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+            # Convert with the same dated rate as hunt/demand; do not infer the
+            # storefront's whole-EUR price from a fixed historical multiplier.
+            try:
+                amount = Money(amount=amount, currency=str(price.get("currency") or "CZK")).to_eur(
+                    settings.eur_czk, eur_pln=settings.eur_pln)
+            except ValueError:
+                return SourceResult(marketplace="aukro", ok=False,
+                                    reason="No valid exchange rate; previous inventory retained")
             identifier = str(node.get("itemId") or "")
             if not identifier:
                 continue

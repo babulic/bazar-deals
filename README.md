@@ -7,6 +7,10 @@ Purchase sources:
 - `vinted.sk`
 - `aukro.sk`
 - `bazos.sk`
+- `sbazar.cz`
+- Facebook Marketplace (public data only; login redirects are reported)
+- `allegro.pl` and `allegro.sk` (official API token required)
+- `olx.pl` (public data only; blocking is reported)
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded. eBay is not a purchase source and is not used for valuation.
 
@@ -253,8 +257,9 @@ the digest with links, labelled as not-a-demand, so you can click them.
 | forum64.de | C64 Kleinanzeigen search: `Suche` / `Gesucht` + part number |
 | ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{kaufe\|kupię\|veszek\|compro\|achète\|koop} {part}` plus looking-for |
 
-Allegro is not scraped (needs a business account). Facebook groups are out of
-scope. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
+Allegro PL/SK is searched through the official listing API. Sbazar.cz, OLX.pl
+and Facebook Marketplace public results are also searched for buyer-authored
+want-to-buy titles. Facebook groups and private/login APIs remain out of scope. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
 says so instead of pretending the board was empty.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
@@ -316,3 +321,165 @@ python -m bazar_deals hunt --offline --source bazos
 python -m bazar_deals hunt --notify
 python -m bazar_deals sell
 ```
+
+## Additional marketplaces and Slovakia delivery
+
+**Access correction (2026-08-31):** Adding an Allegro token is not sufficient
+for a new application. Allegro support says new `/offers/listing` verification
+has stopped; legacy access depends on individual agreements. OLX's standard
+API only manages the authenticated user's own ads. Facebook login does not
+by itself establish unattended data access. The adapters below are partial
+integration support, not five verified live production sources. See the
+[concrete access and deployment plan](docs/marketplace-access-plan.md).
+
+
+`hunt --source sbazar|facebook|allegro_pl|allegro_sk|olx` selects one new source;
+`hunt --source all` includes all five. The hourly workflow fetches each source
+separately and preserves source errors in the final report. Searches are bounded
+by `central_europe.queries` and `max_queries` in the packaged YAML; these are a
+small initial set of product searches, not an exhaustive scan of each site.
+`sell --buyers` uses the same sources with Czech, Slovak or Polish buy verbs.
+This does not create seller accounts, publish listings, send messages, or import
+new seller-account inventory.
+
+For every new purchase source, **unknown delivery to Slovakia means no BUY**.
+A `.sk` domain, seller location, mention of Slovakia, OLX delivery badge, or
+ordinary domestic postage is insufficient. The source must provide either an
+explicit affirmative delivery statement in the ad, country-wide SK shipping
+metadata, or an official Allegro search result filtered by `shipping.country=SK`.
+Negated/conditional statements do not qualify. This deliberately misses ads whose
+seller would agree only after being contacted. The pipeline also rechecks price,
+availability and shipping after fetching a shortlisted detail page.
+
+- **Sbazar:** parses the public Astro listing data and item details. Search-page
+  ads normally omit the description, so delivery is checked on the detail page.
+- **Allegro PL/SK:** set `ALLEGRO_ACCESS_TOKEN` for an application allowed to use
+  `GET /offers/listing`. Both markets request SK delivery, EUR and BUY_NOW.
+  Missing/expired tokens and rejected access are reported; no private API or
+  CAPTCHA bypass is used. The lowest displayed postage is not assumed to be SK
+  postage; the conservative shipping reserve remains when the actual cost is
+  unknown. The same offer on both domains counts once in the price-book sample.
+- **OLX/Facebook:** scheduled runs use manual mode. Public Product/Offer
+  structured data is supported for explicit diagnostics. Login,
+  redirects, HTTP 403/429 or unreadable results are reported as unavailable,
+  with a manual-search link. These sources are **not guaranteed to work
+  unattended**. The verification on 2026-08-31 returned OLX HTTP 403 and a
+  Facebook login redirect; no live results were claimed for either site.
+- **CZK and PLN:** online scoring, buyer search and inventory refresh load both
+  rates from one dated ECB snapshot automatically. `EUR_CZK` / `EUR_PLN` are
+  optional manual overrides, not required configuration. GitHub Actions caches
+  `.cache/ecb-fx.json` across runs; repository variables with those names can
+  override individual currencies. `ALLEGRO_ACCESS_TOKEN` remains unrelated
+  authentication configuration.
+
+
+The existing domestic Bazos/Aukro/Vinted behavior is retained; an explicit
+`ships_to_slovakia=false` is now rejected across all sources. The stronger
+positive-evidence requirement applies to the five new sources and the existing
+eBay delivery gate. All normal item, identity, profit and AI-review gates remain.
+
+Official references: [Allegro destination/currency search parameters](https://developer.allegro.pl/news/serwisy-zagraniczne-allegro-dodalismy-nowe-parametry-wyszukiwania-na-liscie-ofert-x565R2W36Iw),
+[OLX API delivery documentation](https://developer.olx.pl/api/doc),
+[Facebook delivery availability](https://www.facebook.com/help/796066857221106?locale=en_GB).
+
+Offline tests isolate `Settings` from the real `.env` and process credentials.
+Use `python -m pytest` and `python -m bazar_deals hunt --offline --source bazos`.
+
+## Automatic CZK/EUR and PLN/EUR exchange rates
+
+The online CLI checks the [ECB daily XML](https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml)
+once per UTC calendar day and stores the publication date, check date and both
+rates in `FX_CACHE` (default `.cache/ecb-fx.json`). Prices and known postage use
+`EUR = foreign amount / rate`. Hunt, comparable prices, buyer-demand budgets and
+Aukro inventory refresh share the same rates; the previous separate fixed Aukro
+rate and rounding to whole euros have been removed.
+
+`FX_MAX_AGE_DAYS` defaults to 7 calendar days, measured from ECB publication, not
+cache download. Weekends therefore work without inventing a new rate. On network
+or XML errors a still-valid cache is used; future/stale/missing rates leave the
+currency unpriced. Such purchases cannot reach BUY. Buyer demand can retain an
+unknown budget; a failed inventory conversion preserves the old inventory.
+FX provenance and failure notes are included in hunt and buyer reports.
+
+`--offline` never fetches ECB; it uses only valid cached rates or explicit
+`EUR_CZK` / `EUR_PLN` overrides. `Settings()` itself never accesses the network.
+Library callers outside the CLI can call `prepare_exchange_rates(settings)` and
+pass the returned settings to their operations. Both overrides must be positive
+finite values, expressed in units of the foreign currency per EUR. Leave them
+blank for automatic rates. A manual override has no automatic freshness guarantee
+and is labelled as manual in the report.
+
+ECB reference rates are indicative, not guaranteed card/payment-provider rates.
+A configurable `FX_FEE_RATE` (default `0.02`) adds a 2% reserve to CZK/PLN
+purchase prices and postage, rounded up to cents and included in `fees`
+(`fx_fee_reserve` identifies that part). Foreign comparable prices and buyer
+budgets are reduced by the reserve, rounded down. EUR amounts incur no FX
+reserve. Inventory refresh retains the converted advertised price rather than
+treating it as net proceeds. Use actual payment-provider costs to tune this estimate.
+
+## Manual import for blocked marketplaces
+
+Scheduled hunts and buyer searches keep Facebook/OLX in manual mode and skip
+Allegro without an authorized token. They do not repeatedly probe blocked pages.
+Status notes distinguish `READY` (readable source, not a BUY), `LOGIN_REQUIRED`,
+`BLOCKED`, `ACCESS_NOT_GRANTED`, `STALE_FX`, and
+`NEEDS_DELIVERY_CONFIRMATION`. Public-page parsers remain available for explicit
+diagnostic probes; a successful login is not permission for unattended collection.
+
+Save selected offers locally as JSON (array of objects) or CSV (same field names).
+Keep private evidence in `.cache/`, which is ignored by Git. Example:
+
+```json
+[{
+  "marketplace": "olx",
+  "external_id": "replace-with-offer-id",
+  "kind": "offer",
+  "title": "Nintendo Switch V2",
+  "description": "Replace with the actual condition and contents of the selected offer.",
+  "url": "https://www.olx.pl/d/oferta/replace-with-real-offer.html",
+  "price": "215.00",
+  "currency": "PLN",
+  "available": false,
+  "checked_at": "2026-08-31T12:00:00+02:00",
+  "fulfillment": "unknown",
+  "fulfillment_cost": null,
+  "fulfillment_currency": "EUR",
+  "evidence": ""
+}]
+```
+
+Replace every placeholder from the actual ad. `available` means confirmed
+currently available at that fixed price. Use `delivery_sk` or `pickup_sk` only
+when confirmed, with a factual `evidence` description and total shipping or
+pickup/travel cost. Zero is allowed only when that cost is genuinely zero.
+`checked_at` must include a timezone; confirmations expire after **24 hours**.
+Future dates, unknown fulfillment, missing costs and unavailable offers cannot
+reach BUY. Manual evidence is preserved instead of overwritten by a public-page
+fetch. All valuation, condition and configured AI checks still apply. Recheck the
+listing before actually buying; the program never places orders.
+
+```bash
+# Validate and normalize without network access:
+python -m bazar_deals import --manual-in .cache/selected.json --listings-out .cache/normalized.json
+# Score selected offers, refreshing FX and using the normal price/AI checks:
+python -m bazar_deals hunt --manual-in .cache/selected.json
+# Import genuine wanted ads (kind="wanted", title must say kúpim/koupím/kupię/WTB):
+python -m bazar_deals sell --buyers --manual-in .cache/wanted.csv
+# Match only local demands, without contacting marketplaces or ECB:
+python -m bazar_deals sell --buyers --manual-in .cache/wanted.csv --offline
+```
+
+Hunt scores only the supplied manual files plus any `--listings-in` files.
+Sell adds manual wanted ads to live searches unless `--offline` is supplied.
+A wanted ad is a lead, not a confirmed sale or delivery agreement; inactive or
+older-than-24-hour imported demands are excluded. CSV booleans use `true`/`false`.
+Only the selected marketplace's HTTPS domain is accepted. Import does not fetch
+URLs, read browser sessions, message sellers or publish inventory. Local imports
+are **not automatically uploaded into GitHub Actions**.
+
+Hourly alerts no longer run the destructive issue-comment cleanup workflow.
+The separate manually triggered maintenance workflow is unchanged.
+
+The production price-book cache uses a new `sold-comps-fx-v3-` key so legacy
+valuations without the FX reserve are not restored on rollout. Local users can
+select a fresh `COMPS_DB` path to rebuild their existing price book as well.

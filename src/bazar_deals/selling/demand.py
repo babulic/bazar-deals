@@ -5,14 +5,17 @@ import re
 import time
 from collections import Counter
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from urllib.parse import urlencode, urljoin
 
 import httpx
 from pydantic import BaseModel
 
+from bazar_deals.adapters.central_europe import CentralEuropeClient, SITES, search_url
 from bazar_deals.adapters.ebay import EbayBrowseClient
 from bazar_deals.config import Settings
+from bazar_deals.domain import Money, Listing
+from datetime import datetime, timezone, timedelta
 from bazar_deals.htmlparse import parse_vinted_items
 from bazar_deals.rules import rules
 from bazar_deals.selling.collect import (
@@ -210,6 +213,7 @@ def searched_sites() -> list[str]:
     sites.append("delcampe.net")
     sites.append("forum64.de")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
+    sites.extend(SITES.values())
     return sites
 
 
@@ -352,6 +356,8 @@ def find_buyers(
     settings: Settings | None = None,
     *,
     client: httpx.Client | None = None,
+    manual_listings: list[Listing] | None = None,
+    offline: bool = False,
 ) -> BuyerDigest:
     """Search European want-to-buy ads and pair them with own stock."""
     settings = settings or Settings()
@@ -366,92 +372,138 @@ def find_buyers(
         for ad in batch:
             ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
 
-    for site, phrases in _BAZOS_PHRASES.items():
-        for phrase in phrases:
-            batch, note = _search_bazos(phrase, site, settings, client=client)
-            ingest(batch, note, f"bazos.{site}")
-
-    for phrase in _AUKRO_PHRASES:
-        batch, note = _search_aukro(phrase, settings, client=client)
-        ingest(batch, note, "aukro")
-
-    for site, phrases in _VINTED_SITES:
-        for phrase in phrases:
-            batch, note = _search_vinted(phrase, site, settings, client=client)
-            ingest(batch, note, site)
-
-    for phrase in _KA_PHRASES:
-        for query in queries:
-            batch, note = _search_kleinanzeigen(query, settings, client=client, wtb=phrase)
-            ingest(batch, note, "kleinanzeigen.de")
-
-    for phrase in _WILLHABEN_PHRASES:
-        for query in queries:
-            batch, note = _search_willhaben(f"{phrase} {query}", settings, client=client)
-            ingest(batch, note, "willhaben.at")
-
-    blocked = False
-    for query in _mineral_search_queries(items):
-        for prefix in _DELCAMPE_PHRASES:
-            batch, note = _search_delcampe(
-                f"{prefix}{query}".strip(), settings, client=client
-            )
-            ingest(batch, note, "delcampe.net")
-            if _is_hard_block(note):
-                blocked = True
-                break
-        if blocked:
-            break
-
-    blocked = False
-    for query in _retro_search_queries(items):
-        for phrase in _FORUM64_PHRASES:
-            batch, note = _search_forum64(f"{phrase} {query}", settings, client=client)
-            ingest(batch, note, "forum64.de")
-            if _is_hard_block(note):
-                blocked = True
-                break
-        if blocked:
-            break
-
-    if not settings.ebay_client_id or not settings.ebay_client_secret:
-        digest.notes.append(
-            "ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 "
-            "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
-        )
-    else:
-        browse = EbayBrowseClient(settings, client=client)
+    for listing in manual_listings or []:
+        if listing.raw.get("manual_kind") != "wanted" or not listing.raw.get("available"):
+            continue
+        checked = datetime.fromisoformat(listing.raw["checked_at"])
+        if not timedelta(0) <= datetime.now(timezone.utc) - checked <= timedelta(hours=24):
+            digest.notes.append(f"{listing.external_id}: stale manual demand; skipped")
+            continue
         try:
-            browse._access_token()
-        except (RuntimeError, httpx.HTTPError) as exc:
+            price = listing.price.to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
+            if listing.price.currency.upper() in {"CZK", "PLN"}:
+                price = (price * (1 - settings.fx_fee_rate)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+        except ValueError:
+            price = None
+        ad = WantAd(marketplace=listing.marketplace.value, site=SITES[listing.marketplace.value],
+                    external_id=listing.external_id, title=listing.title, url=str(listing.url),
+                    offer_eur=price if price and price > 0 else None, query="manual import")
+        ingest([ad], f"{ad.site}: user-selected demand (not a confirmed sale)", ad.site)
+
+    if not offline:
+        for site, phrases in _BAZOS_PHRASES.items():
+            for phrase in phrases:
+                batch, note = _search_bazos(phrase, site, settings, client=client)
+                ingest(batch, note, f"bazos.{site}")
+
+        for phrase in _AUKRO_PHRASES:
+            batch, note = _search_aukro(phrase, settings, client=client)
+            ingest(batch, note, "aukro")
+
+        for site, phrases in _VINTED_SITES:
+            for phrase in phrases:
+                batch, note = _search_vinted(phrase, site, settings, client=client)
+                ingest(batch, note, site)
+
+        for phrase in _KA_PHRASES:
+            for query in queries:
+                batch, note = _search_kleinanzeigen(query, settings, client=client, wtb=phrase)
+                ingest(batch, note, "kleinanzeigen.de")
+
+        for phrase in _WILLHABEN_PHRASES:
+            for query in queries:
+                batch, note = _search_willhaben(f"{phrase} {query}", settings, client=client)
+                ingest(batch, note, "willhaben.at")
+
+        blocked = False
+        for query in _mineral_search_queries(items):
+            for prefix in _DELCAMPE_PHRASES:
+                batch, note = _search_delcampe(
+                    f"{prefix}{query}".strip(), settings, client=client
+                )
+                ingest(batch, note, "delcampe.net")
+                if _is_hard_block(note):
+                    blocked = True
+                    break
+            if blocked:
+                break
+
+        blocked = False
+        for query in _retro_search_queries(items):
+            for phrase in _FORUM64_PHRASES:
+                batch, note = _search_forum64(f"{phrase} {query}", settings, client=client)
+                ingest(batch, note, "forum64.de")
+                if _is_hard_block(note):
+                    blocked = True
+                    break
+            if blocked:
+                break
+
+        if not settings.ebay_client_id or not settings.ebay_client_secret:
             digest.notes.append(
-                f"ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 ({exc})"
+                "ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 "
+                "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
             )
         else:
-            for marketplace_id, site, phrases in _EBAY_BOARDS:
-                site_count = 0
-                blocked = False
-                for wtb in phrases:
-                    for query in queries:
-                        batch, note = _search_ebay(
-                            f"{wtb} {query}",
-                            marketplace_id,
-                            site,
-                            browse,
-                            client=client,
-                        )
-                        if note:
-                            digest.notes.append(note)
-                            blocked = True
+            browse = EbayBrowseClient(settings, client=client)
+            try:
+                browse._access_token()
+            except (RuntimeError, httpx.HTTPError) as exc:
+                digest.notes.append(
+                    f"ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 ({exc})"
+                )
+            else:
+                for marketplace_id, site, phrases in _EBAY_BOARDS:
+                    site_count = 0
+                    blocked = False
+                    for wtb in phrases:
+                        for query in queries:
+                            batch, note = _search_ebay(
+                                f"{wtb} {query}",
+                                marketplace_id,
+                                site,
+                                browse,
+                                client=client,
+                            )
+                            if note:
+                                digest.notes.append(note)
+                                blocked = True
+                                break
+                            site_count += len(batch)
+                            for ad in batch:
+                                ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+                        if blocked:
                             break
-                        site_count += len(batch)
-                        for ad in batch:
-                            ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
-                    if blocked:
-                        break
-                if not blocked:
-                    digest.fetched[site] += site_count
-                    digest.notes.append(f"{site}: fetched {site_count} rows")
+                    if not blocked:
+                        digest.fetched[site] += site_count
+                        digest.notes.append(f"{site}: fetched {site_count} rows")
+
+        for source, site in SITES.items():
+            searcher = CentralEuropeClient(source, settings, client=client)
+            if reason := searcher.manual_mode():
+                digest.notes.append(f"{site}: {reason}; manual search: {search_url(source, 'kúpim')}")
+                continue
+            phrase = "koupím" if source == "sbazar" else "kupię" if source in {"olx", "allegro_pl"} else "kúpim"
+            for query in queries[:int(rules()["central_europe"]["max_queries"])]:
+                full_query = f"{phrase} {query}"
+                try:
+                    batch = searcher.search(full_query)
+                except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                    digest.notes.append(f"{site}: unavailable ({exc}); manual search: {search_url(source, full_query)}")
+                    break
+                wants = []
+                for listing in batch:
+                    try:
+                        price = listing.price.to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
+                        if listing.price.currency.upper() in {"CZK", "PLN"}:
+                            price = (price * (1 - settings.fx_fee_rate)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+                        if price <= 0:
+                            price = None
+                    except ValueError:
+                        price = None  # A demand can have an unknown budget.
+                    wants.append(WantAd(marketplace=source, site=site, external_id=listing.external_id,
+                                        title=listing.title, url=str(listing.url), offer_eur=price, query=full_query))
+                ingest(wants, f"{site}: fetched {len(wants)} rows", site)
 
     matches: list[DemandMatch] = []
     near_misses: list[DemandMatch] = []
@@ -659,7 +711,7 @@ def _search_bazos(
             raw_price = match.group("price") or ""
             amount = _price(raw_price) if raw_price.strip() else Decimal("0")
             if amount and site == "cz":
-                amount = (amount / settings.eur_czk).quantize(Decimal("0.01"))
+                amount = (amount / settings.eur_czk).quantize(Decimal("0.01")) if settings.eur_czk else None
             ads.append(
                 WantAd(
                     marketplace="bazos",
@@ -682,7 +734,6 @@ def _search_aukro(
     client: httpx.Client | None,
 ) -> tuple[list[WantAd], str]:
     ads: list[WantAd] = []
-    eur_czk = Decimal(str(rules()["selling"]["aukro_eur_czk"]))
     for page in range(_MAX_BROAD_PAGES):
         try:
             response = _post(
@@ -707,8 +758,10 @@ def _search_aukro(
             price = node.get("buyNowPrice") if isinstance(node.get("buyNowPrice"), dict) else {}
             amount = Decimal(str(price.get("amount") or "0"))
             currency = str(price.get("currency") or "CZK")
-            if amount and currency.upper() == "CZK" and eur_czk:
-                amount = (amount / eur_czk).quantize(Decimal("0.01"))
+            try:
+                amount = Money(amount=amount, currency=currency).to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
+            except ValueError:
+                amount = None
             ads.append(
                 WantAd(
                     marketplace="aukro",

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
@@ -8,11 +9,12 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterator
-from urllib.parse import urlencode
+from urllib.parse import urlparse, urlencode
 
 import httpx
 
 from bazar_deals.adapters.bazos import BazosRssClient
+from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing
@@ -116,6 +118,11 @@ def _comp_label(n: int, source: str = "market") -> str:
 
 
 def _url_key(url: object) -> str:
+    parsed = urlparse(str(url))
+    if parsed.hostname in {"allegro.pl", "www.allegro.pl", "allegro.sk", "www.allegro.sk"}:
+        match = re.search(r"(?:/|-)(\d+)/?$", parsed.path)
+        if match:
+            return f"allegro:{match.group(1)}"
     return str(url).split("?")[0].rstrip("/")
 
 
@@ -182,9 +189,16 @@ class SoldCompClient:
         found: list[Listing] = []
         seen: set[str] = set()
         for item in listings:
+            if item.marketplace.value in SITES and not item.is_immediate_buy():
+                continue
             if item.price.amount <= 0:
                 continue
-            item = self._to_eur(item)
+            if not item.purchase_allowed(require_confirmation=item.marketplace.value in SITES):
+                continue
+            try:
+                item = self._to_eur(item)
+            except ValueError:
+                continue
             key = _url_key(item.url)
             if key in seen:
                 continue
@@ -295,7 +309,10 @@ class SoldCompClient:
         found: list[Listing] = []
         seen: set[str] = set()
         for item in listings:
-            item = self._to_eur(item)
+            try:
+                item = self._to_eur(item)
+            except ValueError:
+                continue
             if item.price.amount <= 0:
                 continue
             if is_damaged_text(f"{item.title} {item.description}"):
@@ -378,7 +395,10 @@ class SoldCompClient:
         else:
             self.live_sold_skipped += 1
         for item in (*extra, *(self._asking_catalog or ())):
-            item = self._to_eur(item)
+            try:
+                item = self._to_eur(item)
+            except ValueError:
+                continue
             key = _url_key(item.url)
             if key in seen:
                 continue
@@ -429,18 +449,14 @@ class SoldCompClient:
             return []
 
     def _to_eur(self, item: Listing) -> Listing:
-        if item.price.currency.upper() == "EUR":
-            return item
-        return item.model_copy(
-            update={
-                "price": item.price.model_copy(
-                    update={
-                        "amount": item.price.to_eur(self.settings.eur_czk),
-                        "currency": "EUR",
-                    }
-                )
-            }
-        )
+        from decimal import ROUND_FLOOR
+        code = item.raw.get("original_price_currency", item.price.currency).upper()
+        amount = item.price.to_eur(self.settings.eur_czk, eur_pln=self.settings.eur_pln)
+        raw = dict(item.raw)
+        if code in {"CZK", "PLN"} and not raw.get("fx_proceeds_adjusted"):
+            amount = (amount * (1 - self.settings.fx_fee_rate)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+            raw["fx_proceeds_adjusted"] = True
+        return item.model_copy(update={"price": item.price.model_copy(update={"amount": amount, "currency": "EUR"}), "raw": raw})
 
     def _get_text(self, url: str, *, accept: str) -> str:
         response = httpx.get(

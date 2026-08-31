@@ -9,6 +9,7 @@ from decimal import Decimal
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
 from bazar_deals.catalog import reject_physical
@@ -144,6 +145,9 @@ def hunt_sources(
                 emit(f"{note} in {elapsed}s")
                 fetch_notes.append(note)
                 listings.extend(batch)
+                for source_note in getattr(source, "notes", []):
+                    emit(source_note)
+                    fetch_notes.append(source_note)
             except (RuntimeError, httpx.HTTPError) as exc:
                 note = f"{source.marketplace}: fetched 0 ({exc})"
                 emit(note)
@@ -194,7 +198,13 @@ def score_listings(
     funnel: Counter[str] = Counter()
     source_stats: dict[Marketplace, Counter[str]] = defaultdict(Counter)
     funnel["fetched"] = len(listings)
-    converted = [_to_eur(listing, settings.eur_czk) for listing in listings]
+    converted = []
+    for listing in listings:
+        try:
+            converted.append(_to_eur(listing, settings.eur_czk, settings.eur_pln))
+        except ValueError:
+            funnel["invalid_price"] += 1
+            source_stats[listing.marketplace]["fetched"] += 1
     usable: list[Listing] = []
     for listing in converted:
         source_stats[listing.marketplace]["fetched"] += 1
@@ -204,7 +214,7 @@ def score_listings(
         if listing.price.amount <= 0:
             funnel["invalid_price"] += 1
             continue
-        if listing.marketplace is Marketplace.EBAY and listing.ships_to_slovakia is not True:
+        if not listing.purchase_allowed(require_confirmation=listing.marketplace is Marketplace.EBAY):
             funnel["no_sk_delivery"] += 1
             continue
         if listing.price.amount < floor:
@@ -251,10 +261,26 @@ def score_listings(
                 set_phase(f"scoring {index}/{len(usable)}")
                 emit(f"scoring {index}/{len(usable)}")
             enricher = enrichers.get(listing.marketplace)
-            if enricher is not None and len(listing.description.strip()) < 40:
+            if not listing.manual_import and enricher is not None and (len(listing.description.strip()) < 40 or (
+                listing.marketplace.value in SITES and listing.ships_to_slovakia is not True
+            )):
                 listing = enricher.enrich_listing(listing)
                 if listing.raw.get("detail_fetched") is False and not listing.description.strip():
                     funnel["detail_failed"] += 1
+            try:
+                listing = _to_eur(listing, settings.eur_czk, settings.eur_pln)
+            except ValueError:
+                funnel["invalid_price"] += 1
+                continue
+            if not listing.purchase_allowed(require_confirmation=listing.marketplace.value in SITES):
+                funnel["no_sk_delivery"] += 1
+                continue
+            if not listing.is_immediate_buy():
+                funnel["not_buy_now"] += 1
+                continue
+            if not settings.min_buy_eur <= listing.price.amount <= cap:
+                funnel["over_cap" if listing.price.amount > cap else "under_min"] += 1
+                continue
             if not is_working_listing(listing):
                 funnel["detail_damaged"] += 1
                 continue
@@ -466,7 +492,7 @@ def _round_robin_groups(groups):
 def _shipping_eur(listing: Listing, settings: Settings) -> Decimal:
     if listing.shipping_cost is None:
         return assumed_shipping(listing.price.amount, settings)
-    return listing.shipping_cost.to_eur(settings.eur_czk)
+    return listing.shipping_cost.to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
 
 
 def _format_funnel(funnel: Counter[str]) -> str:
@@ -488,12 +514,17 @@ def _format_source_health(source_stats: dict[Marketplace, Counter[str]]) -> str:
     return "source-health: " + " ".join(parts)
 
 
-def _to_eur(listing: Listing, eur_czk: Decimal) -> Listing:
+def _to_eur(listing: Listing, eur_czk: Decimal | None, eur_pln: Decimal | None = None) -> Listing:
     updates: dict = {}
+    raw = dict(listing.raw)
     if listing.price.currency.upper() != "EUR":
-        updates["price"] = Money(amount=listing.price.to_eur(eur_czk), currency="EUR")
+        raw["original_price_currency"] = listing.price.currency.upper()
+        updates["price"] = Money(amount=listing.price.to_eur(eur_czk, eur_pln=eur_pln), currency="EUR")
     if listing.shipping_cost is not None and listing.shipping_cost.currency.upper() != "EUR":
+        raw["original_shipping_currency"] = listing.shipping_cost.currency.upper()
         updates["shipping_cost"] = Money(
-            amount=listing.shipping_cost.to_eur(eur_czk), currency="EUR"
+            amount=listing.shipping_cost.to_eur(eur_czk, eur_pln=eur_pln), currency="EUR"
         )
+    if updates:
+        updates["raw"] = raw
     return listing.model_copy(update=updates) if updates else listing
