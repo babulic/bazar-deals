@@ -108,7 +108,7 @@ class EbayBrowseClient(ListingSource):
         response.raise_for_status()
         return response.json()
 
-    def search_query(self, query: str, *, limit: int = 50) -> dict:
+    def search_query(self, query: str, *, limit: int = 50, purchase_budget: bool = True) -> dict:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
             "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
@@ -121,8 +121,8 @@ class EbayBrowseClient(ListingSource):
             "filter": (
                 "buyingOptions:{FIXED_PRICE},"
                 "conditions:{NEW|USED},"
-                "deliveryCountry:SK,"
-                f"price:[{self.settings.min_buy_eur}..{hi}]"
+                "deliveryCountry:SK"
+                + (f",price:[{self.settings.min_buy_eur}..{hi}]" if purchase_budget else "")
             ),
         }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)

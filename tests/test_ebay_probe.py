@@ -28,6 +28,20 @@ def test_regular_client_cannot_fetch_even_with_cached_token(monkeypatch):
     assert "no-persistence" in result.reason
 
 
+def test_stock_comparison_keeps_sk_filter_without_purchase_price_cap(monkeypatch):
+    filters = []
+    def get(url, **kwargs):
+        filters.append(kwargs["params"]["filter"])
+        return httpx.Response(200, json={"itemSummaries": []}, request=httpx.Request("GET", url))
+    monkeypatch.setattr(httpx, "get", get)
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+    client._token = "test-token"
+    client.search_query("MOS 6510", purchase_budget=False)
+    client.search_query("MOS 6510")
+    assert "deliveryCountry:SK" in filters[0] and "price:" not in filters[0]
+    assert "deliveryCountry:SK" in filters[1] and "price:" in filters[1]
+
+
 def test_probe_keeps_marketplace_response_out_of_files_and_output(tmp_path, monkeypatch, capsys):
     monkeypatch.chdir(tmp_path)
     requests = []
