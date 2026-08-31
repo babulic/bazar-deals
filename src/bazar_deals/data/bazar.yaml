@@ -133,6 +133,18 @@ identity:
   loose_kinds: [media, accessories, books]
   kind_markers:
     accessories:
+      - pouzdro
+      - etui
+      - gumki
+      - joystick
+      - dock
+      - ladovarka
+      - ladowarka
+      - ładowarka
+      - schutzhülle
+      - schutzhulle
+      - tasche für
+      - tasche fur
       - obal
       - case
       - cover
@@ -644,6 +656,10 @@ identity:
       - vodovaha
       - aku
     hardware:
+      - nintendo switch
+      - switch lite
+      - playstation
+      - xbox
       - počítač
       - pocitac
       - computer

@@ -31,6 +31,8 @@ from bazar_deals.identity import (
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
+_PRICE_BOOK_VERSION = "product-role-v2:"
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sold_listings (
     id INTEGER PRIMARY KEY,
@@ -478,7 +480,7 @@ class SoldCompClient:
             row = conn.execute(
                 "SELECT query_key, n, median_eur, fetched_at, source, http_status "
                 "FROM sold_queries WHERE query_key = ?",
-                (query_key,),
+                (_PRICE_BOOK_VERSION + query_key,),
             ).fetchone()
         if row is None:
             return None
@@ -518,7 +520,7 @@ class SoldCompClient:
                 "ON CONFLICT(query_key) DO UPDATE SET "
                 "n = excluded.n, median_eur = excluded.median_eur, fetched_at = excluded.fetched_at, "
                 "source = excluded.source, http_status = excluded.http_status",
-                (query_key, n, str(value), _iso(fetched_at), source, status),
+                (_PRICE_BOOK_VERSION + query_key, n, str(value), _iso(fetched_at), source, status),
             )
 
     def _store_fetch(

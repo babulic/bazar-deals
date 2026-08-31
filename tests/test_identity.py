@@ -1,5 +1,6 @@
 from decimal import Decimal
 from pathlib import Path
+import pytest
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.domain import Action, Listing, Marketplace, Money, Vertical
@@ -16,6 +17,24 @@ from bazar_deals.soldcomps import SoldCompClient
 CASSETTE_TITLE = "Vzlámavanie Konami Commodore 64/128 C64 C128"
 CASSETTE_URL = "https://aukro.sk/vzlamovanie-konami-commodore-64-128-c64-c128-7089809337"
 ROOT = Path(__file__).parent / "fixtures"
+
+
+@pytest.mark.parametrize("accessory", [
+    "Obal na Nintendo Switch Lite", "Pouzdro na Nintendo switch lite",
+    "Gumki na analogi do nintendo switch lite", "Etui ochronne do Nintendo switch",
+    "Nabíjací Dock Poke Ball Mini Nintendo Switch Switch Lite",
+    "Data frog analog joystick na nintendo switch/lite",
+    "Oryginalna Ładowarka do konsoli Nintendo Switch/Lite/Oled",
+])
+def test_console_is_not_valued_from_live_accessory_titles(accessory):
+    assert not similar_titles("Nintendo Switch Lite", accessory)
+    assert not similar_titles(accessory, "Nintendo Switch Lite")
+
+
+def test_switch_variants_are_not_interchangeable():
+    assert similar_titles("Nintendo Switch Lite", "Nintendo Switch Lite Grey")
+    assert not similar_titles("Nintendo Switch Lite", "Nintendo Switch OLED")
+    assert not similar_titles("Nintendo Switch Lite", "Nintendo Switch konzola")
 
 
 class _Source(ListingSource):

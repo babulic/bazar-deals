@@ -476,6 +476,12 @@ def _hard_specs_match(
     # A replacement part must never be priced from complete-product comps, or vice versa.
     if is_replacement_part_text(left) != is_replacement_part_text(right):
         return False
+    if kind is ItemKind.HARDWARE and all(re.search(r"\bswitch\b", _fold(t)) for t in (left, right)):
+        def switch_variant(text):
+            folded = _fold(text)
+            return "lite" if re.search(r"\blite\b", folded) else "oled" if re.search(r"\boled\b", folded) else "standard"
+        if switch_variant(left) != switch_variant(right):
+            return False
     specs = left_specs if left_specs is not None else extract_specs(left)
     return not specs.conflicts_with(extract_specs(right), kind=kind)
 
@@ -497,6 +503,10 @@ def similar_titles(
     cfg = _id()
     resolved_left_kind = left_kind if left_kind is not None else classify_kind(left)
     right_kind = classify_kind(right)
+    # Generic is an unknown product role, not permission to compare a complete
+    # product with its case/charger. This used to accept "Obal na Switch Lite".
+    if (resolved_left_kind is ItemKind.ACCESSORIES) != (right_kind is ItemKind.ACCESSORIES):
+        return False
     if (
         resolved_left_kind != right_kind
         and resolved_left_kind is not ItemKind.GENERIC
