@@ -5,6 +5,25 @@ Overené 31. 8. 2026. Základná implementácia je nasadená cez
 Tento dokument rozlišuje funkčné prihlasovanie od povolenia vyhľadávať cudzie
 ponuky. Žiadny náhodne vygenerovaný reťazec nenahradí kľúč vydaný platformou.
 
+## eBay — test bez uchovávania údajov
+
+Produkčná sada bola blokovaná ako `Non Compliant and OAuth Not Enabled`.
+OAuth bol zapnutý v konzole. Pred použitím výnimky z Marketplace Account Deletion
+musí byť reálne zakázané uchovávanie dát; samotný skúšobný účel nestačí.
+[Oficiálne pravidlá eBay](https://www.developer.ebay.com/develop/guides/sell/marketplace-user-account-deletion).
+
+- `EBAY_RETENTION_ENABLED=false` je bezpečný predvolený stav. Bežné eBay importy,
+  získavanie ponúk a reporty z nových API dát sú zablokované ešte pred sieťovým volaním.
+- Jediný povolený živý test je `python -m bazar_deals.ebay_probe`, prípadne ručne
+  spustený workflow **eBay no-persistence test**. Používa existujúce GitHub Secrets.
+- Test drží token a jednu odpoveď Browse iba v pamäti procesu. Neukladá odpovede,
+  ponuky, predajcov, ceny, URL ani počty výsledkov; nevytvára cache, artefakty alebo
+  issue komentáre. Log obsahuje iba pevné technické PASS/FAIL hlášky a HTTP status.
+- Vyhľadávanie žiada filter `deliveryCountry:SK`, ale nevytvára BUY odporúčania
+  a samotný úspech testu nepotvrdzuje dopravu konkrétnej ponuky.
+- Kým platí výnimka, nezapínaj `EBAY_RETENTION_ENABLED`. Trvalé reporty vyžadujú
+  najprv skutočný proces mazania údajov a zmenu nastavenia výnimky v eBay.
+
 ## Allegro PL a SK
 
 Oficiálna podpora **21. 8. 2026** potvrdila pozastavenie nových overení pre

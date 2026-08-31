@@ -15,7 +15,10 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     ebay_client_id: str = ""
-    ebay_client_secret: str = ""
+    ebay_client_secret: str = Field(default="", repr=False)
+    # Keep disabled while the keyset has the no-data-persistence exemption.
+    # Only the isolated ebay_probe module may access eBay in this mode.
+    ebay_retention_enabled: bool = False
     ebay_marketplace: str = str(_EBAY["marketplace_id"])
     ebay_campaign_id: str = ""
 

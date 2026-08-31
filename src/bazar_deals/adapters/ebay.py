@@ -130,6 +130,11 @@ class EbayBrowseClient(ListingSource):
         return response.json()
 
     def _access_token(self) -> str:
+        if not self.settings.ebay_retention_enabled:
+            raise RuntimeError(
+                "eBay is in no-persistence test mode; use python -m bazar_deals.ebay_probe. "
+                "Regular imports and reports are disabled while the exemption applies."
+            )
         if self._token:
             return self._token
         if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
@@ -189,8 +194,9 @@ def _oauth_reject_message(response: httpx.Response) -> str:
     except ValueError:
         detail = (response.text or "").strip()[:300]
     hint = (
-        "credentials are set but eBay rejected them — use the production App ID "
-        "(Client ID) and Cert ID (Client Secret), not sandbox and not Dev ID"
+        "credentials are set but eBay rejected them — check keyset activation, OAuth "
+        "and Marketplace Account Deletion compliance, then verify the production "
+        "App ID (Client ID) and Cert ID (Client Secret), not sandbox and not Dev ID"
     )
     if detail:
         return f"eBay OAuth {response.status_code}: {detail}. {hint}"
