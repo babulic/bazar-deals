@@ -459,7 +459,7 @@ def test_willhaben_stock_hits_include_links_even_when_not_wtb() -> None:
 
 
 def test_ebay_oauth_401_is_a_single_actionable_note() -> None:
-    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert")
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert", ebay_retention_enabled=True)
     transport = httpx.MockTransport(_quiet_handler)
     with httpx.Client(transport=transport) as client:
         digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
@@ -558,5 +558,4 @@ def test_forum64_cloudflare_block_is_reported_once() -> None:
     assert calls["n"] == 1
     assert len(forum_notes) == 1
     assert "Cloudflare" in forum_notes[0]
-
 

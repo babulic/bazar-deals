@@ -212,6 +212,11 @@ def collect_ebay(seller: str, settings: Settings) -> SourceResult:
             reason="Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET; eBay blocks plain HTML scraping",
         )
 
+    if not settings.ebay_retention_enabled:
+        return SourceResult(
+            marketplace="ebay", ok=False,
+            reason="eBay no-persistence test mode: regular imports are disabled",
+        )
     client = EbayBrowseClient(settings)
     headers = {
         "Authorization": f"Bearer {client._access_token()}",

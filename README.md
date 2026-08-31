@@ -14,6 +14,12 @@ Purchase sources:
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded. eBay is not a purchase source and is not used for valuation.
 
+**eBay is currently test-only:** `EBAY_RETENTION_ENABLED=false` blocks normal
+eBay imports and reports while using the no-data-persistence exemption. Run
+`python -m bazar_deals.ebay_probe` or the manual **eBay no-persistence test**
+workflow to check OAuth and Browse; response data stays in memory and only
+technical PASS/FAIL statuses are logged. See [access requirements](docs/automatic-marketplace-access.md).
+
 ## Decision rule
 
 The old rule `listed price <= 50% of typical price` is no longer used for BUY decisions. It could produce false positives when the market value itself was overestimated.
