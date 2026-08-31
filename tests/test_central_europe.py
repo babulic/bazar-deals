@@ -234,3 +234,36 @@ def test_explicit_structured_delivery_exclusion_overrides_description():
 def test_allegro_detail_slug_matches_api_offer_id():
     body = ld(source="allegro_pl", currency="EUR").replace('/item/123', '/oferta/nintendo-switch-123')
     assert parse_public_listings(body, "allegro_pl")[0].external_id == "123"
+
+
+def empty_sbazar():
+    props = {'offers': astro({'results': [], 'pagination': {'total': 0, 'limit': 58}})}
+    return '<astro-island props="' + html.escape(json.dumps(props), quote=True) + '"></astro-island>'
+
+
+@pytest.mark.parametrize('status', [200, 404])
+def test_sbazar_explicit_empty_search_is_not_blocked(status):
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(status, text=empty_sbazar()))) as client:
+        source = CentralEuropeClient('sbazar', Settings(), client=client)
+        assert source.search('koupím ametyst Brandberg') == []
+        assert 'READY: no matches' in source.notes[0]
+
+
+@pytest.mark.parametrize('status,body', [(404, '<h1>Not found</h1>'), (403, empty_sbazar()), (429, empty_sbazar()), (404, sbazar([]))])
+def test_errors_without_explicit_zero_result_search_remain_errors(status, body):
+    with httpx.Client(transport=httpx.MockTransport(lambda request: httpx.Response(status, text=body))) as client:
+        with pytest.raises(RuntimeError, match=f'HTTP {status}'):
+            CentralEuropeClient('sbazar', Settings(), client=client).search('koupím')
+
+
+def test_sbazar_fetch_continues_after_empty_query():
+    requests = []
+    def handle(request):
+        requests.append(request)
+        if len(requests) == 1:
+            return httpx.Response(404, text=empty_sbazar())
+        return httpx.Response(200, text=sbazar([sbazar_row()]))
+    with httpx.Client(transport=httpx.MockTransport(handle)) as client:
+        rows = CentralEuropeClient('sbazar', Settings(bazos_request_gap_seconds=0), client=client).fetch_new()
+        assert len(requests) > 1
+        assert len(rows) == 1

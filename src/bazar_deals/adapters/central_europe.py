@@ -128,6 +128,21 @@ def _walk(node):
             yield from _walk(value)
 
 
+def _empty_sbazar_search(body: str) -> bool:
+    """Sbazar serves genuine zero-result searches with HTTP 404, too."""
+    data = _PublicData()
+    data.feed(body)
+    for props in data.astro:
+        offers = props.get("offers") if isinstance(props, dict) else None
+        if not isinstance(offers, dict) or offers.get("results") != []:
+            continue
+        pagination = offers.get("pagination")
+        total = pagination.get("total") if isinstance(pagination, dict) else None
+        if type(total) is int and total == 0:
+            return True
+    return False
+
+
 def parse_public_listings(body: str, source: str) -> list[Listing]:
     data = _PublicData()
     data.feed(body)
@@ -227,6 +242,10 @@ class CentralEuropeClient(ListingSource):
         # Never follow arbitrary listing redirects into another host/private address.
         requester = self.client.get if self.client else httpx.get
         response = requester(url, timeout=12, follow_redirects=False, **kwargs)
+        if (response.status_code == 404 and self.marketplace == "sbazar"
+                and url.startswith("https://www.sbazar.cz/hledej/")
+                and _empty_sbazar_search(response.text)):
+            return response
         # Only this fixed API endpoint may receive a refreshed bearer token.
         # 403 is an entitlement failure; refreshing cannot grant permissions.
         if response.status_code == 401 and url == "https://api.allegro.pl/offers/listing" and self._auth.automatic:
@@ -246,6 +265,9 @@ class CentralEuropeClient(ListingSource):
         response = self._get(url, headers={"User-Agent": self.settings.bazos_user_agent})
         listings = parse_public_listings(response.text, self.marketplace)
         if not listings:
+            if self.marketplace == "sbazar" and _empty_sbazar_search(response.text):
+                self.notes.append(f"sbazar: READY: no matches for {query}")
+                return []
             raise RuntimeError(f"BLOCKED: no readable public listing data; check manually: {url}")
         return [item.model_copy(update={"search_query": query}) for item in listings]
 
