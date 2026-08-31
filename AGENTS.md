@@ -2,7 +2,7 @@
 
 ## Repository instructions
 
-`bazar-deals` is a Python 3.11+ CLI package. It has no web server or long-running local service; hunts are one-shot batch commands. Use `README.md` and `pyproject.toml` as the primary command reference.
+`bazar-deals` is a Python 3.11+ CLI package; hunts are one-shot batch commands. An optional private eBay retention/deletion service is documented in `deploy/ebay-store/README.md`; it is not needed for normal local CLI work. Use `README.md` and `pyproject.toml` as the primary command reference.
 
 - Install development dependencies with `python -m pip install -e ".[dev]"`.
 - Run the CLI as a module: `python -m bazar_deals hunt ...`.

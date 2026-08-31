@@ -401,6 +401,14 @@ def test_ebay_credentials_are_stripped() -> None:
     assert settings.ebay_client_secret == "cert"
 
 
+def test_targeted_queries_cover_late_stock_and_interleave_segments():
+    from bazar_deals.selling.demand import _unique_queries
+    minerals = [crystal().model_copy(update={"id": f"mineral-{n}", "locality": f"locality-{n}"}) for n in range(20)]
+    queries = _unique_queries([*minerals, chip()])
+    assert "6510" in queries[:3]
+    assert all(f"ametyst locality-{n}" in queries for n in range(20))
+
+
 def _quiet_handler(request: httpx.Request) -> httpx.Response:
     url = str(request.url)
     if "oauth2/token" in url:
@@ -558,4 +566,3 @@ def test_forum64_cloudflare_block_is_reported_once() -> None:
     assert calls["n"] == 1
     assert len(forum_notes) == 1
     assert "Cloudflare" in forum_notes[0]
-

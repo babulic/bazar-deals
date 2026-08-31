@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections import Counter
+from collections import Counter, defaultdict
+from itertools import zip_longest
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from urllib.parse import urlencode, urljoin
@@ -395,6 +396,12 @@ def find_buyers(
             for phrase in phrases:
                 batch, note = _search_bazos(phrase, site, settings, client=client)
                 ingest(batch, note, f"bazos.{site}")
+            # The newest 40 generic "kúpim" ads cannot cover a specific stock.
+            # Search each distinct stock query too; classification below still
+            # requires an actual want-to-buy title, never a seller's offer.
+            for query in queries:
+                batch, note = _search_bazos(query, site, settings, client=client)
+                ingest(batch, note, f"bazos.{site}")
 
         for phrase in _AUKRO_PHRASES:
             batch, note = _search_aukro(phrase, settings, client=client)
@@ -597,16 +604,27 @@ def _format_match(row: DemandMatch) -> str:
 
 
 def _unique_queries(items: list[InventoryItem]) -> list[str]:
+    # Give every stock item its primary query before spending requests on
+    # alternate names. The old global cap let early minerals exclude all chips.
     found: list[str] = []
     seen: set[str] = set()
+    segments: dict[str, list[InventoryItem]] = defaultdict(list)
     for item in items:
-        for query in queries_for(item):
+        segments[item.segment].append(item)
+    ordered = [item for row in zip_longest(*segments.values()) for item in row if item is not None]
+    groups = [queries_for(item) for item in ordered]
+    budget = max(_MAX_TARGETED, sum(bool(group) for group in groups))
+    for index in range(max((len(group) for group in groups), default=0)):
+        for group in groups:
+            if index >= len(group):
+                continue
+            query = group[index]
             key = _fold(query)
             if key in seen:
                 continue
             seen.add(key)
             found.append(query)
-            if len(found) >= _MAX_TARGETED:
+            if len(found) >= budget:
                 return found
     return found
 

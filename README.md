@@ -20,6 +20,16 @@ eBay imports and reports while using the no-data-persistence exemption. Run
 workflow to check OAuth and Browse; response data stays in memory and only
 technical PASS/FAIL statuses are logged. See [access requirements](docs/automatic-marketplace-access.md).
 
+For a real retained evaluation, the optional [private eBay store](deploy/ebay-store/README.md)
+collects stock comparisons and unreviewed purchase candidates without putting
+eBay data in GitHub comments, artifacts or the general comps cache. Its scheduled
+workflow stays disabled until the deletion receiver has been deployed, registered
+and tested and the no-persistence exemption has been removed.
+
+Price-book gaps now trigger up to `COMPS_LIVE_QUERIES=16` targeted product searches
+per hunt; stale cached prices cannot authorize BUY. Targeted buyer searches cover
+every stock item before alternate names, including items late in the catalog.
+
 ## Decision rule
 
 The old rule `listed price <= 50% of typical price` is no longer used for BUY decisions. It could produce false positives when the market value itself was overestimated.

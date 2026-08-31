@@ -18,3 +18,7 @@ htmlcov/
 # Local FX snapshots, fetched offers and private manual evidence
 .cache/*.json
 .cache/*.csv
+.cache/ebay-service/
+deploy/ebay-store/data/
+deploy/ebay-store/caddy-data/
+deploy/ebay-store/caddy-config/

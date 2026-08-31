@@ -163,7 +163,7 @@ class SoldCompClient:
         self._sold_html_status: int | None = None
         self._live_sold_used = 0
         self.live_sold_skipped = 0
-        self._live_sold_budget = int(rules()["hunt"]["max_sold_lookups"])
+        self._live_sold_budget = self.settings.comps_live_queries
         self._vinted = None
         self._fixture_html = fixture_html
         if fixture_path is not None:
@@ -248,39 +248,13 @@ class SoldCompClient:
         if len(seed_peers) >= min_n:
             return self._store_market_comp(query, seed_peers)
 
-        if self._asking_catalog is not None:
-            # A live hunt already fetched Bazos/Aukro/Vinted. Extra per-query
-            # searches of those boards are what blew the 30-minute GHA cap.
-            if cached and cached.n >= min_n:
-                self._note(
-                    "price book: hunt batch had fewer than "
-                    f"{min_n} similar ads; reused stored P25×0.75 "
-                    f"({cached.query_key}, n={cached.n})"
-                )
-                return SoldComp(
-                    median=cached.median,
-                    sample=cached.n,
-                    label=_comp_label(cached.n, cached.source),
-                    reliable_for_buy=True,
-                )
-            return None
-
+        # A heterogeneous newest-listings batch rarely contains five copies of
+        # the same product. Fill those gaps with a bounded targeted search.
         peers = self._similar_market_peers(query, subject, specs, kind, self_key)
         if len(peers) >= min_n:
             return self._store_market_comp(query, peers)
 
-        if cached and cached.n >= min_n:
-            self._note(
-                "price book: live search had fewer than "
-                f"{min_n} similar ads; reused stored P25×0.75 "
-                f"({cached.query_key}, n={cached.n})"
-            )
-            return SoldComp(
-                median=cached.median,
-                sample=cached.n,
-                label=_comp_label(cached.n, cached.source),
-                reliable_for_buy=True,
-            )
+        self._note(f"price book: insufficient comparable ads ({query}, n={len(peers)}, required={min_n})")
         return None
 
     def _store_market_comp(self, query: str, peers: list[Listing]) -> SoldComp:
@@ -394,6 +368,7 @@ class SoldCompClient:
             extra = self._live_market_search(query)
         else:
             self.live_sold_skipped += 1
+            self._note(f"price book: live query budget exhausted ({self._live_sold_budget}); remaining products are unvalued")
         for item in (*extra, *(self._asking_catalog or ())):
             try:
                 item = self._to_eur(item)
@@ -474,7 +449,7 @@ class SoldCompClient:
 
     def _is_fresh(self, fetched_at: datetime) -> bool:
         ttl = timedelta(days=max(0, int(self.settings.comps_ttl_days)))
-        return _utc_now() - fetched_at <= ttl
+        return timedelta(0) <= _utc_now() - fetched_at <= ttl
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

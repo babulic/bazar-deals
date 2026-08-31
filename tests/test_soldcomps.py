@@ -93,7 +93,7 @@ def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     assert row[2] == "market"
 
 
-def test_forbidden_uses_stale_db(tmp_path: Path) -> None:
+def test_failed_refresh_does_not_use_stale_price_for_buy(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     listing = _listing()
     peers = _peers()
@@ -117,8 +117,7 @@ def test_forbidden_uses_stale_db(tmp_path: Path) -> None:
         patch.object(second, "_vinted_search", return_value=[]),
     ):
         fallback = second.median_sold(listing)
-    assert fallback is not None
-    assert fallback.median == stored.median
+    assert fallback is None
     bazos.assert_called_once()
 
 
@@ -258,13 +257,23 @@ def test_hunt_batch_seed_skips_live_marketplace_search(tmp_path: Path) -> None:
     bazos.assert_not_called()
 
 
-def test_thin_hunt_batch_does_not_live_search(tmp_path: Path) -> None:
+def test_thin_hunt_batch_searches_for_missing_comparables(tmp_path: Path) -> None:
     client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
     client.seed_asking(_peers(3))
     with (
-        patch.object(client, "_bazos_search", side_effect=AssertionError("live")) as bazos,
-        patch.object(client, "_aukro_search", side_effect=AssertionError("live")),
-        patch.object(client, "_vinted_search", side_effect=AssertionError("live")),
+        patch.object(client, "_bazos_search", return_value=_peers()) as bazos,
+        patch.object(client, "_aukro_search", return_value=[]),
+        patch.object(client, "_vinted_search", return_value=[]),
     ):
-        assert client.median_sold(_listing()) is None
-    bazos.assert_not_called()
+        assert client.median_sold(_listing()) is not None
+    bazos.assert_called_once()
+
+
+def test_targeted_search_respects_budget(tmp_path: Path) -> None:
+    client = SoldCompClient(Settings(comps_db=str(tmp_path / "comps.sqlite"), comps_live_queries=1))
+    client.seed_asking([])
+    with patch.object(client, "_live_market_search", return_value=[]) as search:
+        client.median_sold(_listing(), query="Commodore 1541")
+        client.median_sold(_listing(), query="Commodore 1571")
+    assert search.call_count == 1
+    assert client.live_sold_skipped == 1

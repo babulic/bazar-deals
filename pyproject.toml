@@ -16,7 +16,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.2"]
+dev = ["pytest>=8.2", "flask>=3.1", "cryptography>=44"]
+server = ["flask>=3.1", "gunicorn>=23", "cryptography>=44"]
 
 [project.scripts]
 bazar-deals = "bazar_deals.cli:main"
