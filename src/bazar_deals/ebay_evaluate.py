@@ -70,7 +70,9 @@ def evaluate(*, configure_only=False):
             if not query or query.casefold() in seen:
                 continue
             seen.add(query.casefold())
-            ingest(browse.search_query(query, limit=20), "stock_comparison", query)
+            # Existing stock can sell below our purchase floor or above the hunt
+            # cap. Applying that budget here would censor the market comparison.
+            ingest(browse.search_query(query, limit=20, purchase_budget=False), "stock_comparison", query)
         for category in _SMALL_CATEGORIES[:8]:
             ingest(browse.search(category, limit=20), "buy_candidate", str(category))
         # No local listing dumps, comps-cache writes, AI exports or GitHub comments.

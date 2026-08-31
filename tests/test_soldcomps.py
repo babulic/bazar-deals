@@ -277,3 +277,11 @@ def test_targeted_search_respects_budget(tmp_path: Path) -> None:
         client.median_sold(_listing(), query="Commodore 1571")
     assert search.call_count == 1
     assert client.live_sold_skipped == 1
+
+
+def test_unversioned_price_book_cannot_bypass_product_role_checks(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    with client._connect() as db:
+        db.execute("INSERT INTO sold_queries VALUES (?,?,?,?,?,?)",
+                   ("Nintendo Switch Lite", 75, "75.14", datetime.now(timezone.utc).isoformat(), "market", 200))
+    assert client._db_summary("Nintendo Switch Lite") is None
