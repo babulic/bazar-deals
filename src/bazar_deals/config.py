@@ -20,7 +20,10 @@ class Settings(BaseSettings):
     ebay_campaign_id: str = ""
 
     aukro_api_token: str = ""
-    allegro_access_token: str = ""
+    allegro_access_token: str = Field(default="", repr=False)
+    allegro_client_id: str = ""
+    allegro_client_secret: str = Field(default="", repr=False)
+    allegro_listing_access_confirmed: bool = False
     # Explicit overrides; otherwise the online CLI resolves a dated ECB snapshot.
     eur_pln: Decimal | None = Field(default=None, gt=0)
 

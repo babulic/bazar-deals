@@ -483,3 +483,15 @@ The separate manually triggered maintenance workflow is unchanged.
 The production price-book cache uses a new `sold-comps-fx-v3-` key so legacy
 valuations without the FX reserve are not restored on rollout. Local users can
 select a fresh `COMPS_DB` path to rebuild their existing price book as well.
+
+For unattended Allegro authentication, an **already entitled** application can
+supply `ALLEGRO_CLIENT_ID`, `ALLEGRO_CLIENT_SECRET` and
+`ALLEGRO_LISTING_ACCESS_CONFIRMED=true`. The client obtains an application token,
+reuses it until shortly before expiry, and retries a listing request once after
+401 with a new token. It never retries 403 by refreshing credentials. Tokens stay
+in process memory; OAuth errors omit response bodies. Both scheduled workflows
+read credentials from GitHub Secrets and the confirmation flag from a repository
+variable. Missing credentials/entitlement leave the source manual.
+
+See [exact access requirements and unsent support requests](docs/automatic-marketplace-access.md).
+New credentials alone do not unlock Allegro, OLX or Facebook market-wide search.

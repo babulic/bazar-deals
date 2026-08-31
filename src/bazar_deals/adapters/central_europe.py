@@ -12,6 +12,7 @@ from urllib.parse import quote, urlencode, urlparse
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.adapters.allegro_auth import AllegroAuth, USER_AGENT
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.rules import rules
@@ -211,13 +212,14 @@ class CentralEuropeClient(ListingSource):
         self.settings = settings
         self.client = client
         self.notes: list[str] = []
+        self._auth = AllegroAuth(settings, client)
 
     def manual_mode(self) -> str | None:
         if self.marketplace == "facebook":
             return "LOGIN_REQUIRED: manual import only; browser login is not unattended API access"
         if self.marketplace == "olx":
             return "BLOCKED: manual import only; standard OLX API does not search other sellers"
-        if self.marketplace.startswith("allegro_") and not self.settings.allegro_access_token:
+        if self.marketplace.startswith("allegro_") and not self._auth.configured:
             return "ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available"
         return None
 
@@ -225,6 +227,11 @@ class CentralEuropeClient(ListingSource):
         # Never follow arbitrary listing redirects into another host/private address.
         requester = self.client.get if self.client else httpx.get
         response = requester(url, timeout=12, follow_redirects=False, **kwargs)
+        # Only this fixed API endpoint may receive a refreshed bearer token.
+        # 403 is an entitlement failure; refreshing cannot grant permissions.
+        if response.status_code == 401 and url == "https://api.allegro.pl/offers/listing" and self._auth.automatic:
+            kwargs["headers"] = {**kwargs.get("headers", {}), "Authorization": f"Bearer {self._auth.token(force=True)}"}
+            response = requester(url, timeout=12, follow_redirects=False, **kwargs)
         if response.is_redirect:
             raise RuntimeError("LOGIN_REQUIRED: redirect/login required; manual verification needed")
         if response.status_code >= 400:
@@ -281,13 +288,13 @@ class CentralEuropeClient(ListingSource):
         return listing.model_copy(update={"ships_to_slovakia": eligible, "raw": {**listing.raw, "detail_fetched": False}})
 
     def _allegro(self, query: str) -> list[Listing]:
-        if not self.settings.allegro_access_token:
+        if not self._auth.configured:
             raise RuntimeError(self.manual_mode() + "; manual search: " + search_url(self.marketplace, query))
         response = self._get(
             "https://api.allegro.pl/offers/listing",
-            headers={"Authorization": f"Bearer {self.settings.allegro_access_token}",
+            headers={"Authorization": f"Bearer {self._auth.token()}",
                      "Accept": "application/vnd.allegro.public.v1+json",
-                     "User-Agent": "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"},
+                     "User-Agent": USER_AGENT},
             params={"phrase": query, "marketplaceId": self.marketplace.replace("_", "-"),
                     "shipping.country": "SK", "currency": "EUR", "sellingMode.format": "BUY_NOW",
                     "sort": "-startTime", "limit": 60},

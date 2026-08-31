@@ -64,6 +64,9 @@ jobs:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           ALLEGRO_ACCESS_TOKEN: ${{ secrets.ALLEGRO_ACCESS_TOKEN }}
+          ALLEGRO_CLIENT_ID: ${{ secrets.ALLEGRO_CLIENT_ID }}
+          ALLEGRO_CLIENT_SECRET: ${{ secrets.ALLEGRO_CLIENT_SECRET }}
+          ALLEGRO_LISTING_ACCESS_CONFIRMED: ${{ vars.ALLEGRO_LISTING_ACCESS_CONFIRMED || 'false' }}
           EUR_CZK: ${{ vars.EUR_CZK }}
           EUR_PLN: ${{ vars.EUR_PLN }}
           VINTED_ACCESS_KEY: ${{ secrets.VINTED_ACCESS_KEY }}
