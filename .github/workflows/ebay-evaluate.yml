@@ -1,0 +1,39 @@
+name: eBay stored evaluation
+on:
+  workflow_dispatch:
+    inputs:
+      configure_only:
+        description: Configure notification verification credentials without collecting listings
+        type: boolean
+        default: false
+  schedule:
+    - cron: "45 * * * *"
+permissions:
+  contents: read
+concurrency:
+  group: ebay-stored-evaluation
+  cancel-in-progress: false
+jobs:
+  evaluate:
+    if: vars.EBAY_STORE_ENABLED == 'true' || inputs.configure_only == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -e .
+      - name: Collect into the deletable store only
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_STORE_URL: ${{ vars.EBAY_STORE_URL }}
+          EBAY_STORE_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
+          CONFIGURE_ONLY: ${{ inputs.configure_only }}
+        run: |
+          if [ "$CONFIGURE_ONLY" = "true" ]; then
+            python -m bazar_deals.ebay_evaluate --configure-only
+          else
+            python -m bazar_deals.ebay_evaluate
+          fi
