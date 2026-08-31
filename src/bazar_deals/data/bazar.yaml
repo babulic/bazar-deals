@@ -2,7 +2,7 @@
 # Secrets stay in .env (tokens, API keys). Optional overlay: ./bazar.yaml or BAZAR_CONFIG.
 
 domain:
-  marketplaces: [ebay, aukro, bazos, vinted]
+  marketplaces: [ebay, aukro, bazos, vinted, sbazar, facebook, allegro_pl, allegro_sk, olx]
   verticals: [retro, mineral, apple, network]
   conditions: [new, like_new, used, for_parts, unknown]
   actions: [buy, alert, skip]
@@ -46,7 +46,6 @@ hunt:
   max_shipping_cheap_eur: 11
   min_net_profit_eur: 20
   min_margin: 0.25
-  eur_czk: 24.5
   eur_usd: 1.08
   user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
   request_gap_seconds: 2.0
@@ -1255,11 +1254,6 @@ selling:
     vinted: "312914388"
     ebay: berg-kristalle
 
-  # The shared Aukro backend quotes CZK even for the aukro.sk storefront, which
-  # displays whole euros. This rate reproduces every observed displayed price to
-  # within 0.13 EUR, so converted prices are rounded to whole euros.
-  aukro_eur_czk: 24.6
-
   # Slovakia plus the neighbours and the adjacent Schengen countries Packeta
   # serves from a Slovak business account.
   target_countries: [SK, CZ, PL, HU, AT, DE, SI, RO, HR]
@@ -1640,3 +1634,13 @@ ebay:
     USED_GOOD: used
     USED_ACCEPTABLE: used
     FOR_PARTS_OR_NOT_WORKING: for_parts
+
+# Bounded public searches; login/CAPTCHA is never bypassed.
+central_europe:
+  max_queries: 6
+  queries:
+    all: [iphone, nintendo, lego, sony, canon, commodore]
+    retro: [commodore, amiga, nintendo]
+    mineral: [ametyst, galenit, mineral]
+    apple: [iphone, ipad, airpods]
+    network: [mikrotik, ubiquiti, router]

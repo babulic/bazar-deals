@@ -6,22 +6,19 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from bazar_deals.adapters.central_europe import CentralEuropeClient, SITES
 from bazar_deals.adapters.aukro import AukroHuntClient
 from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.adapters.ebay import EbayBrowseClient
 from bazar_deals.adapters.vinted import VintedHuntClient
 from bazar_deals.config import Settings
+from bazar_deals.fx import prepare_exchange_rates
+from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources, score_listings
 from bazar_deals.progress import emit
-from bazar_deals.selling.collect import collect_all, refresh_inventory
-from bazar_deals.selling.demand import find_buyers, format_buyer_digest
-from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
-from bazar_deals.selling.plan import build_plan
-from bazar_deals.selling.report import format_json, format_markdown
-from bazar_deals.soldcomps import SoldCompClient
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest
 from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
@@ -39,7 +36,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Marketplace mispricing hunter")
     parser.add_argument(
         "command",
-        choices=["hunt", "sell"],
+        choices=["hunt", "sell", "import"],
         help="hunt: buy-side deal pipeline. sell: own-stock plan and buyer-demand digest.",
     )
     parser.add_argument(
@@ -66,9 +63,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument(
         "--source",
-        choices=["all", "bazos", "ebay", "aukro", "vinted"],
+        choices=["all", "bazos", "ebay", "aukro", "vinted", *SITES],
         default="all",
-        help="Hunt Bazos + Aukro + Vinted (default: all). eBay is not a purchase source.",
+        help="Hunt all configured marketplaces; unavailable sources are reported. eBay is excluded.",
     )
     parser.add_argument(
         "--vertical",
@@ -102,12 +99,32 @@ def main(argv: list[str] | None = None) -> int:
         default=[],
         help="Score previously fetched JSON instead of downloading. Repeatable.",
     )
+    parser.add_argument("--manual-in", action="append", default=[], help="User-selected offers in simple JSON/CSV; repeatable. Hunt scores only these and --listings-in.")
     args = parser.parse_args(argv)
+    try:
+        manual = [row for path in args.manual_in for row in load_manual_offers(Path(path))]
+    except (OSError, ValueError) as exc:
+        parser.error(str(exc))
+    if args.command == "import":
+        if not args.manual_in or not args.listings_out:
+            parser.error("import requires --manual-in and --listings-out")
+        if any(Path(path).resolve() == Path(args.listings_out).resolve() for path in args.manual_in):
+            parser.error("input and output must differ")
+        notes = [f"{item.external_id}: {'READY' if item.manual_purchase_verified() else 'NEEDS_DELIVERY_CONFIRMATION'}" for item in manual if item.buy_now]
+        _dump_listings(Path(args.listings_out), manual, notes=notes)
+        print(f"Imported {len(manual)} offer(s). " + "; ".join(notes))
+        return 0
+
+    settings = Settings()
+    fx_notes: list[str] = []
+    if (args.command == "hunt" and not args.fetch_only) or args.refresh or args.buyers:
+        settings, fx_notes = prepare_exchange_rates(settings, offline=args.offline)
+        for note in fx_notes:
+            emit(note)
 
     if args.command == "sell":
         inventory = load_inventory()
         if args.refresh:
-            settings = Settings()
             inventory, report = refresh_inventory(inventory, collect_all(settings))
             inventory = inventory.model_copy(
                 update={"collected": datetime.now(timezone.utc).date().isoformat()}
@@ -116,8 +133,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Refreshed {report.matched} listing(s) into {target}:", file=sys.stderr)
             print(report.summary(), file=sys.stderr)
         if args.buyers:
-            settings = Settings()
-            digest = find_buyers(inventory, settings)
+            digest = find_buyers(inventory, settings, manual_listings=manual, offline=args.offline) if args.manual_in or args.offline else find_buyers(inventory, settings)
+            digest.notes[:0] = fx_notes
             body = format_buyer_digest(digest, mention=settings.github_assignee)
             print(body)
             if args.notify:
@@ -133,20 +150,23 @@ def main(argv: list[str] | None = None) -> int:
         print(renderer(plan, segment=args.segment))
         return 0
 
-    settings = Settings()
     vertical = Vertical(args.vertical) if args.vertical else None
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    if args.listings_in:
-        listings: list[Listing] = []
+    if args.listings_in or args.manual_in:
+        listings: list[Listing] = list(manual)
+        cached_notes: list[str] = []
         for path in args.listings_in:
             loaded = _load_listings(Path(path))
             emit(f"loaded {len(loaded)} listing(s) from {path}")
             listings.extend(loaded)
+            note_path = Path(path).with_suffix(".notes.json")
+            if note_path.is_file():
+                cached_notes.extend(json.loads(note_path.read_text(encoding="utf-8")))
         sources = _sources("all", settings, fixture=None)
-        enrichers = {Marketplace(source.marketplace): source for source in sources}
+        enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
         emit(f"scoring {len(listings)} cached listing(s)")
         run = score_listings(listings, settings, sold, enrichers=enrichers)
-        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)"] + list(
+        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)", *cached_notes] + list(
             getattr(sold, "notes", []) or []
         )
     else:
@@ -159,10 +179,11 @@ def main(argv: list[str] | None = None) -> int:
             score=not args.fetch_only,
         )
         if args.listings_out:
-            _dump_listings(Path(args.listings_out), run.listings)
+            _dump_listings(Path(args.listings_out), run.listings, notes=run.fetch_notes)
             emit(f"wrote {len(run.listings)} listing(s) to {args.listings_out}")
         if args.fetch_only:
             return 0
+    run.fetch_notes[:0] = fx_notes
     deals = run.deals
     shown = select_alert_deals(deals)
     actionable = [deal for deal in deals if deal.action is Action.BUY]
@@ -184,6 +205,8 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
     bazos = BazosRssClient(settings, fixture_path=fixture)
     aukro = AukroHuntClient(settings)
     vinted = VintedHuntClient(settings)
+    if name in SITES:
+        return [CentralEuropeClient(name, settings)]
     if name == "bazos":
         return [bazos]
     if name == "ebay":
@@ -194,15 +217,17 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
         return [vinted]
     if fixture is not None:
         return [bazos]
-    return [bazos, aukro, vinted]
+    return [bazos, aukro, vinted, *(CentralEuropeClient(name, settings) for name in SITES)]
 
 
-def _dump_listings(path: Path, listings: list[Listing]) -> None:
+def _dump_listings(path: Path, listings: list[Listing], *, notes: list[str] | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps([item.model_dump(mode="json") for item in listings], ensure_ascii=False),
         encoding="utf-8",
     )
+
+    path.with_suffix(".notes.json").write_text(json.dumps(notes or [], ensure_ascii=False), encoding="utf-8")
 
 
 def _load_listings(path: Path) -> list[Listing]:

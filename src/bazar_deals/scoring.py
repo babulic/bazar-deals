@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import re
-from decimal import Decimal
+from decimal import Decimal, ROUND_CEILING
 
+from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 from bazar_deals.rules import rules
@@ -100,7 +101,13 @@ def score_deal(
     if listing.marketplace is Marketplace.VINTED:
         purchase_fee = _vinted_buy_fee(buy, settings)
     resale_fee = (typical * settings.resale_fee_rate).quantize(Decimal("0.01"))
-    fees = (purchase_fee + resale_fee).quantize(Decimal("0.01"))
+    fx_base = Decimal("0")
+    if listing.raw.get("original_price_currency", listing.price.currency).upper() in {"CZK", "PLN"}:
+        fx_base += buy
+    if listing.raw.get("original_shipping_currency", listing.shipping_cost.currency if listing.shipping_cost else "EUR").upper() in {"CZK", "PLN"}:
+        fx_base += postage
+    fx_reserve = (fx_base * settings.fx_fee_rate).quantize(Decimal("0.01"), rounding=ROUND_CEILING)
+    fees = (purchase_fee + resale_fee + fx_reserve).quantize(Decimal("0.01"))
     haircut = condition_haircut(item, typical, settings)
     risk = (typical * settings.seller_risk_reserve_rate).quantize(Decimal("0.01"))
     net = (typical - buy - postage - fees - haircut - risk).quantize(Decimal("0.01"))
@@ -113,8 +120,13 @@ def score_deal(
         condition_haircut=haircut,
         seller_risk=risk,
         net_profit=net,
+        fx_fee_reserve=fx_reserve,
     )
 
+    if not listing.purchase_allowed(require_confirmation=listing.marketplace.value in SITES):
+        return Deal(item=item, costs=costs, action=Action.SKIP, reason="Delivery to Slovakia not verified")
+    if not listing.is_immediate_buy():
+        return Deal(item=item, costs=costs, action=Action.SKIP, reason="Not an available fixed-price offer")
     if buy > cap:
         return Deal(item=item, costs=costs, action=Action.SKIP, reason=f"over max buy {cap} EUR")
     if buy < settings.min_buy_eur:

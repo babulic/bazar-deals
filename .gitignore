@@ -14,3 +14,7 @@ htmlcov/
 .cache/*.sqlite-wal
 .cache/*.sqlite-shm
 .cache/sell-inventory.yaml
+
+# Local FX snapshots, fetched offers and private manual evidence
+.cache/*.json
+.cache/*.csv

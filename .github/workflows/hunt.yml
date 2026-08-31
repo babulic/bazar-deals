@@ -17,13 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  cleanup:
-    uses: ./.github/workflows/delete-issue-comments.yml
-    with:
-      issue_number: "1"
-
   hunt:
-    needs: cleanup
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -43,9 +37,15 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: .cache/bazar-comps-v2.sqlite
-          key: sold-comps-v2-${{ github.run_id }}
+          key: sold-comps-fx-v3-${{ github.run_id }}
           restore-keys: |
-            sold-comps-v2-
+            sold-comps-fx-v3-
+      - uses: actions/cache@v4
+        with:
+          path: .cache/ecb-fx.json
+          key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ecb-fx-
       - run: python -m pip install -e .
       - name: Install Copilot CLI for final AI verification
         run: npm install -g @github/copilot
@@ -71,8 +71,27 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Fetch sbazar
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source sbazar --fetch-only --listings-out .cache/hunt-sbazar.json
+      - name: Fetch facebook
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source facebook --fetch-only --listings-out .cache/hunt-facebook.json
+      - name: Fetch allegro_pl
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source allegro_pl --fetch-only --listings-out .cache/hunt-allegro_pl.json
+        env:
+          ALLEGRO_ACCESS_TOKEN: ${{ secrets.ALLEGRO_ACCESS_TOKEN }}
+      - name: Fetch allegro_sk
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source allegro_sk --fetch-only --listings-out .cache/hunt-allegro_sk.json
+        env:
+          ALLEGRO_ACCESS_TOKEN: ${{ secrets.ALLEGRO_ACCESS_TOKEN }}
+      - name: Fetch olx
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source olx --fetch-only --listings-out .cache/hunt-olx.json
       - name: Score and comment
-        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --notify
+        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-allegro_pl.json --listings-in .cache/hunt-allegro_sk.json --listings-in .cache/hunt-olx.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
@@ -80,6 +99,8 @@ jobs:
           GITHUB_ALERT_ISSUE: "1"
           GITHUB_ASSIGNEE: babulic
           MAX_BUY_EUR: "110"
+          EUR_CZK: ${{ vars.EUR_CZK }}
+          EUR_PLN: ${{ vars.EUR_PLN }}
           MIN_BUY_EUR: "20"
           MIN_NET_PROFIT_EUR: "30"
           MAX_SHIPPING_EUR: "15"

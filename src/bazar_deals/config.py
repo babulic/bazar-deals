@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bazar_deals.rules import rules
@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     ebay_campaign_id: str = ""
 
     aukro_api_token: str = ""
+    allegro_access_token: str = ""
+    # Explicit overrides; otherwise the online CLI resolves a dated ECB snapshot.
+    eur_pln: Decimal | None = Field(default=None, gt=0)
 
     vinted_access_key: str = ""
     vinted_signing_key: str = ""
@@ -48,7 +51,10 @@ class Settings(BaseSettings):
     telegram_chat_apple: str = ""
     telegram_chat_network: str = ""
 
-    eur_czk: Decimal = Decimal(str(_HUNT["eur_czk"]))
+    eur_czk: Decimal | None = Field(default=None, gt=0)
+    fx_cache: str = ".cache/ecb-fx.json"
+    fx_max_age_days: int = Field(default=7, ge=0, le=30)
+    fx_fee_rate: Decimal = Field(default=Decimal("0.02"), ge=0, lt=1)
     min_net_profit_eur: Decimal = Decimal("30")
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
@@ -85,6 +91,11 @@ class Settings(BaseSettings):
     keepa_api_key: str = ""
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
+
+    @field_validator("eur_czk", "eur_pln", mode="before")
+    @classmethod
+    def optional_fx_rate(cls, value: object) -> object:
+        return None if isinstance(value, str) and not value.strip() else value
 
     @field_validator("ebay_client_id", "ebay_client_secret", mode="before")
     @classmethod

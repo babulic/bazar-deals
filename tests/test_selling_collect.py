@@ -147,19 +147,18 @@ def test_aukro_follows_total_pages_and_converts_czk(monkeypatch) -> None:
         return httpx.Response(200, json=pages[page], request=REQUEST)
 
     monkeypatch.setattr(httpx, "post", fake_post)
-    result = collect_aukro(101485136, settings())
+    result = collect_aukro(101485136, Settings(eur_czk=Decimal("25")))
 
     assert calls == [0, 1]
     assert result.count == 3
     assert result.complete()
     prices = {item.title: item.price_eur for item in result.listings}
-    # aukro.sk prices in whole euros, so the CZK figure is rounded, not carried
-    # over with conversion noise.
-    assert prices["Kalcit"] == Decimal("10")
+    # Use the same supplied rate as hunt and retain cents.
+    assert prices["Kalcit"] == Decimal("9.84")
     # An EUR price from the shared backend must not be divided again.
     assert prices["Ametyst"] == Decimal("100")
     # Auction-only offers still carry a price worth planning around.
-    assert prices["Topaz"] == Decimal("45")
+    assert prices["Topaz"] == Decimal("44.24")
 
 
 def test_credentialed_sources_are_skipped_not_faked() -> None:
