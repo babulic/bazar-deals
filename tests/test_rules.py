@@ -58,6 +58,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "183454" in data["ebay"]["small_categories"]
     assert "19068" in data["ebay"]["small_categories"]
     assert "16-footwear" in data["vinted"]["catalogs"]
+    assert "4-womens" not in data["vinted"]["catalogs"]
     assert "3565-electronics_phones" in data["vinted"]["catalogs"]
     assert "4874-hc_trading_cards" in data["vinted"]["catalogs"]
     markers = data["identity"]["kind_markers"]["minerals"]

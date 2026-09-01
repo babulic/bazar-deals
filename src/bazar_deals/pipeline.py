@@ -13,7 +13,7 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import hunt_research_only, reject_physical
+from bazar_deals.catalog import hunt_research_only, matches_hunt_target, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -248,7 +248,12 @@ def score_listings(
             pending_sk.append(listing)
         else:
             ready.append(listing)
-    queue = _round_robin_listings(ready) + pending_sk
+    # Targeted SKUs first so the 80-slot cap is iPhone/LEGO/Commodore, not
+    # whatever showed up first in a Vinted clothing dump.
+    hits = [item for item in ready if matches_hunt_target(f"{item.title} {item.search_query or ''}")]
+    hit_ids = {(item.marketplace, item.external_id) for item in hits}
+    rest = [item for item in ready if (item.marketplace, item.external_id) not in hit_ids]
+    queue = _round_robin_listings(hits) + _round_robin_listings(rest) + pending_sk
     score_cap = int(rules()["hunt"].get("max_score_listings", 80))
     if hunt_research_only():
         score_cap = max(score_cap, 120)

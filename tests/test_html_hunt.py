@@ -41,6 +41,8 @@ def test_vinted_hunts_fast_moving_catalogs_not_raw_newest() -> None:
     assert "3565-electronics_phones" in _CATALOGS
     assert "4874-hc_trading_cards" in _CATALOGS
     assert "16-footwear" in _CATALOGS
+    assert "4-womens" not in _CATALOGS
+    assert "5-mens" not in _CATALOGS
     url = _catalog_url("3565-electronics_phones", lo=20, hi=110, page=1)
     assert url.startswith("https://www.vinted.sk/catalog/3565-electronics_phones?")
     assert "order=newest_first" in url

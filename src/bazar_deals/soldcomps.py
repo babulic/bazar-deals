@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -463,11 +463,22 @@ class SoldCompClient:
 
     def _live_market_search(self, query: str) -> list[Listing]:
         with ThreadPoolExecutor(max_workers=4) as pool:
-            bazos = pool.submit(self._bazos_search, query)
-            aukro = pool.submit(self._aukro_search, query)
-            vinted = pool.submit(self._vinted_search, query)
-            ebay = pool.submit(self._ebay_search, query)
-            return [*bazos.result(), *aukro.result(), *vinted.result(), *ebay.result()]
+            futs = [
+                pool.submit(self._bazos_search, query),
+                pool.submit(self._aukro_search, query),
+                pool.submit(self._vinted_search, query),
+                pool.submit(self._ebay_search, query),
+            ]
+            done, pending = wait(futs, timeout=20)
+            for fut in pending:
+                fut.cancel()
+            rows: list[Listing] = []
+            for fut in done:
+                try:
+                    rows.extend(fut.result())
+                except Exception:
+                    continue
+            return rows
 
     def _bazos_search(self, query: str) -> list[Listing]:
         hits: list[Listing] = []
