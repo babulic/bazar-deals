@@ -213,21 +213,23 @@ The hourly GitHub Actions hunt always comments on the Deal alerts collector
 issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
 cards (at most 5) are ranked by expected net profit and include a clickable
 listing title, asking price, usual quick-sale price, and the difference vs
-usual. **Every scored ad** that is not a BUY card is listed next with the
-same facts so you can open it. Ads that could not be valued (`no_sold_comps`,
-fewer than 5 comparable prices) are listed under **Málo porovnateľných
-inzerátov**: the title is the listing link, plus asking price, usual price
-from the thin sample when `n>0`, the delta, and links to the comparable ads
-that were found. The assignee is mentioned only when at least one BUY card
-is present. If `scored=0`, the comment says profit was never computed
-(missing price-book sample), not that every usable ad is a loss.
+usual. Scored ads **cheaper than usual** that still miss the 30 € floor are
+listed next with the same facts. Overpriced ads (asking above usual, e.g. a
+20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
+could not be valued (`no_sold_comps`, fewer than 5 comparable prices) go
+under **Málo porovnateľných inzerátov** only when cheaper than the thin-sample
+usual, or when usual is still unknown. The assignee is mentioned only when at
+least one BUY card is present. If `scored=0`, the comment says profit was
+never computed (missing price-book sample), not that every usable ad is a loss.
 
 GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
-Zero counters are omitted. `score_capped` is explained as the 80-ad scoring
-limit (the hourly job cannot open thousands of detail pages). `sold_lookup_cap`
-is **products** skipped by the live price-book budget, not extra ads — it must
-not be added to `no_sold_comps`. `detail_failed` can overlap later buckets.
-The compact `filter: usable=… scored=… buy=…` dump stays in the job log.
+The per-board `scored 0` dump is not on the issue; fetch counts stay under
+Zdroje. Zero funnel counters are omitted. `score_capped` is explained as the
+80-ad scoring limit (the hourly job cannot open thousands of detail pages).
+`sold_lookup_cap` is **products** skipped by the live price-book budget, not
+extra ads — it must not be added to `no_sold_comps`. `detail_failed` can
+overlap later buckets. The compact `filter: usable=… scored=… buy=…` dump
+stays in the job log.
 
 Hunt GitHub Actions is split into **Fetch Bazos / Fetch Aukro / Fetch Vinted /
 Score and comment**. The yellow step is the one still running. Progress also

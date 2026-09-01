@@ -128,7 +128,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "žiadne ziskové karty" in body
     assert "zisk sa nerátal" not in body
     assert "Stratové položky sa neposielajú" not in body
-    assert "Ocenené inzeráty sú nižšie s odkazom" in body
+    assert "Ocenené inzeráty sú nižšie s odkazom" not in body
 
 
 def test_unscored_hunt_does_not_claim_losing_cards() -> None:
@@ -274,7 +274,9 @@ def test_hunt_progress_explains_cap_and_query_units() -> None:
     assert "320 pod 20 €" in body
     assert "4 rozmerné" in body
     assert "5 ťažké" in body
-    assert "bazos: stiahnuté 2000" in body
+    assert "bazos: fetched 2000" in body
+    assert "Marketplace:" not in body
+    assert "stiahnuté" not in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:
@@ -305,7 +307,8 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     assert "**BUY: áno**" in body
     assert "**BUY: nie**" not in body
     assert "- BUY: nie" not in body
-    assert "### Ocenené inzeráty" in body
+    assert "### Lacnejšie ako obvyklá" in body
+    assert "### Ocenené inzeráty" not in body
     assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/0/)" in body
     assert "nákup " in body
     assert "obvyklá " in body
@@ -335,8 +338,9 @@ def test_losing_hunts_post_status_without_cards() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Ocenené inzeráty sú nižšie s odkazom" in body
-    assert "### Ocenené inzeráty" in body
+    assert "Lacnejšie ako obvyklá sú nižšie s odkazom" in body
+    assert "### Lacnejšie ako obvyklá" in body
+    assert "### Ocenené inzeráty" not in body
     assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/loss/)" in body
     assert "nákup 38 €" in body
     assert "obvyklá 70 €" in body
@@ -344,6 +348,57 @@ def test_losing_hunts_post_status_without_cards() -> None:
     assert "čistý zisk" in body
     assert "**BUY:" not in body
     assert select_alert_deals(run.deals) == []
+
+
+def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+    from bazar_deals.soldcomps import PriceBookMiss
+
+    listing = _deal().item.listing.model_copy(
+        update={
+            "external_id": "siltovka",
+            "title": "wlvs siltovka",
+            "url": "https://www.vinted.sk/items/9849277566-wlvs-siltovka",
+            "price": Money(amount=Decimal("20"), currency="EUR"),
+        }
+    )
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("7.28"), Decimal("15"))
+    assert skip.action is Action.SKIP
+    assert skip.costs.buy_price > skip.costs.estimated_resale
+    expensive_miss = PriceBookMiss(
+        listing=listing.model_copy(
+            update={
+                "external_id": "kabat",
+                "title": "Pravá koža kabát",
+                "url": "https://www.vinted.sk/items/9849540264-prava-koza-kabat",
+            }
+        ),
+        query="prava koza kabat",
+        peer_count=1,
+        required=5,
+        typical=Decimal("11.25"),
+    )
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(scored=1, buy=0, below_net_profit=1),
+        source_stats={Marketplace.VINTED: Counter(fetched=1909, usable=1903, scored=1, buy=0)},
+        fetch_notes=["vinted: fetched 1909"],
+        price_book_misses=[expensive_miss],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "drahšie ako obvyklá" in body
+    assert "### Lacnejšie ako obvyklá" not in body
+    assert "### Ocenené inzeráty" not in body
+    assert "wlvs siltovka" not in body
+    assert "čistý zisk -" not in body
+    assert "Pravá koža kabát" not in body
+    assert "### Málo porovnateľných" not in body
+    assert "Marketplace:" not in body
+    assert "scored 0" not in body
+    assert "1 ocenený drahší ako obvyklá" in body
 
 
 def test_buy_alerts_are_capped_at_top_n() -> None:

@@ -4,7 +4,13 @@ import httpx
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
-from bazar_deals.notify import format_compact_deal, format_github_deal, format_price_book_miss
+from bazar_deals.notify import (
+    format_compact_deal,
+    format_github_deal,
+    format_price_book_miss,
+    is_cheaper_than_usual,
+    keep_price_book_miss,
+)
 from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
 
@@ -54,26 +60,34 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report: BUY cards, then scored ads with links, then thin price-book misses."""
+    """Hunt report: BUY cards, then cheaper-than-usual near-misses, then cheap misses."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
-    status = _format_status(run, min_profit=min_profit, buy_count=buy_count, shown=len(shown))
+    watch = _scored_watch(run.deals, shown)
+    misses = [miss for miss in run.price_book_misses if keep_price_book_miss(miss)]
+    status = _format_status(
+        run,
+        min_profit=min_profit,
+        buy_count=buy_count,
+        shown=len(shown),
+        watch_n=len(watch),
+    )
     sections = [f"{ping}{markers}\n{status}" if markers else f"{ping}{status}"]
     if shown:
         sections.append("\n\n---\n\n".join(format_github_deal(deal) for deal in shown))
-    watch = _scored_watch(run.deals, shown)
     if watch:
         rows = "\n".join(f"- {format_compact_deal(deal)}" for deal in watch)
-        sections.append(f"### Ocenené inzeráty (pod prahom {min_profit} €)\n\n{rows}")
-    misses = list(run.price_book_misses)
+        sections.append(
+            f"### Lacnejšie ako obvyklá (pod prahom {min_profit} €)\n\n{rows}"
+        )
     if misses:
         rows = "\n".join(f"- {format_price_book_miss(miss)}" for miss in misses)
         sections.append(
             "### Málo porovnateľných inzerátov\n\n"
-            "Titulok je odkaz na inzerát. U tenkého vzorku je obvyklá cena P25×0.75 "
-            "z nájdených peerov, nie buy signál.\n\n"
+            "Titulok je odkaz na inzerát. Len lacnejšie ako tenká obvyklá, alebo bez obvyklej. "
+            "U tenkého vzorku je obvyklá P25×0.75 z nájdených peerov, nie buy signál.\n\n"
             f"{rows}"
         )
     return "\n\n".join(section.rstrip() for section in sections) + "\n"
@@ -81,7 +95,11 @@ def format_hunt_comment(
 
 def _scored_watch(deals: list[Deal], shown: list[Deal]) -> list[Deal]:
     shown_keys = {listing_key(deal) for deal in shown}
-    return [deal for deal in deals if listing_key(deal) not in shown_keys]
+    return [
+        deal
+        for deal in deals
+        if listing_key(deal) not in shown_keys and is_cheaper_than_usual(deal)
+    ]
 
 
 def _status_notes(run: HuntRun) -> str:
@@ -120,12 +138,29 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
     scored_bits: list[str] = []
     if n("buy"):
         scored_bits.append(f"{n('buy')} BUY áno")
-    if n("below_net_profit"):
-        count = n("below_net_profit")
-        word = "ocenený" if count == 1 else "ocenených"
-        scored_bits.append(f"{count} {word} pod prahom {min_profit} €")
-    elif n("scored") and not n("buy"):
-        scored_bits.append(f"{n('scored')} ocenených")
+    cheaper_under = 0
+    overpriced = 0
+    for deal in run.deals:
+        if deal.action is Action.BUY:
+            continue
+        if is_cheaper_than_usual(deal):
+            cheaper_under += 1
+        elif deal.costs.estimated_resale > 0:
+            overpriced += 1
+    if cheaper_under:
+        scored_bits.append(
+            f"{cheaper_under} lacnejších ako obvyklá, pod prahom {min_profit} €"
+        )
+    if overpriced:
+        word = "ocenený drahší" if overpriced == 1 else "ocenených drahších"
+        scored_bits.append(f"{overpriced} {word} ako obvyklá (nie deal)")
+    elif not cheaper_under:
+        if n("below_net_profit"):
+            count = n("below_net_profit")
+            word = "ocenený" if count == 1 else "ocenených"
+            scored_bits.append(f"{count} {word} pod prahom {min_profit} €")
+        elif n("scored") and not n("buy"):
+            scored_bits.append(f"{n('scored')} ocenených")
     if n("no_sold_comps"):
         scored_bits.append(
             f"{n('no_sold_comps')} inzerátov bez 5 porovnateľných cien (nie sú stratové)"
@@ -181,19 +216,19 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
     return "\n".join(lines) or "- (žiadny priebeh)"
 
 
-def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
+def _format_status(
+    run: HuntRun, *, min_profit, buy_count: int, shown: int, watch_n: int
+) -> str:
     notes = _status_notes(run)
-    health = []
-    for market, stats in run.source_stats.items():
-        health.append(
-            f"- {market.value}: stiahnuté {stats.get('fetched', 0)}, "
-            f"použiteľné {stats.get('usable', 0)}, ocenené {stats.get('scored', 0)}, "
-            f"BUY {stats.get('buy', 0)}"
-        )
-    if not health:
-        health.append("- žiadny marketplace neskóroval")
     scored = _funnel_n(run, "scored")
-    miss_n = len(run.price_book_misses)
+    miss_n = sum(1 for miss in run.price_book_misses if keep_price_book_miss(miss))
+    overpriced_n = sum(
+        1
+        for deal in run.deals
+        if deal.action is not Action.BUY
+        and deal.costs.estimated_resale > 0
+        and deal.costs.buy_price >= deal.costs.estimated_resale
+    )
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
@@ -206,17 +241,28 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
             f"Toto nie je dôkaz, že sú stratové."
         )
         if miss_n:
-            headline += f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej."
-    else:
+            headline += (
+                f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou "
+                "a rozdielom od obvyklej (len lacnejšie alebo bez obvyklej)."
+            )
+    elif watch_n:
         headline = (
             f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
-            f"Ocenené inzeráty sú nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej ceny."
+            f"Lacnejšie ako obvyklá sú nižšie s odkazom, nákupnou cenou a rozdielom."
+        )
+    elif overpriced_n:
+        headline = (
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
+            f"Ocenené inzeráty boli drahšie ako obvyklá — to nie je deal, v zozname nie sú."
+        )
+    else:
+        headline = (
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku)."
         )
     return (
         f"{headline}\n\n"
         f"Zdroje:\n{notes}\n\n"
-        f"Priebeh:\n{_format_progress(run, min_profit=min_profit)}\n\n"
-        f"Marketplace:\n" + "\n".join(health)
+        f"Priebeh:\n{_format_progress(run, min_profit=min_profit)}"
     )
 
 
