@@ -4,6 +4,7 @@ import re
 from decimal import Decimal
 
 from bazar_deals.domain import Action, Deal, Vertical
+from bazar_deals.soldcomps import PriceBookMiss
 
 _KIND_SK = {
     "media": "médiá",
@@ -84,7 +85,7 @@ def format_github_deal(deal: Deal) -> str:
     kind = _kind_label(item.kind)
     rows: list[tuple[str, str]] = [
         ("BUY", _buy_flag(deal)),
-        ("titulok inzerátu", title),
+        ("titulok inzerátu", _md_link(title, url)),
         ("identifikovaný tovar", item.canonical_name or "—"),
         ("typ tovaru", kind),
     ]
@@ -99,8 +100,10 @@ def format_github_deal(deal: Deal) -> str:
     rows.append(("nákupná cena", _eur(costs.buy_price)))
     if typical > 0:
         rows.append(("finálna konzervatívna rýchlopredajná cena", _eur(typical)))
+        rows.append(("rozdiel od obvyklej ceny", format_price_delta(costs.buy_price, typical)))
     else:
         rows.append(("finálna konzervatívna rýchlopredajná cena", "neznáma"))
+        rows.append(("rozdiel od obvyklej ceny", "obvyklá neznáma"))
     rows.append(("nákupná doprava", _eur(costs.shipping)))
     rows.append(("poplatky + resale rezerva", _eur(costs.fees)))
     if costs.condition_haircut > 0:
@@ -147,7 +150,69 @@ def format_github_deal(deal: Deal) -> str:
     return f"{heading}\n\n{body}"
 
 
-def chat_id_for(settings, vertical: Vertical | None) -> str:
+def format_price_delta(asking: Decimal, typical: Decimal | None) -> str:
+    """Asking minus usual quick-sale price. Negative means cheaper than usual."""
+    if typical is None or typical <= 0:
+        return "obvyklá neznáma"
+    delta = (asking - typical).quantize(Decimal("0.01"))
+    if delta == 0:
+        return "0 € vs obvyklá"
+    if delta < 0:
+        return f"{_eur(delta)} vs obvyklá (lacnejší)"
+    return f"+{_eur(delta)} vs obvyklá (drahší)"
+
+
+def format_compact_listing(
+    *,
+    title: str,
+    url: str,
+    asking: Decimal,
+    typical: Decimal | None,
+    extra: str = "",
+) -> str:
+    parts = [_md_link(title or url, url), f"nákup {_eur(asking)}"]
+    if typical is not None and typical > 0:
+        parts.append(f"obvyklá {_eur(typical)}")
+        parts.append(format_price_delta(asking, typical))
+    else:
+        parts.append("obvyklá neznáma")
+    if extra:
+        parts.append(extra)
+    return " · ".join(parts)
+
+
+def format_compact_deal(deal: Deal) -> str:
+    listing = deal.item.listing
+    typical = deal.costs.estimated_resale
+    extra = f"čistý zisk {_eur(deal.costs.net_profit)}"
+    if deal.action is Action.BUY:
+        extra = f"BUY áno · {extra}"
+    return format_compact_listing(
+        title=listing.title or deal.item.canonical_name,
+        url=str(listing.url),
+        asking=deal.costs.buy_price,
+        typical=typical if typical > 0 else None,
+        extra=extra,
+    )
+
+
+def format_price_book_miss(miss: PriceBookMiss) -> str:
+    listing = miss.listing
+    extra = f"porovnateľné {miss.peer_count}/{miss.required}"
+    line = format_compact_listing(
+        title=listing.title or miss.query,
+        url=str(listing.url),
+        asking=listing.price.amount,
+        typical=miss.typical,
+        extra=extra,
+    )
+    if not miss.peers:
+        return line
+    peers = " · ".join(
+        f"{_md_link(peer.title or str(peer.url), str(peer.url))} {_eur(peer.price.amount)}"
+        for peer in miss.peers[:5]
+    )
+    return f"{line}\n  - porovnateľné: {peers}"
     mapping = {
         Vertical.RETRO: settings.telegram_chat_retro,
         Vertical.MINERAL: settings.telegram_chat_mineral,
@@ -178,7 +243,10 @@ def _quiet_reason(reason: str) -> str:
 
 
 def _eur(amount: Decimal) -> str:
-    return f"{amount} €"
+    quantized = Decimal(amount).quantize(Decimal("0.01"))
+    if quantized == quantized.to_integral_value():
+        return f"{int(quantized)} €"
+    return f"{quantized} €"
 
 
 def _md_link(label: str, url: str) -> str:

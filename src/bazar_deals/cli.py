@@ -15,9 +15,9 @@ from bazar_deals.config import Settings
 from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
-from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
-from bazar_deals.notify import format_deal
-from bazar_deals.pipeline import hunt_sources, score_listings
+from bazar_deals.github_alerts import GitHubIssueAlerts, listing_key, select_alert_deals
+from bazar_deals.notify import format_compact_deal, format_deal, format_price_book_miss
+from bazar_deals.pipeline import hunt_sources, is_dry_price_book_miss, score_listings
 from bazar_deals.progress import emit
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest
@@ -166,9 +166,10 @@ def main(argv: list[str] | None = None) -> int:
         enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
         emit(f"scoring {len(listings)} cached listing(s)")
         run = score_listings(listings, settings, sold, enrichers=enrichers)
-        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)", *cached_notes] + list(
-            getattr(sold, "notes", []) or []
-        )
+        sold_notes = [
+            note for note in (getattr(sold, "notes", []) or []) if not is_dry_price_book_miss(note)
+        ]
+        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)", *cached_notes] + sold_notes
     else:
         sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
         run = hunt_sources(
@@ -187,8 +188,16 @@ def main(argv: list[str] | None = None) -> int:
     deals = run.deals
     shown = select_alert_deals(deals)
     actionable = [deal for deal in deals if deal.action is Action.BUY]
+    shown_keys = {listing_key(deal) for deal in shown}
+    watch = [deal for deal in deals if listing_key(deal) not in shown_keys]
     if shown:
         print("\n\n".join(format_deal(deal) for deal in shown))
+    if watch:
+        print("Ocenené inzeráty:")
+        print("\n".join(f"- {format_compact_deal(deal)}" for deal in watch))
+    if run.price_book_misses:
+        print("Málo porovnateľných inzerátov:")
+        print("\n".join(f"- {format_price_book_miss(miss)}" for miss in run.price_book_misses))
     if not actionable:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
     if args.notify:

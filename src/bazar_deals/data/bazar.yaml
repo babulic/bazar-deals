@@ -57,7 +57,8 @@ github:
   alert_label: bazar-alert
   alert_issue: 0
   assignee: ""
-  # Maximum BUY cards in one hunt comment. Losing items are never used as fillers.
+  # Maximum BUY cards in one hunt comment. Scored (including losing) ads
+  # and price-book misses are listed separately with listing links.
   alert_top_n: 5
   sell_alert_issue_title: Sell buyers
   sell_alert_label: bazar-sell

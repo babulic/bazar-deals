@@ -4,8 +4,8 @@ import httpx
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
-from bazar_deals.notify import format_github_deal
-from bazar_deals.pipeline import HuntRun
+from bazar_deals.notify import format_compact_deal, format_github_deal, format_price_book_miss
+from bazar_deals.pipeline import HuntRun, is_dry_price_book_miss
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
@@ -24,8 +24,8 @@ def listing_key(deal: Deal) -> str:
 def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
     """BUY deals only, ranked by expected net profit, capped at `alert_top_n`.
 
-    Losing items are never used as fillers. If nothing clears the net-profit
-    floor, the hunt comment is status/funnel only.
+    Full cards stay BUY-only. Scored losses and price-book misses are listed
+    separately with listing links, asking price, and delta vs usual.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     buys = [deal for deal in deals if deal.action is Action.BUY]
@@ -54,21 +54,43 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report plus BUY cards only. Losing items are omitted."""
+    """Hunt report: BUY cards, then scored ads with links, then thin price-book misses."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
     status = _format_status(run, min_profit=min_profit, buy_count=buy_count, shown=len(shown))
-    if not shown:
-        return f"{ping}{status}\n"
-    blocks = "\n\n---\n\n".join(format_github_deal(deal) for deal in shown)
-    marker_block = f"{markers}\n" if markers else ""
-    return f"{ping}{marker_block}{status}\n\n{blocks}\n"
+    sections = [f"{ping}{markers}\n{status}" if markers else f"{ping}{status}"]
+    if shown:
+        sections.append("\n\n---\n\n".join(format_github_deal(deal) for deal in shown))
+    watch = _scored_watch(run.deals, shown)
+    if watch:
+        rows = "\n".join(f"- {format_compact_deal(deal)}" for deal in watch)
+        sections.append(f"### Ocenené inzeráty (pod prahom {min_profit} €)\n\n{rows}")
+    misses = list(run.price_book_misses)
+    if misses:
+        rows = "\n".join(f"- {format_price_book_miss(miss)}" for miss in misses)
+        sections.append(
+            "### Málo porovnateľných inzerátov\n\n"
+            "Titulok je odkaz na inzerát. U tenkého vzorku je obvyklá cena P25×0.75 "
+            "z nájdených peerov, nie buy signál.\n\n"
+            f"{rows}"
+        )
+    return "\n\n".join(section.rstrip() for section in sections) + "\n"
+
+
+def _scored_watch(deals: list[Deal], shown: list[Deal]) -> list[Deal]:
+    shown_keys = {listing_key(deal) for deal in shown}
+    return [deal for deal in deals if listing_key(deal) not in shown_keys]
+
+
+def _status_notes(run: HuntRun) -> str:
+    notes = [note for note in run.fetch_notes if not is_dry_price_book_miss(note)]
+    return "\n".join(f"- {note}" for note in notes) or "- (no sources fetched)"
 
 
 def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
-    notes = "\n".join(f"- {note}" for note in run.fetch_notes) or "- (no sources fetched)"
+    notes = _status_notes(run)
     health = []
     for market, stats in run.source_stats.items():
         health.append(
@@ -98,6 +120,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
         f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
     ]
     scored = int(run.funnel.get("scored", 0) or 0)
+    miss_n = len(run.price_book_misses)
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
@@ -107,12 +130,14 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
         headline = (
             f"**0 BUY áno** · zisk sa nerátal — usable inzeráty nie sú ocenené "
             f"(chýba trhový cenník Bazos/Aukro/Vinted / málo podobných inzerátov). "
-            f"Toto nie je dôkaz, že sú stratové. Stratové položky sa neposielajú."
+            f"Toto nie je dôkaz, že sú stratové."
         )
+        if miss_n:
+            headline += f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej."
     else:
         headline = (
             f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
-            f"Stratové položky sa neposielajú."
+            f"Ocenené inzeráty sú nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej ceny."
         )
     return (
         f"{headline}\n\n"
