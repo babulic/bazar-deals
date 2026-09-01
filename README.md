@@ -146,8 +146,8 @@ to make a deal pass.
 
 For BUY decisions:
 
-1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
-2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 20–110 € buy window (up to 3× max buy) so the usual price is not only the bargain bin.
+1. Comparable items must match price-critical specifications **and the same commercial object**. A 64 GB phone is not priced from 256 GB peers; a C64 cassette/game is not priced from a C64 computer; a watch strap is not priced from a watch. `GENERIC` is unknown identity, not a wildcard that can inherit hardware prices. Media search queries drop the host platform (`commodore` / `64` / `128`) so the price book does not retrieve computers.
+2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 20–110 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If five same-object peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card.
 3. That P25×0.75 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 5 similar ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.

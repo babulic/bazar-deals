@@ -2,7 +2,7 @@ from decimal import Decimal
 from pathlib import Path
 
 from bazar_deals.domain import Listing, Marketplace, Money
-from bazar_deals.identity import similar_titles
+from bazar_deals.identity import ItemKind, classify_kind, similar_titles
 from bazar_deals.soldcomps import SoldCompClient
 
 ROOT = Path(__file__).parent / "fixtures"
@@ -34,6 +34,19 @@ def test_sold_computers_do_not_price_a_cassette() -> None:
         price=Money(amount=Decimal("12.62"), currency="EUR"),
     )
     sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_c64_computers.html")
+    assert sold.median_sold(listing) is None
+
+
+def test_sold_computers_do_not_price_a_billardspiele_cassette() -> None:
+    listing = Listing(
+        marketplace=Marketplace.EBAY,
+        external_id="287558443831",
+        title="Computing Videothek Billardspiele Commodore 64/128",
+        url="https://www.ebay.de/itm/287558443831",
+        price=Money(amount=Decimal("24.40"), currency="EUR"),
+    )
+    sold = SoldCompClient(fixture_path=ROOT / "ebay_sold_c64_computers.html")
+    assert classify_kind(listing.title) is ItemKind.MEDIA
     assert sold.median_sold(listing) is None
 
 

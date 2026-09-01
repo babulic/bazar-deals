@@ -6,6 +6,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import (
     format_github_deal,
+    is_ai_rejected,
     is_cheaper_than_usual,
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
@@ -35,7 +36,9 @@ def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[D
     near = [
         deal
         for deal in deals
-        if deal.action is not Action.BUY and deal.costs.net_profit > 0
+        if deal.action is not Action.BUY
+        and deal.costs.net_profit > 0
+        and not is_ai_rejected(deal)
     ]
     ranked_buys = sorted(
         buys,

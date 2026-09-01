@@ -215,6 +215,37 @@ def identity_subject(item: IdentifiedItem) -> str:
     return named or title
 
 
+# German compounds (Billardspiele) and software-series names. Whole-word
+# "game" is already a yaml media marker; these catch the titles that never
+# say cassette/game in English.
+_MEDIA_SOFTWARE_RE = re.compile(
+    r"(?:videothek|kassette|datasette|diskette|magnetofon|"
+    r"\bspiel(?:e|en)?\b|\w{3,}spiele\b|\w{3,}spielmodul\b)",
+)
+_COMPLETE_PLATFORM_RE = re.compile(
+    r"\b(?:commodore\s*(?:64|128|c64|c128)|c64(?:c|g)?|c128|"
+    r"amiga(?:\s*(?:500|600|1200|2000|cd32))?|atari(?:\s*(?:800|st|xe))?)\b"
+)
+# Host platform is not the product. Two C64 games sharing only "commodore 64/128"
+# must not price each other, and a game search must not retrieve computers.
+_MEDIA_HOST_TOKENS = frozenset({
+    "64", "128", "c64", "c128", "c64c", "c64g", "c128d",
+    "amiga", "atari", "spectrum", "vic20",
+})
+
+
+def _is_media_software(hay: str) -> bool:
+    """True for a game/cassette/disk, not the host computer."""
+    return _MEDIA_SOFTWARE_RE.search(hay) is not None
+
+
+def _is_complete_platform(hay: str) -> bool:
+    """Bare C64/Amiga/Atari titles are the machine, unless they are software."""
+    if _is_media_software(hay):
+        return False
+    return _COMPLETE_PLATFORM_RE.search(hay) is not None
+
+
 def classify_kind(text: str) -> ItemKind:
     hay = _fold(text)
     if is_replacement_part_text(text):
@@ -222,8 +253,12 @@ def classify_kind(text: str) -> ItemKind:
     cfg = _id()
     markers = cfg["kind_markers"]
     for kind in cfg["kind_priority"]:
+        if kind == "media" and _is_media_software(hay):
+            return ItemKind.MEDIA
         if any(_has_marker(hay, marker) for marker in markers.get(kind, [])):
             return ItemKind(kind)
+    if _is_complete_platform(hay):
+        return ItemKind.HARDWARE
     return ItemKind.GENERIC
 
 
@@ -236,6 +271,8 @@ def sold_query(text: str, kind: ItemKind | None = None) -> str | None:
     loose = {ItemKind(name) for name in cfg.get("loose_kinds", ["media"])}
     if kind in loose:
         distinctive = [tok for tok in tokens if tok not in brands]
+        if kind is ItemKind.MEDIA:
+            distinctive = [tok for tok in distinctive if tok not in _MEDIA_HOST_TOKENS]
         if len(distinctive) < int(cfg["min_media_distinctive"]):
             return None
         return " ".join(distinctive[:take])
@@ -519,17 +556,11 @@ def similar_titles(
     cfg = _id()
     resolved_left_kind = left_kind if left_kind is not None else classify_kind(left)
     right_kind = classify_kind(right)
-    # Generic is an unknown product role, not permission to compare a complete
-    # product with its case/charger. This used to accept "Obal na Switch Lite".
-    if (resolved_left_kind is ItemKind.ACCESSORIES) != (right_kind is ItemKind.ACCESSORIES):
+    # Same commercial object only. GENERIC is unknown, not a wildcard that
+    # lets a C64 cassette inherit computer prices because both say "commodore 64".
+    if resolved_left_kind != right_kind:
         return False
-    if (
-        resolved_left_kind != right_kind
-        and resolved_left_kind is not ItemKind.GENERIC
-        and right_kind is not ItemKind.GENERIC
-    ):
-        return False
-    kind = resolved_left_kind if resolved_left_kind is not ItemKind.GENERIC else right_kind
+    kind = resolved_left_kind
     if not _hard_specs_match(left, right, kind, left_specs):
         return False
     a = _with_storage_aliases(set(significant_tokens(left)))
@@ -542,7 +573,10 @@ def similar_titles(
     brands = set(cfg["generic_brands"])
     overlap = int(cfg["min_overlap"])
     if kind.value in cfg.get("loose_kinds", ["media"]):
-        return len(inter - brands) >= overlap and jaccard >= float(cfg["media_jaccard"])
+        family = set(brands)
+        if kind is ItemKind.MEDIA:
+            family.update(_MEDIA_HOST_TOKENS)
+        return len(inter - family) >= overlap and jaccard >= float(cfg["media_jaccard"])
     return len(inter) >= overlap and jaccard >= float(cfg["title_jaccard"])
 
 

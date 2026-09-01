@@ -243,12 +243,16 @@ Tasks:
 1. Identify exactly what is actually being sold. Distinguish a complete product
    from a replacement part/accessory. An iPhone OLED/LCD/display, case, box,
    battery, charger, flex cable, housing, back glass or spare part is NOT an iPhone.
+   A C64/128 cassette, disk or one game is NOT a Commodore computer. A watch
+   strap/band is NOT a watch. Price only the same sellable object.
    Read the whole advertisement (title, body, category, brand, item specifics),
    not just the headline. Capacity, year, part number and locality often appear
    only in the body or in structured marketplace fields.
-2. Verify a conservative QUICK-SALE value in EUR for the exact same model,
-   capacity/specification, locality/origin and condition. Prefer completed/sold
-   transactions. If only asking-price evidence exists, use a deliberately low
+2. Verify a conservative QUICK-SALE value in EUR for the exact same commercial
+   object, model, capacity/specification, locality/origin and condition. Prefer
+   completed/sold transactions. If the deterministic valuation looks like a
+   complete computer/phone/watch while the ad is media, software or an accessory,
+   reject. If only asking-price evidence exists, use a deliberately low
    conservative estimate rather than the optimistic average. Reject weak/ambiguous
    evidence.
 3. Cross-check the deterministic identity and valuation. You may lower the
