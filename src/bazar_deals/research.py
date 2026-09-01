@@ -19,7 +19,7 @@ def should_research_loop(*, buy_count: int, already_research: bool, offline: boo
 
 
 def retryable_sell_errors(notes: list[str] | tuple[str, ...] = ()) -> list[str]:
-    """429/throttle notes. Login walls are expected skips, not a retry reason."""
+    """429/throttle notes. Login walls after HTML+index miss are not a retry reason."""
     found: list[str] = []
     for note in notes:
         folded = (note or "").casefold()
