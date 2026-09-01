@@ -127,7 +127,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body
     assert "zisk sa nerátal" not in body
-    assert "Stratové položky sa neposielajú" not in body
+    assert "Stratové a podprahové inzeráty sa neposielajú" in body
     assert "Ocenené inzeráty sú nižšie s odkazom" not in body
 
 
@@ -307,12 +307,9 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     assert "**BUY: áno**" in body
     assert "**BUY: nie**" not in body
     assert "- BUY: nie" not in body
-    assert "### Lacnejšie ako obvyklá" in body
+    assert "### Lacnejšie ako obvyklá" not in body
     assert "### Ocenené inzeráty" not in body
-    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/0/)" in body
-    assert "nákup " in body
-    assert "obvyklá " in body
-    assert "vs obvyklá" in body
+    assert "https://pc.bazos.sk/inzerat/0/" not in body
     selected = select_alert_deals(run.deals)
     assert len(selected) == 1
     assert selected[0].action is Action.BUY
@@ -338,14 +335,10 @@ def test_losing_hunts_post_status_without_cards() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Lacnejšie ako obvyklá sú nižšie s odkazom" in body
-    assert "### Lacnejšie ako obvyklá" in body
+    assert "Stratové a podprahové inzeráty sa neposielajú" in body
+    assert "### Lacnejšie ako obvyklá" not in body
     assert "### Ocenené inzeráty" not in body
-    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/loss/)" in body
-    assert "nákup 38 €" in body
-    assert "obvyklá 70 €" in body
-    assert "vs obvyklá" in body
-    assert "čistý zisk" in body
+    assert "https://pc.bazos.sk/inzerat/loss/" not in body
     assert "**BUY:" not in body
     assert select_alert_deals(run.deals) == []
 
@@ -543,11 +536,7 @@ def test_price_book_misses_use_listing_links_prices_and_delta() -> None:
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert "insufficient comparable ads (commodore 1541-ii" not in body
-    assert "### Málo porovnateľných inzerátov" in body
-    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/1541/)" in body
-    assert "nákup 38 €" in body
-    assert "obvyklá 67.50 €" in body
-    assert "-29.50 € vs obvyklá (lacnejší)" in body
-    assert "porovnateľné 1/5" in body
-    assert "[Commodore 1541-II peer](https://pc.bazos.sk/inzerat/peer/) 90 €" in body
-    assert "s odkazom, nákupnou cenou a rozdielom od obvyklej" in body
+    assert "### Málo porovnateľných inzerátov" not in body
+    assert "https://pc.bazos.sk/inzerat/1541/" not in body
+    assert "https://pc.bazos.sk/inzerat/peer/" not in body
+    assert "s odkazom, nákupnou cenou a rozdielom od obvyklej" not in body

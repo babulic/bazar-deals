@@ -52,6 +52,8 @@ def test_kinds_cover_small_goods() -> None:
     assert classify_kind("Obal na iPhone 13") is ItemKind.ACCESSORIES
     assert classify_kind("iPhone 13 128GB") is ItemKind.PHONES
     assert classify_kind("Pánske rifle Levi's 32") is ItemKind.CLOTHING
+    assert classify_kind("wlvs siltovka") is ItemKind.CLOTHING
+    assert classify_kind("Nike šiltovka") is ItemKind.CLOTHING
     assert classify_kind("Strieborné náušnice") is ItemKind.JEWELRY
     assert classify_kind("Commodore 1541-II disk drive") is ItemKind.HARDWARE
     assert classify_kind("Kniha Harry Potter") is ItemKind.BOOKS

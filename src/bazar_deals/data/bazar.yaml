@@ -231,6 +231,13 @@ identity:
       - topanky
       - tenisky
       - sneakers
+      - šiltovka
+      - siltovka
+      - kšiltovka
+      - ksilovka
+      - čiapka
+      - ciapka
+      - cap
       - kleid
       - schuhe
       - oblečenie
@@ -803,6 +810,13 @@ identity:
     - použitý
     - pouzite
     - použité
+    - znacka
+    - značka
+    - stav
+    - nove
+    - nové
+    - dobre
+    - dobré
   min_token_len: 3
   min_digit_len: 2
   sold_query_tokens: 6

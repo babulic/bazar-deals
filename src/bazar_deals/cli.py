@@ -15,8 +15,8 @@ from bazar_deals.config import Settings
 from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
-from bazar_deals.github_alerts import GitHubIssueAlerts, listing_key, select_alert_deals
-from bazar_deals.notify import format_compact_deal, format_deal, format_price_book_miss, is_cheaper_than_usual, keep_price_book_miss
+from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
+from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources, is_alert_noise, score_listings
 from bazar_deals.progress import emit
 from bazar_deals.selling.collect import collect_all, refresh_inventory
@@ -189,24 +189,10 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     run.fetch_notes[:0] = fx_notes
     deals = run.deals
-    shown = select_alert_deals(deals)
-    actionable = [deal for deal in deals if deal.action is Action.BUY]
-    shown_keys = {listing_key(deal) for deal in shown}
-    watch = [
-        deal
-        for deal in deals
-        if listing_key(deal) not in shown_keys and is_cheaper_than_usual(deal)
-    ]
-    cheaper_misses = [miss for miss in run.price_book_misses if keep_price_book_miss(miss)]
-    if shown:
-        print("\n\n".join(format_deal(deal) for deal in shown))
-    if watch:
-        print("Lacnejšie ako obvyklá:")
-        print("\n".join(f"- {format_compact_deal(deal)}" for deal in watch))
-    if cheaper_misses:
-        print("Málo porovnateľných inzerátov:")
-        print("\n".join(f"- {format_price_book_miss(miss)}" for miss in cheaper_misses))
-    if not actionable:
+    buys = [deal for deal in deals if deal.action is Action.BUY]
+    if buys:
+        print("\n\n".join(format_deal(deal) for deal in select_alert_deals(buys, limit=len(buys))))
+    else:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
     if args.notify:
         try:

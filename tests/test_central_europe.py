@@ -182,7 +182,8 @@ def test_all_sources_are_registered_and_offline_stays_offline():
         "vinted",
         "sbazar",
     }
-    assert set(SITES.values()) <= set(searched_sites())
+    assert "sbazar.cz" in searched_sites()
+    assert "facebook.com" not in searched_sites()
     assert [s.marketplace for s in _sources("all", Settings(), fixture="unused")] == ["bazos"]
 
 

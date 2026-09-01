@@ -5,11 +5,8 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import (
-    format_compact_deal,
     format_github_deal,
-    format_price_book_miss,
     is_cheaper_than_usual,
-    keep_price_book_miss,
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
@@ -30,8 +27,8 @@ def listing_key(deal: Deal) -> str:
 def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
     """BUY deals only, ranked by expected net profit, capped at `alert_top_n`.
 
-    Full cards stay BUY-only. Scored losses and price-book misses are listed
-    separately with listing links, asking price, and delta vs usual.
+    Losses, cheaper-than-usual near-misses, and price-book misses stay out of
+    the GitHub comment. Profit is the only hunt result that gets a card.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     buys = [deal for deal in deals if deal.action is Action.BUY]
@@ -60,46 +57,25 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report: BUY cards, then cheaper-than-usual near-misses, then cheap misses."""
+    """Hunt report: BUY cards only, plus why the rest dropped off.
+
+    Cheaper-but-unprofitable ads and thin price-book misses stay out of the
+    comment. Showing a loss is not a hunt result.
+    """
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
-    watch = _scored_watch(run.deals, shown)
-    misses = [miss for miss in run.price_book_misses if keep_price_book_miss(miss)]
     status = _format_status(
         run,
         min_profit=min_profit,
         buy_count=buy_count,
         shown=len(shown),
-        watch_n=len(watch),
     )
     sections = [f"{ping}{markers}\n{status}" if markers else f"{ping}{status}"]
     if shown:
         sections.append("\n\n---\n\n".join(format_github_deal(deal) for deal in shown))
-    if watch:
-        rows = "\n".join(f"- {format_compact_deal(deal)}" for deal in watch)
-        sections.append(
-            f"### Lacnejšie ako obvyklá (pod prahom {min_profit} €)\n\n{rows}"
-        )
-    if misses:
-        rows = "\n".join(f"- {format_price_book_miss(miss)}" for miss in misses)
-        sections.append(
-            "### Málo porovnateľných inzerátov\n\n"
-            "Titulok je odkaz na inzerát. Len lacnejšie ako tenká obvyklá, alebo bez obvyklej. "
-            "U tenkého vzorku je obvyklá P25×0.75 z nájdených peerov, nie buy signál.\n\n"
-            f"{rows}"
-        )
     return "\n\n".join(section.rstrip() for section in sections) + "\n"
-
-
-def _scored_watch(deals: list[Deal], shown: list[Deal]) -> list[Deal]:
-    shown_keys = {listing_key(deal) for deal in shown}
-    return [
-        deal
-        for deal in deals
-        if listing_key(deal) not in shown_keys and is_cheaper_than_usual(deal)
-    ]
 
 
 def _status_notes(run: HuntRun) -> str:
@@ -213,12 +189,11 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
 
 
 def _format_status(
-    run: HuntRun, *, min_profit, buy_count: int, shown: int, watch_n: int
+    run: HuntRun, *, min_profit, buy_count: int, shown: int
 ) -> str:
     notes = _status_notes(run)
     scored = _funnel_n(run, "scored")
     above = _funnel_n(run, "above_typical")
-    miss_n = sum(1 for miss in run.price_book_misses if keep_price_book_miss(miss))
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
@@ -237,19 +212,10 @@ def _format_status(
                 f"(chýba trhový cenník Bazos/Aukro/Vinted / málo podobných inzerátov). "
                 f"Toto nie je dôkaz, že sú stratové."
             )
-        if miss_n:
-            headline += (
-                f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou "
-                "a rozdielom od obvyklej (len lacnejšie alebo bez obvyklej)."
-            )
-    elif watch_n:
-        headline = (
-            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
-            f"Lacnejšie ako obvyklá sú nižšie s odkazom, nákupnou cenou a rozdielom."
-        )
     else:
         headline = (
-            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku)."
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
+            "Stratové a podprahové inzeráty sa neposielajú."
         )
     return (
         f"{headline}\n\n"

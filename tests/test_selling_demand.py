@@ -57,6 +57,16 @@ def apatite() -> InventoryItem:
     )
 
 
+def psu() -> InventoryItem:
+    return InventoryItem(
+        id="psu-1541",
+        segment="retro",
+        title="Nový zdroj na disketovú jednotku Commodore 1541 II, 1581, 1571",
+        part_numbers=["1541", "1581", "1571", "1570"],
+        listed={"aukro": Decimal("23"), "bazos": Decimal("22")},
+    )
+
+
 def test_want_to_buy_requires_the_buyers_own_ad() -> None:
     assert is_want_to_buy("Kúpim MOS 6510")
     assert is_want_to_buy("Koupím Commodore AMIGA 600")
@@ -113,6 +123,18 @@ def test_numeric_part_needs_product_context() -> None:
     assert best_item("SUCHE John Deere 6510", [chip(), crystal()]) is None
 
 
+def test_psu_1541_does_not_match_a_disk_drive_sale() -> None:
+    drive = "Commodore 1541-II Diskettenlaufwerk"
+    assert match_want(drive, psu()) < 0.5
+    assert best_item(drive, [psu(), chip()]) is None
+    want = "Koupím zdroj 1541"
+    assert is_want_to_buy(want)
+    assert match_want(want, psu()) >= 0.8
+    hit = best_item(want, [psu(), chip()])
+    assert hit is not None
+    assert hit[0].id == "psu-1541"
+
+
 def test_searched_sites_cover_central_and_western_europe() -> None:
     sites = searched_sites()
     for host in (
@@ -127,6 +149,7 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "willhaben.at",
         "delcampe.net",
         "forum64.de",
+        "sbazar.cz",
         "ebay.de",
         "ebay.at",
         "ebay.fr",
@@ -135,6 +158,9 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "ebay.nl",
     ):
         assert host in sites
+    assert "facebook.com" not in sites
+    assert "allegro.pl" not in sites
+    assert "olx.pl" not in sites
 
 
 def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
@@ -198,6 +224,8 @@ def test_empty_digest_does_not_ping() -> None:
     body = format_buyer_digest(BuyerDigest(notes=["aukro: fetched 0"]), mention="babulic")
     assert not body.startswith("@babulic")
     assert "**0 kupcov**" in body
+    assert "Servery: (žiadne)" in body
+    assert "facebook.com" not in body
 
 
 def test_cli_buyers_prints_digest(monkeypatch, capsys) -> None:
@@ -474,16 +502,14 @@ def test_willhaben_stock_hits_include_links_even_when_not_wtb() -> None:
         digest = find_buyers(Inventory(items=[apatite()]), settings, client=client)
 
     assert digest.matches == []
-    assert digest.near_misses
-    hit = digest.near_misses[0]
-    assert hit.want.title == "Apatit aus Mexiko - Durango"
-    assert hit.item.id == "apatit-durango"
-    assert seo in hit.want.url
+    assert digest.near_misses == []
     body = format_buyer_digest(digest)
     assert "**0 kupcov**" in body
-    assert f"[Apatit aus Mexiko - Durango](https://www.willhaben.at/iad/{seo})" in body
-    assert "`apatit-durango`" in body
-    assert "názov nie je dopyt kúpim" in body
+    assert "Apatit aus Mexiko" not in body
+    assert "názov nie je dopyt kúpim" not in body
+    assert "facebook.com" not in body
+    assert "allegro.pl" not in body
+    assert "olx.pl" not in body
     assert any("0 want-ads" in note and "willhaben.at" in note for note in digest.notes)
     assert not any("for 'Suche" in note or "for 'Kaufe" in note for note in digest.notes)
     will_notes = [note for note in digest.notes if note.startswith("willhaben.at")]
@@ -539,10 +565,11 @@ def test_delcampe_wtb_matches_mineral_and_sell_hit_keeps_link() -> None:
     assert "Suche Amethyst Brandberg" in titles
     assert all(row.want.site == "delcampe.net" for row in digest.matches)
     assert any(row.want.offer_eur == Decimal("12") for row in digest.matches)
-    assert any(row.want.title.startswith("Amethyst Brandberg Namibia") for row in digest.near_misses)
+    assert digest.near_misses == []
     body = format_buyer_digest(digest)
     assert "slug-111.html" in body
-    assert "slug-222.html" in body
+    assert "slug-222.html" not in body
+    assert "názov nie je dopyt kúpim" not in body
 
 
 def test_forum64_suche_matches_chip_and_biete_is_not_a_buyer() -> None:
@@ -563,10 +590,10 @@ def test_forum64_suche_matches_chip_and_biete_is_not_a_buyer() -> None:
     titles = {row.want.title for row in digest.matches}
     assert titles == {"Suche MOS 6510"}
     assert digest.matches[0].want.url.endswith("thread/77-slug/")
-    assert any(row.want.title == "Biete MOS 6510" for row in digest.near_misses)
+    assert digest.near_misses == []
     body = format_buyer_digest(digest)
     assert "[forum64.de](https://www.forum64.de/index.php?thread/77-slug/)" in body
-    assert "thread/88-slug/" in body
+    assert "thread/88-slug/" not in body
 
 
 def test_forum64_cloudflare_block_is_reported_once() -> None:
