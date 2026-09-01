@@ -226,8 +226,9 @@ def test_vinted_hunt_loads_catalog_api(monkeypatch) -> None:
         if request.url.path.rstrip("/") in {"", "/"}:
             return httpx.Response(200, text="<html>ok</html>")
         if request.url.path == "/api/v2/catalog/items":
-            assert "catalog_ids=3565" in str(request.url)
-            return httpx.Response(200, json={"items": [item]})
+            if "catalog_ids=3565" in str(request.url):
+                return httpx.Response(200, json={"items": [item]})
+            return httpx.Response(200, json={"items": []})
         raise AssertionError(request.url)
 
     transport = httpx.MockTransport(handler)

@@ -13,8 +13,8 @@ FIXTURE = Path(__file__).parent / "fixtures" / "bazos_rss.xml"
 SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
 
 
-def test_bazos_hunts_slovakia_only() -> None:
-    assert BazosRssClient().sites == ("sk",)
+def test_bazos_hunts_slovakia_and_czech_rss() -> None:
+    assert BazosRssClient().sites == ("sk", "cz")
 
 
 def test_rss_parses_price_from_title() -> None:
@@ -538,7 +538,7 @@ def test_hunt_sources_appends_sold_comp_notes() -> None:
             return []
 
     class _Sold:
-        notes = ["price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused (eBay is not used)"]
+        notes = ["price book: Bazos/Aukro/Vinted/eBay P25×0.75 stored in comps DB and reused"]
 
         def median_sold(self, listing, **kwargs):
             return None
@@ -586,7 +586,7 @@ def test_hunt_sources_drops_delivery_and_access_notes() -> None:
     assert not any("live query budget exhausted" in note for note in run.fetch_notes)
 
 
-def test_hunt_sources_skips_ebay() -> None:
+def test_hunt_sources_fetches_ebay() -> None:
     from bazar_deals.adapters.base import ListingSource
     from bazar_deals.domain import Vertical
 
@@ -594,7 +594,17 @@ def test_hunt_sources_skips_ebay() -> None:
         marketplace = Marketplace.EBAY.value
 
         def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
-            raise AssertionError("eBay must not be fetched")
+            return [
+                Listing(
+                    marketplace=Marketplace.EBAY,
+                    external_id="itm",
+                    title="Apple iPhone 13 128GB",
+                    url="https://www.ebay.de/itm/itm",
+                    price=Money(amount=Decimal("40"), currency="EUR"),
+                    ships_to_slovakia=True,
+                    buy_now=True,
+                )
+            ]
 
     class _Sold:
         notes: list[str] = []
@@ -602,8 +612,10 @@ def test_hunt_sources_skips_ebay() -> None:
         def median_sold(self, listing, **kwargs):
             return None
 
-    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert-id")
+        def seed_asking(self, listings):
+            return None
+
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert-id", ebay_retention_enabled=True)
     run = hunt_sources([_Ebay()], settings=settings, sold=_Sold())
-    assert run.fetch_notes == [
-        "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)"
-    ]
+    assert "ebay: fetched 1" in run.fetch_notes
+    assert run.funnel["fetched"] == 1

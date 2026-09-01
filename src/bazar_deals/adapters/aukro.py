@@ -8,6 +8,7 @@ from pathlib import Path
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.catalog import hunt_research_only, hunt_target_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
@@ -52,31 +53,41 @@ class AukroHuntClient(ListingSource):
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
 
         found: dict[str, Listing] = {}
-        categories = _SMALL_CATEGORIES or (None,)
-        pages = _PAGES if _SMALL_CATEGORIES else 3
         gap = min(0.5, max(0.0, self.settings.bazos_request_gap_seconds))
-        for index, category_id in enumerate(categories):
-            if index:
+        if not hunt_research_only():
+            categories = _SMALL_CATEGORIES or (None,)
+            pages = _PAGES if _SMALL_CATEGORIES else 3
+            for index, category_id in enumerate(categories):
+                if index:
+                    time.sleep(gap)
+                for page in range(pages):
+                    response = httpx.post(
+                        _PUBLIC_SEARCH,
+                        params={"page": page, "size": _PAGE_SIZE},
+                        headers={
+                            "User-Agent": self.settings.bazos_user_agent,
+                            "Accept": "application/json",
+                            "Content-Type": "application/json",
+                        },
+                        json=_search_body(category_id),
+                        timeout=30.0,
+                        follow_redirects=True,
+                    )
+                    response.raise_for_status()
+                    data = response.json()
+                    for node in data.get("content") or []:
+                        listing = _listing_from_public_node(node)
+                        if listing is not None:
+                            found[listing.external_id] = listing
+
+        if not self.fixture_path:
+            for query in hunt_target_queries():
                 time.sleep(gap)
-            for page in range(pages):
-                response = httpx.post(
-                    _PUBLIC_SEARCH,
-                    params={"page": page, "size": _PAGE_SIZE},
-                    headers={
-                        "User-Agent": self.settings.bazos_user_agent,
-                        "Accept": "application/json",
-                        "Content-Type": "application/json",
-                    },
-                    json=_search_body(category_id),
-                    timeout=30.0,
-                    follow_redirects=True,
-                )
-                response.raise_for_status()
-                data = response.json()
-                for node in data.get("content") or []:
-                    listing = _listing_from_public_node(node)
-                    if listing is not None:
+                try:
+                    for listing in self.search(query):
                         found[listing.external_id] = listing
+                except (httpx.HTTPError, ValueError):
+                    continue
 
         return sorted(
             found.values(),

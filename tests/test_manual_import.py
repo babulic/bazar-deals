@@ -116,13 +116,25 @@ def test_import_command_csv_and_no_source_overwrite(tmp_path):
         main(['import', '--manual-in', str(path), '--listings-out', str(path)])
 
 
-@pytest.mark.parametrize('source,status', [('facebook','LOGIN_REQUIRED'), ('olx','BLOCKED'), ('allegro_pl','ACCESS_NOT_GRANTED'), ('allegro_sk','ACCESS_NOT_GRANTED')])
+@pytest.mark.parametrize('source,status', [('olx','BLOCKED'), ('allegro_pl','ACCESS_NOT_GRANTED'), ('allegro_sk','ACCESS_NOT_GRANTED')])
 def test_scheduled_manual_sources_do_not_attempt_blocked_requests(source, status):
     def fail(request):
         pytest.fail('A manual source must not make unattended requests')
     client = CentralEuropeClient(source, Settings(), client=httpx.Client(transport=httpx.MockTransport(fail)))
     assert client.fetch_new() == []
     assert status in client.notes[0]
+
+
+def test_facebook_hunt_tries_public_html_and_fails_closed_on_login():
+    def handler(request):
+        return httpx.Response(302, headers={"Location": "https://www.facebook.com/login"})
+    client = CentralEuropeClient(
+        "facebook",
+        Settings(),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert client.fetch_new() == []
+    assert any("LOGIN_REQUIRED" in note for note in client.notes)
 
 
 def test_czk_reserve_for_goods_and_postage_matches_pln(tmp_path):
@@ -147,5 +159,12 @@ def test_regular_hunt_does_not_delete_comments():
     from pathlib import Path
     import yaml
     workflow = yaml.safe_load(Path('.github/workflows/hunt.yml').read_text())
-    assert set(workflow['jobs']) == {'hunt'}
+    assert set(workflow['jobs']) == {'hunt', 'research'}
+    assert workflow['jobs']['research']['needs'] == 'hunt'
+    assert "buys == '0'" in str(workflow['jobs']['research']['if'])
+    assert '--research' in str(workflow['jobs']['research'])
     assert 'delete-issue-comments' not in str(workflow)
+    sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
+    assert set(sell['jobs']) == {'sell-buyers', 'research'}
+    assert "buyers == '0'" in str(sell['jobs']['research']['if'])
+    assert '--research' in str(sell['jobs']['research'])

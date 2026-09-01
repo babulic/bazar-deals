@@ -4,9 +4,11 @@ from pathlib import Path
 from bazar_deals.catalog import (
     is_bulky,
     is_christmas_lighting,
+    is_oversized,
     is_skip_keyword,
     is_too_heavy,
     reject_physical,
+    stated_box_cm,
     stated_weight_kg,
 )
 from bazar_deals.config import Settings
@@ -33,13 +35,26 @@ def test_christmas_lights_are_skipped_headlamps_and_lamps_are_not() -> None:
     assert reject_physical("Petzl čelovka Actik Core") is None
 
 
-def test_weight_cap_ignores_storage_and_allows_five_kg() -> None:
+def test_weight_cap_is_two_kg_and_ignores_storage() -> None:
     assert stated_weight_kg("iPhone 16GB") is None
-    assert not is_too_heavy("Hmotnosť 5 kg, posielam Packeta")
+    assert not is_too_heavy("Hmotnosť 2 kg, posielam Packeta")
+    assert is_too_heavy("Hmotnosť 5 kg, posielam Packeta")
     assert is_too_heavy("Hmotnosť 6 kg")
     assert is_too_heavy("váha 5,5 kg")
+    assert is_too_heavy("váha 2,1 kg")
+    assert not is_too_heavy("1800 g")
+    assert is_too_heavy("2500 g")
     assert reject_physical("Starý gauč") == "bulky"
     assert is_bulky("Samsung televízor 55")
+
+
+def test_shoebox_longest_edge_and_sum_of_sides() -> None:
+    assert stated_box_cm("krabica 50x40x30 cm") == (50.0, 40.0, 30.0)
+    assert not is_oversized("50 × 40 × 30 cm, Packeta")
+    assert is_oversized("51x40x30 cm")
+    assert is_oversized("50x40x31 cm")
+    assert reject_physical("Predám iPhone, rozmery 60x50x40 cm") == "oversized"
+    assert reject_physical("Canon 50mm f/1.8, 400 g") is None
 
 
 def test_sub_twenty_euro_listing_is_dropped_before_scoring() -> None:

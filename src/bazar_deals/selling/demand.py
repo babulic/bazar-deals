@@ -226,6 +226,7 @@ def searched_sites() -> list[str]:
     sites.append("delcampe.net")
     sites.append("forum64.de")
     sites.append("sbazar.cz")
+    sites.append("facebook.com")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
     return sites
 
@@ -247,7 +248,7 @@ def _is_song_or_already_bought(title: str) -> bool:
     return False
 
 
-def queries_for(item: InventoryItem) -> list[str]:
+def queries_for(item: InventoryItem, *, research: bool = False) -> list[str]:
     """Short distinctive queries a European buyer would type."""
     found: list[str] = []
     for part in item.part_numbers:
@@ -261,6 +262,12 @@ def queries_for(item: InventoryItem) -> list[str]:
         de_name = _german_locality(item)
         if de_name and de_name.casefold() != place.casefold():
             found.append(f"{head} {de_name}".strip())
+        if research:
+            for spec in item.species[:2]:
+                for lang in ("en", "de", "cs"):
+                    label = _glossary_name(spec, lang)
+                    if label:
+                        found.append(label)
     if not found:
         words = [
             word
@@ -271,13 +278,14 @@ def queries_for(item: InventoryItem) -> list[str]:
             found.append(" ".join(words[:3]))
     unique: list[str] = []
     seen: set[str] = set()
+    cap = 4 if research else 2
     for query in found:
         key = _fold(query)
         if key in seen:
             continue
         seen.add(key)
         unique.append(query)
-        if len(unique) == 2:
+        if len(unique) == cap:
             break
     return unique
 
@@ -392,12 +400,13 @@ def find_buyers(
     client: httpx.Client | None = None,
     manual_listings: list[Listing] | None = None,
     offline: bool = False,
+    research: bool = False,
 ) -> BuyerDigest:
     """Search European want-to-buy ads and pair them with own stock."""
     settings = settings or Settings()
     digest = BuyerDigest()
     items = list(inventory.items)
-    queries = _unique_queries(items)
+    queries = _unique_queries(items, research=research)
     ads: dict[str, WantAd] = {}
     stats: dict[str, _SiteStat] = {}
     special_notes: list[str] = []
@@ -438,18 +447,31 @@ def find_buyers(
                 batch, note = _search_bazos(query, site, settings, client=client)
                 ingest(batch, note, f"bazos.{site}")
 
+        if research:
+            extra = {
+                "sk": ("zakúpim", "wtb"),
+                "cz": ("zakoupím", "wtb"),
+            }
+            for site, phrases in extra.items():
+                for phrase in phrases:
+                    batch, note = _search_bazos(phrase, site, settings, client=client)
+                    ingest(batch, note, f"bazos.{site}")
+
         for phrase in _AUKRO_PHRASES:
             batch, note = _search_aukro(phrase, settings, client=client)
             ingest(batch, note, "aukro")
-        for query in queries:
-            batch, note = _search_aukro(f"koupím {query}", settings, client=client)
-            ingest(batch, note, "aukro")
+        aukro_verbs = ("koupím", "kúpim") if research else ("koupím",)
+        for verb in aukro_verbs:
+            for query in queries:
+                batch, note = _search_aukro(f"{verb} {query}", settings, client=client)
+                ingest(batch, note, "aukro")
 
+        query_hosts = {host for host, _phrases in _VINTED_SITES} if research else {"vinted.sk", "vinted.cz"}
         for site, phrases in _VINTED_SITES:
             for phrase in phrases:
                 batch, note = _search_vinted(phrase, site, settings, client=client)
                 ingest(batch, note, site)
-            if site in {"vinted.sk", "vinted.cz"} and phrases:
+            if site in query_hosts and phrases:
                 verb = phrases[0]
                 for query in queries:
                     batch, note = _search_vinted(f"{verb} {query}", site, settings, client=client)
@@ -550,6 +572,9 @@ def find_buyers(
                 try:
                     batch = searcher.search(full_query)
                 except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                    if source == "facebook":
+                        special_notes.append("facebook: public marketplace unavailable")
+                        break
                     special_notes.append(
                         f"{_http_note(site, exc)}; manual search: {search_url(source, full_query)}"
                     )
@@ -657,7 +682,7 @@ def _format_match(row: DemandMatch) -> str:
     )
 
 
-def _unique_queries(items: list[InventoryItem]) -> list[str]:
+def _unique_queries(items: list[InventoryItem], *, research: bool = False) -> list[str]:
     # Give every stock item its primary query before spending requests on
     # alternate names. The old global cap let early minerals exclude all chips.
     found: list[str] = []
@@ -666,8 +691,8 @@ def _unique_queries(items: list[InventoryItem]) -> list[str]:
     for item in items:
         segments[item.segment].append(item)
     ordered = [item for row in zip_longest(*segments.values()) for item in row if item is not None]
-    groups = [queries_for(item) for item in ordered]
-    budget = max(_MAX_TARGETED, sum(bool(group) for group in groups))
+    groups = [queries_for(item, research=research) for item in ordered]
+    budget = max(_MAX_TARGETED * (2 if research else 1), sum(bool(group) for group in groups))
     for index in range(max((len(group) for group in groups), default=0)):
         for group in groups:
             if index >= len(group):

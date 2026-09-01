@@ -5,6 +5,7 @@ from decimal import Decimal
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
+from bazar_deals.catalog import hunt_research_only, hunt_target_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
 from bazar_deals.rules import rules
@@ -36,9 +37,22 @@ class EbayBrowseClient(ListingSource):
                 "eBay Browse API credentials are required: public HTML cannot reliably confirm delivery to Slovakia"
             )
         listings: list[Listing] = []
-        for category in _SMALL_CATEGORIES:
-            data = self.search(category, limit=30)
-            listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+        if not hunt_research_only():
+            for category in _SMALL_CATEGORIES:
+                data = self.search(category, limit=30)
+                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
+        seen = {item.external_id for item in listings}
+        for query in hunt_target_queries():
+            try:
+                data = self.search_query(query, limit=30)
+            except (httpx.HTTPError, RuntimeError, ValueError):
+                continue
+            for item in data.get("itemSummaries", []):
+                listing = self._to_listing(item)
+                if listing.external_id in seen:
+                    continue
+                seen.add(listing.external_id)
+                listings.append(listing)
         return [
             item
             for item in listings

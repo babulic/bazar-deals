@@ -19,6 +19,13 @@ from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import hunt_sources, is_alert_noise, score_listings
 from bazar_deals.progress import emit
+from bazar_deals.research import (
+    enable_hunt_research,
+    hunt_research_hint,
+    sell_research_hint,
+    write_github_output,
+    write_run_summary,
+)
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest
 from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
@@ -65,7 +72,7 @@ def main(argv: list[str] | None = None) -> int:
         "--source",
         choices=["all", "bazos", "ebay", "aukro", "vinted", *SITES],
         default="all",
-        help="Hunt all configured marketplaces; unavailable sources are reported. eBay is excluded.",
+        help="Hunt all configured marketplaces; unavailable sources are reported. eBay Browse is included.",
     )
     parser.add_argument(
         "--vertical",
@@ -100,7 +107,14 @@ def main(argv: list[str] | None = None) -> int:
         help="Score previously fetched JSON instead of downloading. Repeatable.",
     )
     parser.add_argument("--manual-in", action="append", default=[], help="User-selected offers in simple JSON/CSV; repeatable. Hunt scores only these and --listings-in.")
+    parser.add_argument(
+        "--research",
+        action="store_true",
+        help="After 0 BUY or 0 sell: expand SKUs/boards toward >0 matches. GitHub Actions runs this automatically.",
+    )
     args = parser.parse_args(argv)
+    if args.research:
+        enable_hunt_research()
     try:
         manual = [row for path in args.manual_in for row in load_manual_offers(Path(path))]
     except (OSError, ValueError) as exc:
@@ -133,13 +147,30 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Refreshed {report.matched} listing(s) into {target}:", file=sys.stderr)
             print(report.summary(), file=sys.stderr)
         if args.buyers:
-            digest = find_buyers(inventory, settings, manual_listings=manual, offline=args.offline) if args.manual_in or args.offline else find_buyers(inventory, settings)
+            digest = find_buyers(
+                inventory,
+                settings,
+                manual_listings=manual or None,
+                offline=args.offline,
+                research=args.research,
+            )
             digest.notes[:0] = fx_notes
             body = format_buyer_digest(digest, mention=settings.github_assignee)
             print(body)
+            buyers = len(digest.matches)
+            fetched = sum(digest.fetched.values()) if digest.fetched else 0
+            write_github_output(buyers=buyers, research=int(args.research))
+            write_run_summary(
+                Path(".cache/bazar-sell-run.json"),
+                {"command": "sell", "buyers": buyers, "fetched": fetched, "research": bool(args.research)},
+            )
+            if buyers == 0:
+                emit(sell_research_hint(buyers=0, fetched=fetched))
             if args.notify:
                 try:
-                    posted = GitHubIssueAlerts.for_sell_buyers(settings).post_buyer_digest(body)
+                    posted = GitHubIssueAlerts.for_sell_buyers(settings).post_buyer_digest(
+                        body, has_buyers=bool(digest.matches)
+                    )
                 except RuntimeError as exc:
                     print(exc)
                     return 2
@@ -190,10 +221,23 @@ def main(argv: list[str] | None = None) -> int:
     run.fetch_notes[:0] = fx_notes
     deals = run.deals
     buys = [deal for deal in deals if deal.action is Action.BUY]
+    write_github_output(buys=len(buys), research=int(args.research))
+    write_run_summary(
+        Path(".cache/bazar-hunt-run.json"),
+        {
+            "command": "hunt",
+            "buys": len(buys),
+            "usable": int(run.funnel.get("usable", 0)),
+            "no_sold_comps": int(run.funnel.get("no_sold_comps", 0)),
+            "research": bool(args.research),
+            "hint": hunt_research_hint(run.funnel) if not buys else "",
+        },
+    )
     if buys:
         print("\n\n".join(format_deal(deal) for deal in select_alert_deals(buys, limit=len(buys))))
     else:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
+        emit(hunt_research_hint(run.funnel))
     if args.notify:
         try:
             posted = GitHubIssueAlerts(settings).post_run(run)
@@ -220,7 +264,7 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
         return [vinted]
     if fixture is not None:
         return [bazos]
-    return [bazos, aukro, vinted, *(CentralEuropeClient(name, settings) for name in HUNT_SITES)]
+    return [bazos, aukro, vinted, EbayBrowseClient(settings), *(CentralEuropeClient(name, settings) for name in HUNT_SITES)]
 
 
 def _dump_listings(path: Path, listings: list[Listing], *, notes: list[str] | None = None) -> None:

@@ -13,7 +13,7 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import reject_physical
+from bazar_deals.catalog import hunt_research_only, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -50,6 +50,7 @@ _FUNNEL_KEYS = (
     "bulky",
     "skip_keyword",
     "heavy",
+    "oversized",
     "usable",
     "score_capped",
     "detail_failed",
@@ -57,6 +58,7 @@ _FUNNEL_KEYS = (
     "detail_bulky",
     "detail_skip_keyword",
     "detail_heavy",
+    "detail_oversized",
     "insufficient_detail",
     "identity_weak",
     "identity_ai_rescued",
@@ -131,14 +133,6 @@ def hunt_sources(
         for source in sources:
             enrichers[Marketplace(source.marketplace)] = source
             try:
-                if Marketplace(source.marketplace) is Marketplace.EBAY:
-                    note = (
-                        f"{source.marketplace}: skipped "
-                        "(valuation uses Bazos/Aukro/Vinted price book, not eBay)"
-                    )
-                    emit(note)
-                    fetch_notes.append(note)
-                    continue
                 set_phase(f"{source.marketplace} fetch")
                 emit(f"{source.marketplace}: fetching")
                 started = time.monotonic()
@@ -256,6 +250,8 @@ def score_listings(
             ready.append(listing)
     queue = _round_robin_listings(ready) + pending_sk
     score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+    if hunt_research_only():
+        score_cap = max(score_cap, 120)
 
     if identifier is None and settings.ai_review_enabled:
         identifier = AIIdentityClient(settings)
@@ -551,7 +547,14 @@ def is_alert_noise(note: str) -> bool:
     text = note or ""
     if is_dry_price_book_miss(text) or text.startswith("price book:"):
         return True
-    if text.startswith(("facebook:", "allegro_pl:", "allegro_sk:", "olx:", "ebay:")):
+    if text.startswith(("allegro_pl:", "allegro_sk:", "olx:")):
+        return True
+    if text.startswith("facebook:"):
+        return "fetched " not in text or "fetched 0" in text
+    if text.startswith("ebay:") and any(
+        marker in text
+        for marker in ("no-persistence", "OAuth", "skipped", "credentials are required")
+    ):
         return True
     markers = (
         "LOGIN_REQUIRED",
