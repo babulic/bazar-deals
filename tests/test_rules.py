@@ -32,6 +32,9 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "pixel" in data["hunt"]["target_queries"]
     assert "airpods" in data["hunt"]["target_queries"]
     assert "commodore" in data["hunt"]["target_queries"]
+    assert "commodore 1541" in data["hunt"]["fetch_queries"]
+    assert "iphone se" in data["hunt"]["fetch_queries"]
+    assert "c64" not in data["hunt"]["fetch_queries"]
     assert "kindle" in data["hunt"]["expand_queries"]
     assert "cz" in data["catalog"]["bazos_rss"]
     assert Settings().comps_live_queries == 80

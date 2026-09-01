@@ -45,7 +45,7 @@ hunt:
   # Ads without 5 comps do not consume it.
   max_score_listings: 80
   # Targeted product searches mixed into newest dumps so the 80-slot cap is
-  # not only Vinted clothing. Used for hunt fetch and eBay Browse queries.
+  # not only Vinted clothing. Used to recognise a hunt-target ad in a dump.
   target_queries:
     - iphone
     - airpods
@@ -85,6 +85,36 @@ hunt:
     - shure
     - vltavín
     - galenit
+  # Actual marketplace search phrases (Bazos/Aukro/Vinted/eBay/sbazar).
+  # These have to be able to appear at 20–110 € and still clear 30 € net.
+  # Bare `commodore` / `c64` stay in target_queries for dump matching only.
+  fetch_queries:
+    - iphone se
+    - iphone 11
+    - iphone 12
+    - iphone 13
+    - airpods pro
+    - airpods
+    - nintendo switch lite
+    - switch oled
+    - steam deck
+    - gameboy
+    - commodore 1541
+    - 1541-ii
+    - commodore 64 computer
+    - c64c
+    - mos 6510
+    - apple watch
+    - pixel
+    - quest 3
+    - gopro
+    - canon eos
+    - tamron
+    - ametyst
+    - vltavín
+    - galenit
+    - galaxy s21
+    - kindle
   # Second-wave SKUs after a 0 BUY hunt. Not a newest-dump — query-only retry.
   expand_queries:
     - kindle

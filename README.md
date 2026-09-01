@@ -31,9 +31,11 @@ not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 3
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
 C64 cassette games or watch straps that only share a platform keyword. Live
 comps are skipped for media/clothing/accessories so the 80 query budget can
-price iPhones and disk drives. Target queries include Pixel, Quest 3, Insta360, AirPods Pro and
-similar fast-movers alongside iPhone/Switch/LEGO. eBay Browse stops further
-searches on a 429 instead of emptying the whole fetch.
+price iPhones and disk drives. Marketplace **search** uses `fetch_queries`
+(`iphone se`, `commodore 1541`, `nintendo switch lite`, …), not bare
+`commodore`/`c64` which pulled cassette games. Newest dumps still run; eBay
+skips the category newest-dump once SKU search returned hits, and stops on a
+429 instead of emptying the whole fetch.
 
 ## Decision rule
 

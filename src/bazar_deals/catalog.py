@@ -59,10 +59,32 @@ def _clean_queries(raw: object) -> list[str]:
 
 
 def hunt_target_queries() -> tuple[str, ...]:
-    """Product searches that can actually clear the 30 € net-profit floor."""
+    """Product names used to recognise a hunt-target ad in a newest dump."""
     hunt = rules()["hunt"]
     found = _clean_queries(hunt.get("target_queries"))
     if hunt_expand():
+        extra = _clean_queries(hunt.get("expand_queries"))
+        seen = {query.casefold() for query in found}
+        for query in extra:
+            key = query.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(query)
+    return tuple(found)
+
+
+def hunt_fetch_queries() -> tuple[str, ...]:
+    """Marketplace search phrases that can still sit in 20–110 € and clear 30 € net.
+
+    Newest-dumps are full of clothing. BUY needs targeted SKU searches
+    (iPhone SE, 1541, Switch Lite), not `commodore` pulling cassette games.
+    """
+    hunt = rules()["hunt"]
+    found = _clean_queries(hunt.get("fetch_queries"))
+    if not found:
+        found = list(hunt_target_queries())
+    elif hunt_expand():
         extra = _clean_queries(hunt.get("expand_queries"))
         seen = {query.casefold() for query in found}
         for query in extra:

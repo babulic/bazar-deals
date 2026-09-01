@@ -7,7 +7,7 @@ from urllib.parse import urlparse
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import hunt_research_only, hunt_target_queries
+from bazar_deals.catalog import hunt_research_only, hunt_fetch_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
 from bazar_deals.rules import rules
@@ -73,7 +73,8 @@ class EbayBrowseClient(ListingSource):
         self.notes = []
         for marketplace_id in hunt_ebay_marketplace_ids():
             throttled = False
-            for query in hunt_target_queries():
+            seen_before = len(seen)
+            for query in hunt_fetch_queries():
                 if throttled:
                     break
                 try:
@@ -90,7 +91,9 @@ class EbayBrowseClient(ListingSource):
                     last_exc = exc
                     continue
                 self._ingest(data, listings, seen, marketplace_id)
-            if not hunt_research_only() and not throttled:
+            # Category newest-dumps 429 the Browse API. Only use them when SKU
+            # search returned nothing for this storefront.
+            if not hunt_research_only() and not throttled and len(seen) == seen_before:
                 for category in _SMALL_CATEGORIES:
                     try:
                         data = self.search(category, limit=30, marketplace_id=marketplace_id)

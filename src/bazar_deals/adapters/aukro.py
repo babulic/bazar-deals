@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import hunt_research_only, hunt_target_queries
+from bazar_deals.catalog import hunt_research_only, hunt_fetch_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
@@ -56,7 +56,7 @@ class AukroHuntClient(ListingSource):
         targeted: dict[str, Listing] = {}
         gap = min(0.5, max(0.0, self.settings.bazos_request_gap_seconds))
         if not self.fixture_path:
-            for query in hunt_target_queries():
+            for query in hunt_fetch_queries():
                 time.sleep(gap)
                 try:
                     for listing in self.search(query):

@@ -1,7 +1,12 @@
 from collections import Counter
 from pathlib import Path
 
-from bazar_deals.catalog import hunt_target_queries, is_high_yield_kind, matches_hunt_target
+from bazar_deals.catalog import (
+    hunt_fetch_queries,
+    hunt_target_queries,
+    is_high_yield_kind,
+    matches_hunt_target,
+)
 from bazar_deals.research import hunt_research_hint, sell_research_hint, write_github_output
 
 
@@ -27,6 +32,19 @@ def test_expand_queries_join_only_in_research_mode(monkeypatch) -> None:
     assert "iphone" in expanded
     assert "kindle" in expanded
     assert "vltavín" in expanded
+
+
+def test_fetch_queries_search_buyable_skus_not_cassette_keywords(monkeypatch) -> None:
+    monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
+    monkeypatch.delenv("BAZAR_HUNT_EXPAND", raising=False)
+    fetch = hunt_fetch_queries()
+    assert "iphone se" in fetch
+    assert "commodore 1541" in fetch
+    assert "commodore 64 computer" in fetch
+    assert "nintendo switch lite" in fetch
+    assert "c64" not in fetch
+    assert "commodore" not in fetch
+    assert "pokemon" not in fetch
 
 
 def test_zero_buy_hint_points_at_more_hits_not_tighter_gates() -> None:
