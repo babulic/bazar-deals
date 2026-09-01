@@ -23,6 +23,7 @@ from bazar_deals.research import (
     enable_hunt_research,
     hunt_research_hint,
     sell_research_hint,
+    should_research_loop,
     write_github_output,
     write_run_summary,
 )
@@ -110,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--research",
         action="store_true",
-        help="After 0 BUY or 0 sell: expand SKUs/boards toward >0 matches. GitHub Actions runs this automatically.",
+        help="This pass is the 0-BUY retry (expand SKUs, query-only). The hunt CLI also loops in-process; GHA uses this flag as backup.",
     )
     args = parser.parse_args(argv)
     if args.research:
@@ -208,6 +209,7 @@ def main(argv: list[str] | None = None) -> int:
             emit(f"research fetch merged to {len(listings)} listing(s)")
         emit(f"scoring {len(listings)} cached listing(s)")
         run = score_listings(listings, settings, sold, enrichers=enrichers)
+        run.listings = listings
         sold_notes = [
             note for note in (getattr(sold, "notes", []) or []) if not is_alert_noise(note)
         ]
@@ -217,6 +219,7 @@ def main(argv: list[str] | None = None) -> int:
         ] + sold_notes
     else:
         sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
+        enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
         run = hunt_sources(
             sources,
             vertical=vertical,
@@ -230,9 +233,38 @@ def main(argv: list[str] | None = None) -> int:
         if args.fetch_only:
             return 0
     run.fetch_notes[:0] = fx_notes
-    deals = run.deals
-    buys = [deal for deal in deals if deal.action is Action.BUY]
-    write_github_output(buys=len(buys), research=int(args.research))
+    buys = [deal for deal in run.deals if deal.action is Action.BUY]
+    looped = 0
+    if should_research_loop(
+        buy_count=len(buys),
+        already_research=bool(args.research),
+        offline=bool(args.offline),
+    ):
+        enable_hunt_research()
+        emit("0 BUY — in-process research loop: expand SKUs, query-only fetch")
+        extra = hunt_sources(
+            sources,
+            vertical=vertical,
+            settings=settings,
+            sold=sold,
+            score=False,
+        )
+        merged = _merge_listings(run.listings, extra.listings)
+        emit(f"research loop merged to {len(merged)} listing(s)")
+        first_notes = list(run.fetch_notes)
+        run = score_listings(merged, settings, sold, enrichers=enrichers)
+        run.listings = merged
+        sold_notes = [
+            note for note in (getattr(sold, "notes", []) or []) if not is_alert_noise(note)
+        ]
+        run.fetch_notes = first_notes + ["research loop after 0 BUY"] + extra.fetch_notes + sold_notes
+        buys = [deal for deal in run.deals if deal.action is Action.BUY]
+        looped = 1
+    write_github_output(
+        buys=len(buys),
+        research=int(bool(args.research) or looped),
+        looped=looped,
+    )
     write_run_summary(
         Path(".cache/bazar-hunt-run.json"),
         {
@@ -240,11 +272,12 @@ def main(argv: list[str] | None = None) -> int:
             "buys": len(buys),
             "usable": int(run.funnel.get("usable", 0)),
             "no_sold_comps": int(run.funnel.get("no_sold_comps", 0)),
-            "research": bool(args.research),
+            "research": bool(args.research) or bool(looped),
+            "looped": bool(looped),
             "hint": hunt_research_hint(run.funnel) if not buys else "",
         },
     )
-    shown = select_alert_deals(deals)
+    shown = select_alert_deals(run.deals)
     if not buys:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
         emit(hunt_research_hint(run.funnel))

@@ -356,7 +356,7 @@ class CentralEuropeClient(ListingSource):
             queries.append(query)
         cap = int(config["max_queries"])
         if hunt_expand():
-            cap = max(cap, 20)
+            cap = max(cap, 40)
         found = {}
         for query in queries[:cap]:
             try:

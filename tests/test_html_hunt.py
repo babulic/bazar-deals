@@ -215,6 +215,8 @@ def test_vinted_hunt_loads_catalog_api(monkeypatch) -> None:
     from bazar_deals.adapters import vinted as vinted_mod
 
     monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    monkeypatch.setattr(vinted_mod, "hunt_fetch_queries", lambda: ())
+    monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
     item = {
         "id": 9800847268,
         "title": "Apple iPhone 13 128 GB",
@@ -251,6 +253,7 @@ def test_vinted_datadome_is_a_fetch_error(monkeypatch) -> None:
     from bazar_deals.adapters import vinted as vinted_mod
 
     monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    monkeypatch.setattr(vinted_mod, "hunt_fetch_queries", lambda: ())
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
@@ -270,6 +273,7 @@ def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
     from bazar_deals.adapters import vinted as vinted_mod
 
     monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    monkeypatch.setattr(vinted_mod, "hunt_fetch_queries", lambda: ())
 
     def handler(request: httpx.Request) -> httpx.Response:
         if "/api/v2/catalog/items" in request.url.path:
@@ -279,3 +283,61 @@ def test_vinted_empty_bot_page_is_a_fetch_error(monkeypatch) -> None:
     with httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
         with pytest.raises(RuntimeError, match="DataDome"):
             VintedHuntClient(client=client).fetch_new()
+
+
+def test_vinted_skips_catalog_dump_when_sku_search_is_configured(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import vinted as vinted_mod
+    from bazar_deals.config import Settings
+
+    monkeypatch.setattr(vinted_mod, "_CATALOGS", ("3565-electronics_phones",))
+    monkeypatch.setattr(vinted_mod, "hunt_fetch_queries", lambda: ("iphone se",))
+    item = {
+        "id": 9800847268,
+        "title": "Apple iPhone SE 64 GB",
+        "price": {"amount": "90.00", "currency_code": "EUR"},
+        "url": "https://www.vinted.sk/items/9800847268-apple-iphone-se-64-gb",
+        "user": {"login": "seller"},
+        "item_box": {"accessibility_label": "Apple iPhone SE 64 GB, 90 €"},
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.rstrip("/") in {"", "/"}:
+            return httpx.Response(200, text="<html>ok</html>")
+        if request.url.path == "/api/v2/catalog/items":
+            assert "catalog_ids=" not in str(request.url)
+            return httpx.Response(200, json={"items": [item]})
+        raise AssertionError(request.url)
+
+    with httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=True) as client:
+        listings = VintedHuntClient(
+            Settings(bazos_request_gap_seconds=0),
+            client=client,
+        ).fetch_new()
+    assert len(listings) == 1
+    assert listings[0].external_id == "9800847268"
+
+
+def test_aukro_skips_category_dump_when_sku_search_is_configured(monkeypatch) -> None:
+    import httpx
+
+    from bazar_deals.adapters import aukro as aukro_mod
+    from bazar_deals.config import Settings
+
+    monkeypatch.setattr(aukro_mod, "hunt_fetch_queries", lambda: ("iphone se",))
+    posts: list[dict] = []
+
+    def fake_post(url, **kwargs):
+        posts.append(kwargs)
+        body = kwargs.get("json") or {}
+        request = httpx.Request("POST", str(url))
+        if body.get("text"):
+            return httpx.Response(200, json={"content": []}, request=request)
+        raise AssertionError("category dump should be skipped")
+
+    monkeypatch.setattr(aukro_mod.httpx, "post", fake_post)
+    found = AukroHuntClient(Settings(bazos_request_gap_seconds=0)).fetch_new()
+    assert found == []
+    assert posts
+    assert all((item.get("json") or {}).get("text") for item in posts)

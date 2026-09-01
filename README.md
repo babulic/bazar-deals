@@ -16,7 +16,7 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** The hourly Hunt and Sell workflows skip the GitHub ping, then run a **research retry**: expanded fast-moving SKUs, more want-ad phrases and Vinted hosts, query-only fetch (no newest clothing dump), **plus the listings already fetched in the first pass**. Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
+**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. The GHA `research` job is only a backup when the hunt job dies before that loop (`looped` empty). Sell still has a separate 0-match retry. Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
@@ -33,9 +33,11 @@ C64 cassette games or watch straps that only share a platform keyword. Live
 comps are skipped for media/clothing/accessories so the 80 query budget can
 price iPhones and disk drives. Marketplace **search** uses `fetch_queries`
 (`iphone se`, `commodore 1541`, `nintendo switch lite`, …), not bare
-`commodore`/`c64` which pulled cassette games. Newest dumps still run; eBay
-skips the category newest-dump once SKU search returned hits, and stops on a
-429 instead of emptying the whole fetch.
+`commodore`/`c64` which pulled cassette games. Vinted catalog dumps and Aukro
+category dumps are skipped when those SKU phrases are configured, so clothing
+cannot fill the 80-ad cap or the 70-minute job. Bazos RSS rubrics still run.
+eBay skips the category newest-dump once SKU search returned hits, and stops
+on a 429 instead of emptying the whole fetch.
 
 ## Decision rule
 
@@ -72,11 +74,11 @@ BUY only if expected net profit >= 30 EUR
 
 ## What is searched
 
-The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone, AirPods, Switch, LEGO, Commodore, Pixel, minerals, …) are mixed into newest dumps so the scoring cap is not only unbranded clothing.
+The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone SE, AirPods Pro, Switch Lite, Commodore 1541, …) are the marketplace queries. Vinted/Aukro newest dumps are not mixed in — they were mostly clothing and left 0 BUY.
 
-- **Bazoš** SK and CZ RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
-- **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
-- **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt uses the public catalog JSON (`/api/v2/catalog/items`) after an anonymous homepage session, then HTML hydration as fallback. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
+- **Bazoš** SK and CZ: `fetch_queries` first, then RSS rubrics (Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti). Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
+- **Aukro** search uses `fetch_queries` (iPhone SE, 1541, Switch Lite, …). Category newest-dumps (~50 shoebox categories) stay in YAML for price-book / fallback when `fetch_queries` is empty. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
+- **Vinted** search uses the public catalog JSON (`/api/v2/catalog/items?search_text=…`) after an anonymous homepage session. Catalog newest-dumps (footwear, clothing, …) are skipped when `fetch_queries` is set. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
 
 eBay Browse is a hunt purchase source when `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` are set and `EBAY_RETENTION_ENABLED=true`. Ads must confirm delivery to Slovakia. The same Browse search feeds the price book. Want-to-buy ads on eBay still belong to `sell --buyers`.
 

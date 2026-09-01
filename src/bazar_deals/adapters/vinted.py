@@ -102,7 +102,8 @@ class VintedHuntClient(ListingSource):
         )
         try:
             self._warmup(client)
-            for query in hunt_fetch_queries():
+            sku_queries = hunt_fetch_queries()
+            for query in sku_queries:
                 time.sleep(gap)
                 try:
                     for item in self.search(query, limit=48):
@@ -113,7 +114,7 @@ class VintedHuntClient(ListingSource):
                         found.append(item)
                 except (httpx.HTTPError, RuntimeError, ValueError):
                     continue
-            if not hunt_research_only():
+            if not hunt_research_only() and not sku_queries:
                 for index, path in enumerate(paths):
                     if index:
                         time.sleep(gap)

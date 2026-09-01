@@ -102,6 +102,7 @@ def test_probe_failures_are_sanitized_and_do_not_follow_redirects(stage, status,
 
 
 def test_fetch_new_keeps_hits_when_a_later_category_is_400(monkeypatch):
+    monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
     monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_fetch_queries", lambda: ())
     monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("11450", "3213"))
 

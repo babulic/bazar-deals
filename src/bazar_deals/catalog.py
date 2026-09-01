@@ -96,6 +96,15 @@ def hunt_fetch_queries() -> tuple[str, ...]:
     return tuple(found)
 
 
+def skip_newest_dumps() -> bool:
+    """Vinted/Aukro clothing dumps fill the scoring cap and blow the 70-min job.
+
+    When fetch_queries is configured, search those SKUs instead. Research mode
+    already skips dumps. Bazos RSS rubs stay; eBay skips dumps after SKU hits.
+    """
+    return hunt_research_only() or bool(hunt_fetch_queries())
+
+
 def matches_hunt_target(text: str) -> bool:
     """True when the ad looks like a fast-moving SKU we actually hunt for."""
     hay = (text or "").casefold()

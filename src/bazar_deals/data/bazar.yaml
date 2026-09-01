@@ -44,8 +44,8 @@ hunt:
   # This cap is expensive work (detail HTTP + live comps), not cache hits.
   # Ads without 5 comps do not consume it.
   max_score_listings: 80
-  # Targeted product searches mixed into newest dumps so the 80-slot cap is
-  # not only Vinted clothing. Used to recognise a hunt-target ad in a dump.
+  # Names used to recognise a hunt-target ad (dump matching / scoring).
+  # Marketplace search uses fetch_queries, not these bare keywords.
   target_queries:
     - iphone
     - airpods
@@ -1790,8 +1790,10 @@ ebay:
     FOR_PARTS_OR_NOT_WORKING: for_parts
 
 # Bounded public searches; login/CAPTCHA is never bypassed.
+# 28 covers the fetch_queries pack (phones/1541/Switch) before yaml `all`
+# falls through to bare `commodore` / `c64` / `pokemon`.
 central_europe:
-  max_queries: 12
+  max_queries: 28
   queries:
     all: [iphone, airpods, nintendo switch, lego, canon, commodore, ametyst, macbook, c64, playstation, gopro, pokemon]
     retro: [commodore, amiga, nintendo, c64]

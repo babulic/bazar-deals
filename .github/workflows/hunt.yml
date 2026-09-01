@@ -12,8 +12,8 @@ permissions:
   issues: write
   copilot-requests: write
 
-# Hourly cron used to cancel in-progress hunts before the 0-BUY research
-# retry could finish. Queue the next hour instead of dropping the retry.
+# Do not cancel an in-progress hunt: the 0-BUY loop runs inside the score
+# step. Queue the next hour instead of dropping that retry.
 concurrency:
   group: hunt-alerts
   cancel-in-progress: false
@@ -24,6 +24,7 @@ jobs:
     timeout-minutes: 70
     outputs:
       buys: ${{ steps.score.outputs.buys }}
+      looped: ${{ steps.score.outputs.looped }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -102,7 +103,7 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
-      - name: Score and comment
+      - name: Score, 0-BUY loop, and comment
         id: score
         run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
         env:
@@ -147,7 +148,9 @@ jobs:
 
   research:
     needs: hunt
-    if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') }}
+    # Backup only: the hunt score step already loops in-process when buys=0.
+    # Run this job if the hunt died before it could loop (buys/looped empty).
+    if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') && needs.hunt.outputs.looped != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 70
     steps:

@@ -255,6 +255,8 @@ def test_regular_hunt_does_not_delete_comments():
     assert workflow['jobs']['research']['needs'] == 'hunt'
     assert "always()" in str(workflow['jobs']['research']['if'])
     assert "buys == '0'" in str(workflow['jobs']['research']['if'])
+    assert "looped != '1'" in str(workflow['jobs']['research']['if'])
+    assert workflow['jobs']['hunt']['outputs']['looped']
     assert '--research' in str(workflow['jobs']['research'])
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
     assert 'hunt-listings' in hunt_yaml

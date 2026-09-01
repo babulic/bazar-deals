@@ -36,6 +36,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "iphone se" in data["hunt"]["fetch_queries"]
     assert "c64" not in data["hunt"]["fetch_queries"]
     assert "kindle" in data["hunt"]["expand_queries"]
+    assert data["central_europe"]["max_queries"] == 28
     assert "cz" in data["catalog"]["bazos_rss"]
     assert Settings().comps_live_queries == 80
     assert data["hunt"]["max_score_listings"] == 80
