@@ -124,6 +124,8 @@ def test_billardspiele_cassette_is_not_a_c64_computer() -> None:
     assert "64" not in query.split()
     assert "128" not in query.split()
     assert "commodore" not in query
+    assert similar_titles("Commodore 64 breadbin computer", "C64 breadbin computer")
+    assert classify_kind("Apple AirPods Pro 2") is ItemKind.HARDWARE
 
 
 def test_konami_cassette_is_media_not_a_c64_computer() -> None:

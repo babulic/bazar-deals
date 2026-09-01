@@ -539,6 +539,19 @@ def _with_storage_aliases(tokens: set[str]) -> set[str]:
     return tokens | extra
 
 
+def _with_hardware_aliases(tokens: set[str], kind: ItemKind) -> set[str]:
+    """C64 vs Commodore 64 is the same computer; a cassette is still MEDIA."""
+    tokens = _with_storage_aliases(tokens)
+    if kind is not ItemKind.HARDWARE:
+        return tokens
+    extra: set[str] = set()
+    if tokens & {"c64", "c64c", "c64g"} or ("commodore" in tokens and "64" in tokens):
+        extra.update({"c64", "64", "commodore"})
+    if tokens & {"c128"} or ("commodore" in tokens and "128" in tokens):
+        extra.update({"c128", "128", "commodore"})
+    return tokens | extra
+
+
 def similar_titles(
     left: str,
     right: str,
@@ -563,8 +576,8 @@ def similar_titles(
     kind = resolved_left_kind
     if not _hard_specs_match(left, right, kind, left_specs):
         return False
-    a = _with_storage_aliases(set(significant_tokens(left)))
-    b = _with_storage_aliases(set(significant_tokens(right)))
+    a = _with_hardware_aliases(set(significant_tokens(left)), kind)
+    b = _with_hardware_aliases(set(significant_tokens(right)), kind)
     if not a or not b:
         return False
     inter = a & b

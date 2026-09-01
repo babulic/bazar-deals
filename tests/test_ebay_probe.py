@@ -156,3 +156,40 @@ def test_fetch_new_keeps_ebay_at_and_searches_de_and_at(monkeypatch):
     assert any("ebay.at" in url for url in hosts)
     assert any("ebay.de: fetched 1" in note for note in client.notes)
     assert any("ebay.at: fetched 1" in note for note in client.notes)
+
+
+def test_fetch_new_stops_remaining_searches_after_429(monkeypatch):
+    monkeypatch.setattr(
+        "bazar_deals.adapters.ebay.hunt_target_queries",
+        lambda: ("iphone", "switch", "lego"),
+    )
+    monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("11450",))
+    seen: list[str] = []
+
+    def get(url, **kwargs):
+        params = kwargs["params"]
+        key = params.get("q") or params.get("category_ids")
+        seen.append(key)
+        request = httpx.Request("GET", url)
+        if key == "switch":
+            return httpx.Response(429, request=request, text="Too Many Requests")
+        item = {
+            "itemId": f"hit-{key}",
+            "title": "Apple iPhone 13 128GB",
+            "itemWebUrl": "https://www.ebay.de/itm/hit",
+            "price": {"value": "55", "currency": "EUR"},
+            "buyingOptions": ["FIXED_PRICE"],
+            "condition": "USED",
+        }
+        return httpx.Response(200, json={"itemSummaries": [item]}, request=request)
+
+    monkeypatch.setattr(httpx, "get", get)
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+    client._token = "test-token"
+    found = client.fetch_new()
+    assert "lego" not in seen
+    assert "11450" not in seen
+    assert "iphone" in seen
+    assert "switch" in seen
+    assert found
+    assert any("429" in note for note in client.notes)

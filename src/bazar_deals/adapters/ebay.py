@@ -72,17 +72,36 @@ class EbayBrowseClient(ListingSource):
         last_exc: BaseException | None = None
         self.notes = []
         for marketplace_id in hunt_ebay_marketplace_ids():
+            throttled = False
             for query in hunt_target_queries():
+                if throttled:
+                    break
                 try:
                     data = self.search_query(query, limit=30, marketplace_id=marketplace_id)
+                except httpx.HTTPStatusError as exc:
+                    last_exc = exc
+                    if exc.response is not None and exc.response.status_code == 429:
+                        throttled = True
+                        self.notes.append(
+                            f"{marketplace_id}: 429 Too Many Requests, skipped remaining searches"
+                        )
+                    continue
                 except (httpx.HTTPError, RuntimeError, ValueError) as exc:
                     last_exc = exc
                     continue
                 self._ingest(data, listings, seen, marketplace_id)
-            if not hunt_research_only():
+            if not hunt_research_only() and not throttled:
                 for category in _SMALL_CATEGORIES:
                     try:
                         data = self.search(category, limit=30, marketplace_id=marketplace_id)
+                    except httpx.HTTPStatusError as exc:
+                        last_exc = exc
+                        if exc.response is not None and exc.response.status_code == 429:
+                            self.notes.append(
+                                f"{marketplace_id}: 429 Too Many Requests, skipped remaining searches"
+                            )
+                            break
+                        continue
                     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
                         last_exc = exc
                         continue

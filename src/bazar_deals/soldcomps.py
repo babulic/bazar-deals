@@ -244,7 +244,7 @@ class SoldCompClient:
         """
         if self._fixture_html is not None:
             return
-        from bazar_deals.catalog import matches_hunt_target
+        from bazar_deals.catalog import is_high_yield_kind, matches_hunt_target
 
         min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
         groups: dict[str, list[Listing]] = {}
@@ -254,6 +254,8 @@ class SoldCompClient:
                 continue
             item = identify(listing)
             if item.confidence < min_conf or not item.search_query:
+                continue
+            if not is_high_yield_kind(item.kind, hay):
                 continue
             specs = item.specs if isinstance(item.specs, ItemSpecs) else None
             key = with_specs(item.search_query, specs).casefold().strip()
@@ -372,11 +374,13 @@ class SoldCompClient:
         if self._seed_covers_buy(listing, seed_peers, min_n):
             return self._store_market_comp(query, seed_peers)
 
-        live_peers = self._similar_market_peers(
-            query, subject, specs, kind, self_key, source_title=listing.title
-        )
-        if len(live_peers) >= min_n:
-            return self._store_market_comp(query, live_peers)
+        live_peers: list[Listing] = []
+        if self._should_live_search(kind, listing):
+            live_peers = self._similar_market_peers(
+                query, subject, specs, kind, self_key, source_title=listing.title
+            )
+            if len(live_peers) >= min_n:
+                return self._store_market_comp(query, live_peers)
         if len(seed_peers) >= min_n:
             return self._store_market_comp(query, seed_peers)
 
@@ -398,6 +402,13 @@ class SoldCompClient:
         return estimate_net_profit(identify(listing), typical, settings=self.settings) >= (
             self.settings.min_net_profit_eur
         )
+
+    def _should_live_search(self, kind, listing: Listing) -> bool:
+        """Spend the live query budget on SKUs that can still clear 30 € net."""
+        from bazar_deals.catalog import is_high_yield_kind
+
+        key = kind.value if hasattr(kind, "value") else str(kind or "")
+        return is_high_yield_kind(key, listing_text(listing))
 
     def _record_miss(
         self,

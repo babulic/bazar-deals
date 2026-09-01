@@ -363,7 +363,18 @@ def test_thin_hunt_batch_searches_for_missing_comparables(tmp_path: Path) -> Non
     bazos.assert_called_once()
 
 
-def test_targeted_search_respects_budget(tmp_path: Path) -> None:
+def test_media_does_not_spend_live_query_budget(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    listing = Listing(
+        marketplace=Marketplace.EBAY,
+        external_id="287558443831",
+        title="Computing Videothek Billardspiele Commodore 64/128",
+        url="https://www.ebay.de/itm/287558443831",
+        price=Money(amount=Decimal("24.40"), currency="EUR"),
+    )
+    with patch.object(client, "_live_market_search", return_value=_peers()) as search:
+        assert client.median_sold(listing) is None
+    search.assert_not_called()
     client = SoldCompClient(Settings(comps_db=str(tmp_path / "comps.sqlite"), comps_live_queries=1))
     client.seed_asking([])
     with patch.object(client, "_live_market_search", return_value=[]) as search:

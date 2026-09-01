@@ -13,7 +13,7 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import hunt_research_only, matches_hunt_target, reject_physical
+from bazar_deals.catalog import hunt_research_only, is_high_yield_kind, matches_hunt_target, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -271,10 +271,14 @@ def score_listings(
             buy_hits.append(item)
         elif bucket == 4:
             overpriced.append(item)
-        elif matches_hunt_target(listing_text(item)):
-            target_hits.append(item)
         else:
-            rest.append(item)
+            identified = identify(item)
+            if matches_hunt_target(listing_text(item)) and is_high_yield_kind(
+                identified.kind, listing_text(item)
+            ):
+                target_hits.append(item)
+            else:
+                rest.append(item)
     queue = (
         _round_robin_listings(buy_hits)
         + _round_robin_listings(target_hits)

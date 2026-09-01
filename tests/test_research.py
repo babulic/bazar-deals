@@ -1,7 +1,7 @@
 from collections import Counter
 from pathlib import Path
 
-from bazar_deals.catalog import hunt_target_queries, matches_hunt_target
+from bazar_deals.catalog import hunt_target_queries, is_high_yield_kind, matches_hunt_target
 from bazar_deals.research import hunt_research_hint, sell_research_hint, write_github_output
 
 
@@ -9,6 +9,10 @@ def test_target_sku_titles_are_prioritized() -> None:
     assert matches_hunt_target("Apple iPhone 13 128GB")
     assert matches_hunt_target("Commodore 1541")
     assert not matches_hunt_target("Dámske tričko veľkosť M")
+    assert is_high_yield_kind("phones", "Apple iPhone 13 128GB")
+    assert is_high_yield_kind("hardware", "Commodore 64 breadbin")
+    assert not is_high_yield_kind("media", "Computing Videothek Billardspiele Commodore 64/128")
+    assert not is_high_yield_kind("accessories", "pasek Apple Watch Alpine Loop")
 
 
 def test_expand_queries_join_only_in_research_mode(monkeypatch) -> None:
