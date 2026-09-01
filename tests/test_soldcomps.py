@@ -285,3 +285,29 @@ def test_unversioned_price_book_cannot_bypass_product_role_checks(tmp_path: Path
         db.execute("INSERT INTO sold_queries VALUES (?,?,?,?,?,?)",
                    ("Nintendo Switch Lite", 75, "75.14", datetime.now(timezone.utc).isoformat(), "market", 200))
     assert client._db_summary("Nintendo Switch Lite") is None
+
+
+def test_insufficient_comps_record_listing_link_and_thin_typical(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    thin = _peers(2)
+    with patch.object(client, "_live_market_search", return_value=thin):
+        assert client.median_sold(_listing()) is None
+    assert client.misses
+    miss = client.misses[0]
+    assert str(miss.listing.url) == "https://pc.bazos.sk/inzerat/1541/"
+    assert miss.listing.price.amount == Decimal("38")
+    assert miss.peer_count == 2
+    assert miss.required == 5
+    assert miss.typical == _market_value(thin)
+    assert miss.peers[0].url == thin[0].url
+    assert not any("insufficient comparable ads" in note for note in client.notes)
+
+
+def test_zero_peer_miss_has_no_usual_price(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    with patch.object(client, "_live_market_search", return_value=[]):
+        assert client.median_sold(_listing()) is None
+    miss = client.misses[0]
+    assert miss.peer_count == 0
+    assert miss.typical is None
+    assert miss.peers == ()

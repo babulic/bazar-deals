@@ -67,6 +67,18 @@ class SoldComp:
 
 
 @dataclass(frozen=True)
+class PriceBookMiss:
+    """A listing we tried to value but did not have five comparable ads."""
+
+    listing: Listing
+    query: str
+    peer_count: int
+    required: int
+    typical: Decimal | None
+    peers: tuple[Listing, ...] = ()
+
+
+@dataclass(frozen=True)
 class _QuerySummary:
     query_key: str
     n: int
@@ -161,6 +173,8 @@ class SoldCompClient:
         self._asking_catalog: list[Listing] | None = None
         self.notes: list[str] = []
         self._noted: set[str] = set()
+        self.misses: list[PriceBookMiss] = []
+        self._miss_keys: set[str] = set()
         self._sold_html_blocked = False
         self._sold_html_status: int | None = None
         self._live_sold_used = 0
@@ -256,8 +270,32 @@ class SoldCompClient:
         if len(peers) >= min_n:
             return self._store_market_comp(query, peers)
 
-        self._note(f"price book: insufficient comparable ads ({query}, n={len(peers)}, required={min_n})")
+        self._record_miss(listing, query=query, peers=peers, required=min_n)
         return None
+
+    def _record_miss(
+        self,
+        listing: Listing,
+        *,
+        query: str,
+        peers: list[Listing],
+        required: int,
+    ) -> None:
+        key = _url_key(listing.url)
+        if key in self._miss_keys:
+            return
+        self._miss_keys.add(key)
+        typical = _market_value(peers) if peers else None
+        self.misses.append(
+            PriceBookMiss(
+                listing=listing,
+                query=query,
+                peer_count=len(peers),
+                required=required,
+                typical=typical,
+                peers=tuple(peers[:5]),
+            )
+        )
 
     def _store_market_comp(self, query: str, peers: list[Listing]) -> SoldComp:
         value = _market_value(peers)

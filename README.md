@@ -209,13 +209,17 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 ## Alerts
 
 The hourly GitHub Actions hunt always comments on the Deal alerts collector
-issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). Cards are
-**BUY only**, ranked by expected net profit, at most 5 per hunt. If listings
-were valued and nothing clears the 30 EUR net-profit floor, the comment is
-status and funnel only — losing items are not posted as fillers. If `scored=0`,
-the comment says profit was never computed (missing price-book sample),
-not that every usable ad is a loss. The assignee is mentioned only when
-at least one BUY card is present.
+issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
+cards (at most 5) are ranked by expected net profit and include a clickable
+listing title, asking price, usual quick-sale price, and the difference vs
+usual. **Every scored ad** that is not a BUY card is listed next with the
+same facts so you can open it. Ads that could not be valued (`no_sold_comps`,
+fewer than 5 comparable prices) are listed under **Málo porovnateľných
+inzerátov**: the title is the listing link, plus asking price, usual price
+from the thin sample when `n>0`, the delta, and links to the comparable ads
+that were found. The assignee is mentioned only when at least one BUY card
+is present. If `scored=0`, the comment says profit was never computed
+(missing price-book sample), not that every usable ad is a loss.
 
 **Funnel** is the drop-off counter printed as `filter: usable=… scored=… buy=…`.
 It is not a status headline. Each key is how many ads left that step:

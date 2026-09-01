@@ -48,7 +48,7 @@ def test_comment_embeds_listing_key_title_and_true_net_profit() -> None:
     assert f"<!-- listing:{listing_key(deal)} -->" in body
     assert body.startswith("@babulic\n")
     assert "Commodore 1541-II ORIGINAL LISTING TITLE" in body
-    assert "- titulok inzerátu: Commodore 1541-II ORIGINAL LISTING TITLE" in body
+    assert "- titulok inzerátu: [Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/1541/)" in body
     assert "- identifikovaný tovar: Commodore 1541-II" in body
     assert "```" not in body
     assert "ALERT" not in body
@@ -57,6 +57,7 @@ def test_comment_embeds_listing_key_title_and_true_net_profit() -> None:
     assert "[inzerát](https://pc.bazos.sk/inzerat/1541/)" in body
     assert "- nákupná cena: 38 €" in body
     assert "- finálna konzervatívna rýchlopredajná cena: 120 €" in body
+    assert "- rozdiel od obvyklej ceny: -82 € vs obvyklá (lacnejší)" in body
     assert "- nákupná doprava: 8 €" in body
     assert "- očakávaný čistý zisk:" in body
     assert "- price source: konzervatívna rýchlopredajná cena, ebay.de sold P25 (n=12)" in body
@@ -116,13 +117,14 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Stratové položky sa neposielajú" in body
     assert "**BUY:" not in body
     assert "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)" in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body
     assert "zisk sa nerátal" not in body
+    assert "Stratové položky sa neposielajú" not in body
+    assert "Ocenené inzeráty sú nižšie s odkazom" in body
 
 
 def test_unscored_hunt_does_not_claim_losing_cards() -> None:
@@ -162,6 +164,7 @@ def test_unscored_hunt_does_not_claim_losing_cards() -> None:
     assert "zisk sa nerátal" in body
     assert "žiadne ziskové karty" not in body
     assert "usable inzeráty nie sú ocenené" in body
+    assert "Stratové položky sa neposielajú" not in body
     assert "identity_weak=1" in body
     assert "asking_only_comps=0" in body
     assert "detail_failed=0" in body
@@ -178,7 +181,12 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
 
     ranked = []
     for index in range(6):
-        listing = _deal().item.listing.model_copy(update={"external_id": str(index)})
+        listing = _deal().item.listing.model_copy(
+            update={
+                "external_id": str(index),
+                "url": f"https://pc.bazos.sk/inzerat/{index}/",
+            }
+        )
         item = _deal().item.model_copy(update={"listing": listing, "confidence": 0.5 + index / 20})
         ranked.append(score_deal(item, Decimal(str(70 + index)), Decimal("8")))
     buy = _deal()
@@ -194,6 +202,11 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     assert "**BUY: áno**" in body
     assert "**BUY: nie**" not in body
     assert "- BUY: nie" not in body
+    assert "### Ocenené inzeráty" in body
+    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/0/)" in body
+    assert "nákup " in body
+    assert "obvyklá " in body
+    assert "vs obvyklá" in body
     selected = select_alert_deals(run.deals)
     assert len(selected) == 1
     assert selected[0].action is Action.BUY
@@ -204,7 +217,9 @@ def test_losing_hunts_post_status_without_cards() -> None:
 
     from bazar_deals.pipeline import HuntRun
 
-    listing = _deal().item.listing.model_copy(update={"external_id": "loss"})
+    listing = _deal().item.listing.model_copy(
+        update={"external_id": "loss", "url": "https://pc.bazos.sk/inzerat/loss/"}
+    )
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     assert skip.action is Action.SKIP
@@ -217,7 +232,13 @@ def test_losing_hunts_post_status_without_cards() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Stratové položky sa neposielajú" in body
+    assert "Ocenené inzeráty sú nižšie s odkazom" in body
+    assert "### Ocenené inzeráty" in body
+    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/loss/)" in body
+    assert "nákup 38 €" in body
+    assert "obvyklá 70 €" in body
+    assert "vs obvyklá" in body
+    assert "čistý zisk" in body
     assert "**BUY:" not in body
     assert select_alert_deals(run.deals) == []
 
@@ -326,3 +347,48 @@ def test_post_run_writes_a_status_comment_when_there_are_no_buys() -> None:
     assert len(posts) == 1
     assert "**0 BUY áno**" in posts[0]
     assert "vinted: fetched 0" in posts[0]
+
+
+def test_price_book_misses_use_listing_links_prices_and_delta() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+    from bazar_deals.soldcomps import PriceBookMiss
+
+    listing = _deal().item.listing
+    peer = listing.model_copy(
+        update={
+            "external_id": "peer",
+            "url": "https://pc.bazos.sk/inzerat/peer/",
+            "title": "Commodore 1541-II peer",
+            "price": Money(amount=Decimal("90"), currency="EUR"),
+        }
+    )
+    miss = PriceBookMiss(
+        listing=listing,
+        query="commodore 1541-ii",
+        peer_count=1,
+        required=5,
+        typical=Decimal("67.50"),
+        peers=(peer,),
+    )
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=1, scored=0, buy=0, no_sold_comps=1),
+        source_stats={},
+        fetch_notes=[
+            "bazos: fetched 1",
+            "price book: insufficient comparable ads (commodore 1541-ii, n=1, required=5)",
+        ],
+        price_book_misses=[miss],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "insufficient comparable ads (commodore 1541-ii" not in body
+    assert "### Málo porovnateľných inzerátov" in body
+    assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/1541/)" in body
+    assert "nákup 38 €" in body
+    assert "obvyklá 67.50 €" in body
+    assert "-29.50 € vs obvyklá (lacnejší)" in body
+    assert "porovnateľné 1/5" in body
+    assert "[Commodore 1541-II peer](https://pc.bazos.sk/inzerat/peer/) 90 €" in body
+    assert "s odkazom, nákupnou cenou a rozdielom od obvyklej" in body

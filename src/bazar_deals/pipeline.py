@@ -27,7 +27,7 @@ from bazar_deals.identity import ItemSpecs, identify, identity_subject, with_spe
 from bazar_deals.progress import emit, set_phase, start_heartbeat, stop_heartbeat
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
-from bazar_deals.soldcomps import SoldCompClient
+from bazar_deals.soldcomps import PriceBookMiss, SoldCompClient
 from bazar_deals.working import is_working_listing
 
 _HIGH_RISK_DETAIL_KINDS = {"phones", "hardware", "photo"}
@@ -85,6 +85,7 @@ class HuntRun:
     source_stats: dict[Marketplace, Counter[str]]
     fetch_notes: list[str] = field(default_factory=list)
     listings: list[Listing] = field(default_factory=list)
+    price_book_misses: list[PriceBookMiss] = field(default_factory=list)
 
 
 def hunt(
@@ -173,10 +174,11 @@ def hunt_sources(
         extra = [
             note
             for note in getattr(sold_client, "notes", [])
-            if note and note not in fetch_notes
+            if note and note not in fetch_notes and not is_dry_price_book_miss(note)
         ]
         run.fetch_notes = fetch_notes + extra
         run.listings = listings
+        run.price_book_misses = list(getattr(sold_client, "misses", []) or [])
         return run
     finally:
         stop_heartbeat()
@@ -348,7 +350,12 @@ def score_listings(
     deals.sort(key=lambda deal: (deal.action is not Action.BUY, -deal.costs.net_profit))
     emit(_format_funnel(funnel))
     emit(_format_source_health(source_stats))
-    return HuntRun(deals=deals, funnel=funnel, source_stats=source_stats)
+    return HuntRun(
+        deals=deals,
+        funnel=funnel,
+        source_stats=source_stats,
+        price_book_misses=list(getattr(sold, "misses", []) or []),
+    )
 
 
 def _rescue_identity(
@@ -493,6 +500,10 @@ def _shipping_eur(listing: Listing, settings: Settings) -> Decimal:
     if listing.shipping_cost is None:
         return assumed_shipping(listing.price.amount, settings)
     return listing.shipping_cost.to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
+
+
+def is_dry_price_book_miss(note: str) -> bool:
+    return (note or "").startswith("price book: insufficient comparable ads")
 
 
 def _format_funnel(funnel: Counter[str]) -> str:
