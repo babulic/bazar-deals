@@ -24,6 +24,9 @@ VERTICAL_KEYWORDS = {
     Vertical(name): tuple(words) for name, words in _catalog()["vertical_keywords"].items()
 }
 BULKY_KEYWORDS = tuple(_catalog()["bulky_keywords"])
+FASHION_DROP = tuple(
+    str(item).casefold() for item in (_catalog().get("fashion_drop_markers") or [])
+)
 CHRISTMAS_MARKERS = tuple(_catalog().get("christmas_markers") or ())
 CHRISTMAS_LIGHT_PRODUCTS = tuple(_catalog().get("christmas_light_products") or ())
 CHRISTMAS_LIGHTING_TERMS = tuple(_catalog().get("christmas_lighting_terms") or ())
@@ -97,7 +100,7 @@ def hunt_fetch_queries() -> tuple[str, ...]:
 
 
 def skip_newest_dumps() -> bool:
-    """Vinted/Aukro clothing dumps fill the scoring cap and blow the 70-min job.
+    """Vinted/Aukro dumps are electronics-only and still skipped when SKU search is set."""
 
     When fetch_queries is configured, search those SKUs instead. Research mode
     already skips dumps. Bazos RSS rubs stay; eBay skips dumps after SKU hits.
@@ -119,19 +122,31 @@ def matches_hunt_target(text: str) -> bool:
     return False
 
 
-# Cassette games, straps and unbranded tees can match a hunt keyword
-# ("commodore", "apple watch") without ever clearing 30 € net on honest comps.
+# Cassette games, straps, tees, bags and perfume never clear 30 € on honest comps.
 # Live price-book budget goes to kinds that still can.
-_LOW_YIELD_KINDS = frozenset({"media", "clothing", "accessories", "books"})
+_LOW_YIELD_KINDS = frozenset({
+    "media",
+    "clothing",
+    "accessories",
+    "books",
+    "bags",
+    "cosmetics",
+})
 _HIGH_YIELD_KINDS = frozenset({
     "phones",
     "hardware",
     "photo",
     "jewelry",
     "minerals",
-    "collectibles",
     "musical",
     "tools",
+})
+_DROP_KINDS = frozenset({
+    "clothing",
+    "bags",
+    "cosmetics",
+    "books",
+    "media",
 })
 
 
@@ -143,6 +158,11 @@ def is_high_yield_kind(kind: str, text: str = "") -> bool:
     if key in _HIGH_YIELD_KINDS:
         return True
     return bool(text.strip()) and matches_hunt_target(text)
+
+
+def is_drop_kind(kind: str) -> bool:
+    """True for fashion/media/books — never hunted, even with a brand in the title."""
+    return (kind or "").casefold() in _DROP_KINDS
 
 
 # Match "6 kg" / "6,5kg" but not storage like "16GB".
@@ -174,7 +194,20 @@ def is_christmas_lighting(text: str) -> bool:
 
 
 def is_skip_keyword(text: str) -> bool:
-    return is_christmas_lighting(text)
+    return is_christmas_lighting(text) or is_fashion_drop(text)
+
+
+def is_fashion_drop(text: str) -> bool:
+    """Clothing, bags, perfume and books are out of assortment."""
+    hay = (text or "").casefold()
+    if len(hay) < 4:
+        return False
+    for token in FASHION_DROP:
+        if len(token) < 4:
+            continue
+        if re.search(rf"(?<![\w]){re.escape(token)}(?![\w])", hay):
+            return True
+    return False
 
 
 def stated_weight_kg(text: str) -> float | None:
@@ -230,7 +263,7 @@ def reject_physical(text: str) -> str | None:
     """Funnel key if the listing is not a small, shippable, shoebox-scale item."""
     if is_bulky(text):
         return "bulky"
-    if is_christmas_lighting(text):
+    if is_christmas_lighting(text) or is_fashion_drop(text):
         return "skip_keyword"
     if is_too_heavy(text):
         return "heavy"

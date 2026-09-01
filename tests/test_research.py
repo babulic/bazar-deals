@@ -8,6 +8,7 @@ import pytest
 from bazar_deals.catalog import (
     hunt_fetch_queries,
     hunt_target_queries,
+    is_fashion_drop,
     is_high_yield_kind,
     matches_hunt_target,
     skip_newest_dumps,
@@ -37,8 +38,10 @@ def test_target_sku_titles_are_prioritized() -> None:
     assert not matches_hunt_target("Dámske tričko veľkosť M")
     assert is_high_yield_kind("phones", "Apple iPhone 13 128GB")
     assert is_high_yield_kind("hardware", "Commodore 64 breadbin")
+    assert is_high_yield_kind("hardware", "Apple Watch SE")
     assert not is_high_yield_kind("media", "Computing Videothek Billardspiele Commodore 64/128")
     assert not is_high_yield_kind("accessories", "pasek Apple Watch Alpine Loop")
+    assert not is_high_yield_kind("clothing", "Nike tričko")
 
 
 def test_expand_queries_join_only_in_research_mode(monkeypatch) -> None:
@@ -47,11 +50,12 @@ def test_expand_queries_join_only_in_research_mode(monkeypatch) -> None:
     base = hunt_target_queries()
     assert "iphone" in base
     assert "pixel" in base
-    assert "kindle" not in base
+    assert "iphone 14" not in base
     monkeypatch.setenv("BAZAR_HUNT_RESEARCH", "1")
     expanded = hunt_target_queries()
     assert "iphone" in expanded
-    assert "kindle" in expanded
+    assert "iphone 14" in expanded
+    assert "nintendo 3ds" in expanded
     assert "vltavín" in expanded
 
 
@@ -63,9 +67,22 @@ def test_fetch_queries_search_buyable_skus_not_cassette_keywords(monkeypatch) ->
     assert "commodore 1541" in fetch
     assert "commodore 64 computer" in fetch
     assert "nintendo switch lite" in fetch
+    assert "apple watch se" in fetch
+    assert "galaxy s21" in fetch
+    assert "iphone 11" in fetch
     assert "c64" not in fetch
     assert "commodore" not in fetch
     assert "pokemon" not in fetch
+    assert "funko pop" not in fetch
+
+
+def test_fashion_drop_hits_tees_not_iphones_or_watches() -> None:
+    assert is_fashion_drop("Dámske tričko veľkosť M")
+    assert is_fashion_drop("Nike hoodie black")
+    assert is_fashion_drop("Kabelka Michael Kors")
+    assert not is_fashion_drop("Apple iPhone 13 128GB")
+    assert not is_fashion_drop("Apple Watch SE GPS 40mm")
+    assert not is_fashion_drop("Facebook Marketplace inzerát")
 
 
 def test_zero_buy_hint_points_at_more_hits_not_tighter_gates() -> None:

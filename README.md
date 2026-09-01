@@ -29,13 +29,13 @@ into the live P25 is skipped, because P25×0.75 of 20–110 € ads is often too
 for a 30 € floor. Scoring spends the 80-ad cap on detail HTTP and live lookups,
 not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 30 €)
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
-C64 cassette games or watch straps that only share a platform keyword. Live
-comps are skipped for media/clothing/accessories so the 80 query budget can
-price iPhones and disk drives. Marketplace **search** uses `fetch_queries`
-(`iphone se`, `commodore 1541`, `nintendo switch lite`, …), not bare
-`commodore`/`c64` which pulled cassette games. Vinted catalog dumps and Aukro
-category dumps are skipped when those SKU phrases are configured, so clothing
-cannot fill the 80-ad cap or the 70-minute job. Bazos RSS rubrics still run.
+C64 cassette games, clothing, or watch straps. Live comps are skipped for
+media/clothing/accessories. Marketplace **search** uses `fetch_queries`
+(`iphone se`, `iphone 11/12/13`, `airpods pro`, `apple watch se`,
+`nintendo switch lite`, `galaxy s21`, `commodore 1541`, …). Clothing, bags,
+footwear, perfume, books and trading cards are **not searched**. Vinted/Aukro
+newest dumps are electronics-only (and skipped when `fetch_queries` is set).
+Bazos RSS is computers/phones/elektro/foto/hudba/ostatné/dom — not oblečenie.
 eBay skips the category newest-dump once SKU search returned hits, and stops
 on a 429 instead of emptying the whole fetch.
 
@@ -74,11 +74,11 @@ BUY only if expected net profit >= 30 EUR
 
 ## What is searched
 
-The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone SE, AirPods Pro, Switch Lite, Commodore 1541, …) are the marketplace queries. Vinted/Aukro newest dumps are not mixed in — they were mostly clothing and left 0 BUY.
+The hunt looks for **small, working, high-turnover goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Assortment is phones (especially iPhone 11/12/13), AirPods, Apple Watch, Switch Lite, Galaxy S21/S22, headphones, GoPro, Kindle, and identifiable hardware (1541, C64 computer). **Clothing is out.**
 
-- **Bazoš** SK and CZ: `fetch_queries` first, then RSS rubrics (Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti). Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
-- **Aukro** search uses `fetch_queries` (iPhone SE, 1541, Switch Lite, …). Category newest-dumps (~50 shoebox categories) stay in YAML for price-book / fallback when `fetch_queries` is empty. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
-- **Vinted** search uses the public catalog JSON (`/api/v2/catalog/items?search_text=…`) after an anonymous homepage session. Catalog newest-dumps (footwear, clothing, …) are skipped when `fetch_queries` is set. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
+- **Bazoš** SK and CZ: `fetch_queries` first, then RSS rubrics Počítače, Mobily, Elektro, Foto, Hudba, Ostatné, Dom a záhrada. Oblečenie, knihy, šport and deti are not fetched.
+- **Aukro** search uses the same SKU phrases. Fallback categories are phones, wearables, photo, consoles, retro PCs, tablets, minerals and tools — not clothing, bags, perfume, vinyl or toys. **Christmas lights** are dropped; headlamps stay in.
+- **Vinted** search uses `/api/v2/catalog/items?search_text=…` after an anonymous homepage session. Fallback catalogs are phones, computers, audio, cameras, wearables, games and tools. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
 
 eBay Browse is a hunt purchase source when `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` are set and `EBAY_RETENTION_ENABLED=true`. Ads must confirm delivery to Slovakia. The same Browse search feeds the price book. Want-to-buy ads on eBay still belong to `sell --buyers`.
 

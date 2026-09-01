@@ -308,11 +308,11 @@ def test_overpriced_listing_is_not_scored() -> None:
 
     listing = Listing(
         marketplace=Marketplace.VINTED,
-        external_id="siltovka",
-        title="wlvs siltovka",
-        description="Nike šiltovka, nová, s visačkou.",
-        url="https://www.vinted.sk/items/9849277566-wlvs-siltovka",
-        price=Money(amount=Decimal("20"), currency="EUR"),
+        external_id="dear-phone",
+        title="Apple iPhone 13 128GB",
+        description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+        url="https://www.vinted.sk/items/dear-iphone-13",
+        price=Money(amount=Decimal("90"), currency="EUR"),
     )
     run = score_listings([listing], Settings(), _Sold())
     assert run.deals == []
@@ -543,7 +543,8 @@ def test_iphone_is_scored_before_cheaper_c64_game_when_cap_is_one(monkeypatch) -
     run = score_listings(listings, Settings(), sold)
     assert sold.live == ["phone"]
     assert [deal.item.listing.external_id for deal in run.deals] == ["phone"]
-    assert run.funnel["score_capped"] == 1
+    assert run.funnel["drop_kind"] == 1
+    assert run.funnel["score_capped"] == 0
 
 
 def test_cached_buy_candidate_is_scored_without_live_lookup(monkeypatch) -> None:
@@ -652,7 +653,8 @@ def test_unbranded_clothing_does_not_consume_score_cap(monkeypatch) -> None:
     run = score_listings(listings, Settings(), sold)
     assert "cap" not in sold.live
     assert sold.live == ["phone"]
-    assert run.funnel["identity_weak"] == 1
+    assert run.funnel["skip_keyword"] == 1
+    assert run.funnel["usable"] == 1
     assert run.funnel["scored"] == 1
 
 

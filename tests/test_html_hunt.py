@@ -27,11 +27,12 @@ def test_aukro_json_ld_fixture() -> None:
 
 def test_aukro_hunts_fast_moving_categories_not_raw_newest() -> None:
     assert 100838 in _SMALL_CATEGORIES
-    assert 52651 in _SMALL_CATEGORIES
-    assert 144281 in _SMALL_CATEGORIES
-    assert 144304 in _SMALL_CATEGORIES
+    assert 90713 in _SMALL_CATEGORIES
     assert 148663 in _SMALL_CATEGORIES
-    assert 88109 in _SMALL_CATEGORIES
+    assert 8525 not in _SMALL_CATEGORIES
+    assert 52651 not in _SMALL_CATEGORIES
+    assert 144281 not in _SMALL_CATEGORIES
+    assert 88109 not in _SMALL_CATEGORIES
     body = _search_body(100838)
     assert body["categoryId"] == 100838
     assert "categoryId" not in _search_body(None)
@@ -39,8 +40,11 @@ def test_aukro_hunts_fast_moving_categories_not_raw_newest() -> None:
 
 def test_vinted_hunts_fast_moving_catalogs_not_raw_newest() -> None:
     assert "3565-electronics_phones" in _CATALOGS
-    assert "4874-hc_trading_cards" in _CATALOGS
-    assert "16-footwear" in _CATALOGS
+    assert "3004-electronics_wearables" in _CATALOGS
+    assert "3566-electronics_audio" in _CATALOGS
+    assert "4874-hc_trading_cards" not in _CATALOGS
+    assert "16-footwear" not in _CATALOGS
+    assert "19-bags_backpacks" not in _CATALOGS
     assert "4-womens" not in _CATALOGS
     assert "5-mens" not in _CATALOGS
     url = _catalog_url("3565-electronics_phones", lo=20, hi=110, page=1)

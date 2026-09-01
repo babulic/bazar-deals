@@ -185,6 +185,7 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
         ("oversized", "nezmestí sa do krabice od topánok"),
         ("damaged", "poškodené"),
         ("skip_keyword", "zakázané slovo"),
+        ("drop_kind", "mimo sortiment (oblečenie/médiá/knihy)"),
         ("detail_damaged", "poškodené po detaile"),
         ("detail_bulky", "rozmerné po detaile"),
         ("detail_heavy", "ťažké po detaile"),
