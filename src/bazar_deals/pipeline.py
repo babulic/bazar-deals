@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -13,7 +12,7 @@ from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
 from bazar_deals.ai_review import AIReviewClient
-from bazar_deals.catalog import hunt_research_only, is_high_yield_kind, matches_hunt_target, reject_physical
+from bazar_deals.catalog import hunt_research_only, is_drop_kind, is_high_yield_kind, matches_hunt_target, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
     Action,
@@ -52,6 +51,7 @@ _FUNNEL_KEYS = (
     "damaged",
     "bulky",
     "skip_keyword",
+    "drop_kind",
     "heavy",
     "oversized",
     "usable",
@@ -298,7 +298,6 @@ def score_listings(
     deals: list[Deal] = []
     rescues: Counter[str] = Counter()
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
-    brands = {str(name).casefold() for name in rules()["identity"].get("generic_brands", [])}
     peeker = getattr(sold, "cached_typical", None)
     work = 0
     try:
@@ -308,9 +307,8 @@ def score_listings(
                 emit(f"scoring {index}/{len(queue)} (valued {work})")
 
             item = identify(listing)
-            words = set(re.findall(r"[a-z0-9]+", listing_text(listing).casefold()))
-            if item.kind == "clothing" and not (words & brands):
-                funnel["identity_weak"] += 1
+            if is_drop_kind(item.kind):
+                funnel["drop_kind"] += 1
                 continue
             cached = None
             if item.confidence >= min_conf and item.search_query:

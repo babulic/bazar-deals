@@ -51,43 +51,34 @@ hunt:
     - airpods
     - apple watch
     - ipad
-    - macbook
     - samsung galaxy
     - nintendo switch
-    - playstation
-    - xbox series
     - steam deck
     - gameboy
-    - pokemon
-    - lego
     - canon
-    - nikon
     - commodore
     - c64
-    - amiga
     - mos 6510
     - ametyst
     - gopro
     - dji mini
     - garmin
-    - yu-gi-oh
     - pixel
     - insta360
-    - quest 3
-    - apple pencil
-    - fujifilm
+    - quest 2
     - nothing phone
     - switch oled
     - airpods pro
     - canon eos
-    - beats
     - tamron
-    - shure
     - vltavín
     - galenit
-  # Actual marketplace search phrases (Bazos/Aukro/Vinted/eBay/sbazar).
-  # These have to be able to appear at 20–110 € and still clear 30 € net.
-  # Bare `commodore` / `c64` stay in target_queries for dump matching only.
+    - kindle
+    - galaxy s21
+  # Marketplace search: high-turnover SKUs that still sit in 20–110 € and can
+  # clear 30 € net. EU refurbished volume is iPhone 11/12/13, then AirPods,
+  # Apple Watch, Switch Lite, Galaxy S21/S22. Clothing is never searched.
+  # Bare `commodore` / `c64` stay in target_queries only.
   fetch_queries:
     - iphone se
     - iphone 11
@@ -95,44 +86,41 @@ hunt:
     - iphone 13
     - airpods pro
     - airpods
+    - apple watch se
+    - apple watch
     - nintendo switch lite
     - switch oled
-    - steam deck
-    - gameboy
+    - galaxy s21
+    - galaxy s22
+    - pixel 7a
+    - sony wh-1000
+    - gopro
+    - kindle
     - commodore 1541
     - 1541-ii
     - commodore 64 computer
+    - quest 2
+    - garmin
+    - canon eos
+    - ametyst
+  # Second-wave SKUs after a 0 BUY hunt. Still electronics/photo/hardware, not fashion.
+  expand_queries:
+    - iphone 14
+    - nothing phone
+    - galaxy buds
+    - nintendo 3ds
+    - gameboy
+    - insta360
+    - sigma 18-50
+    - tamron
+    - dji mini
     - c64c
     - mos 6510
-    - apple watch
-    - pixel
-    - quest 3
-    - gopro
-    - canon eos
-    - tamron
-    - ametyst
     - vltavín
     - galenit
-    - galaxy s21
-    - kindle
-  # Second-wave SKUs after a 0 BUY hunt. Not a newest-dump — query-only retry.
-  expand_queries:
-    - kindle
-    - sony wh-1000
-    - sigma 18-50
-    - funko pop
-    - amiibo
-    - citrín
-    - atari
-    - zx spectrum
-    - 1541
-    - mos 8502
+    - steam deck
     - dremel
-    - iphone 12
-    - iphone 13
-    - galaxy s21
-    - lego technic
-    - steam deck oled
+    - galaxy watch
   default_shipping_eur: 8
   max_shipping_eur: 15
   cheap_buy_eur: 20
@@ -795,8 +783,13 @@ identity:
       - commodore 64
       - commodore 128
       - airpods
+      - apple watch
       - steam deck
+      - quest 2
       - quest 3
+      - kindle
+      - garmin
+      - gopro
       - grafická karta
       - graficka karta
       - ssd
@@ -1031,9 +1024,9 @@ catalog:
   bazos_rss:
     sk: https://www.bazos.sk/rss.php
     cz: https://www.bazos.cz/rss.php
-  # pc=Počítače mo=Mobily el=Elektro fo=Foto hu=Hudba ob=Oblečenie
-  # kn=Knihy os=Ostatné du=Dom a záhrada sp=Šport de=Deti
-  small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn, os, du, sp, de]
+  # pc=Počítače mo=Mobily el=Elektro fo=Foto hu=Hudba os=Ostatné du=Dom a záhrada
+  # Clothing (ob), books (kn), sport (sp) and kids (de) are not hunted.
+  small_bazos_rubs: [pc, mo, el, fo, hu, os, du]
   vertical_rss:
     retro: [pc, el, hu, fo]
     apple: [pc, mo]
@@ -1139,6 +1132,53 @@ catalog:
       - moldavite
       - surový kameň
       - raw stone
+  # Drop fashion at fetch, not only at scoring. Word-boundary, min 4 chars.
+  # Do not list "watch" / "cap" / "book" (false hits on Apple Watch, Facebook).
+  fashion_drop_markers:
+    - tričko
+    - tricko
+    - t-shirt
+    - košeľa
+    - kosela
+    - nohavice
+    - rifle
+    - jeans
+    - bunda
+    - kabát
+    - kabat
+    - šaty
+    - saty
+    - sukňa
+    - sukna
+    - mikina
+    - hoodie
+    - sveter
+    - topánky
+    - topanky
+    - tenisky
+    - sneakers
+    - šiltovka
+    - siltovka
+    - kšiltovka
+    - čiapka
+    - ciapka
+    - kleid
+    - schuhe
+    - oblečenie
+    - oblecenie
+    - kabelka
+    - handbag
+    - batoh
+    - ruksak
+    - parfum
+    - perfume
+    - parfém
+    - kozmetika
+    - kosmetika
+    - kniha
+    - knihy
+    - učebnica
+    - ucebnica
   bulky_keywords:
     - gauč
     - gauce
@@ -1300,82 +1340,34 @@ aukro:
   pages: 1
   # Fast-moving shoebox categories. Unfiltered newest is a seasonal lighting dump.
   small_categories:
-    # Phones & wearables
+    # Phones, wearables, photo, computers, consoles, minerals, tools.
+    # No clothing, bags, perfume, vinyl, cassettes, comics, or toy dumps.
     - 100838   # Mobilní telefony
     - 251358   # Chytrá elektronika
-    - 100851   # Příslušenství k mobilům
-    - 100840   # Nabíječky
-    - 101208   # Baterie a nabíječky
-    # Photo & electronics
     - 100894   # Foto
     - 101087   # Objektivy
     - 101077   # Klasické fotoaparáty
     - 100898   # Elektronika
     - 101201   # Elektronické součástky
-    - 100892   # Malé elektrospotřebiče
     - 148663   # Svítilny / čelovky
-    # Computers & games
-    - 100705   # Hry
     - 100699   # Herní zařízení
     - 100727   # Herní konzole
     - 100703   # Historické počítače
     - 100700   # Tablety a čtečky
     - 100697   # Notebooky
     - 100701   # PC komponenty
-    - 100702   # Příslušenství k PC
     - 252973   # Externí disky
     - 101202   # USB / přenosná elektronika
-    # Fashion, beauty, jewelry
-    - 8525     # Oblečení, obuv a doplňky
-    - 7340     # Módní doplňky
-    - 108364   # Dámské kabelky
-    - 8526     # Kosmetika a parfémy
-    - 7368     # Parfémy
-    - 90713    # Šperky a hodinky
-    # Media
-    - 88014    # Hudba
-    - 88109    # Vinyl
-    - 88063    # Kazety
-    - 88160    # Film
-    - 8465     # Komiksy
-    - 8464     # Učebnice
-    # Toys
-    - 144281   # Hračky
-    - 144304   # LEGO
-    - 144345   # Figurky
-    - 144327   # Stavebnice
-    # Sport (small gear)
-    - 17579    # Turistika
-    - 17575    # Bojové sporty
-    - 17572    # Kolektivní sporty
-    - 63347    # Šipky
-    # Collectibles
-    - 8479     # Numismatika
-    - 8477     # Bankovky
+    - 90713    # Šperky a hodinky (Apple Watch / Garmin)
     - 88874    # Minerály a zkameněliny
-    - 51950    # Sportovní sbírky / karty
-    - 8469     # Modelářství
-    - 52651    # Karetní hry
-    - 52685    # Stolní hry
-    - 52684    # Puzzle
-    - 12976    # Odznaky a medaile
-    - 13948    # Sběratelské figurky
-    - 11761    # Autogramy
-    - 257217   # Merch
-    - 8480     # Filatelie
-    - 47040    # Antikvariát
-    - 47108    # Porcelán
-    # Tools
     - 8482     # Nářadí
     - 78484    # Elektrické nářadí
     - 78527    # Ruční nářadí
 
 vinted:
-  # Public catalog paths (`/catalog/<id>-<slug>`). Skip TV, garden, bikes, winter sports.
-    catalogs:
-    - 19-bags_backpacks
-    - 1187-accessories_jewellery
-    - 146-cosmetics_and_beauty_products
+  # Electronics-only public catalogs. Clothing, bags, footwear, cosmetics, books
+  # and trading cards are not hunted.
+  catalogs:
     - 3002-electronics_video_games
     - 3565-electronics_phones
     - 3564-electronics_computers
@@ -1383,14 +1375,7 @@ vinted:
     - 3054-electronics_cameras_accessories
     - 3004-electronics_wearables
     - 2315-electronics_other
-    - 4874-hc_trading_cards
-    - 4881-hc_board_games
-    - 4895-hc_numismatics
-    - 2312-books
-    - 3036-entertainment_music
     - 3811-h_tools_diy
-    - 3474-small_kitchen_appliances
-    - 16-footwear
 
 selling:
   # Own seller accounts, keyed by the identifier each collector needs.
@@ -1747,37 +1732,19 @@ ebay:
   oauth_scope: https://api.ebay.com/oauth/api_scope
   # Browse API category IDs (quoted so they stay strings).
   small_categories:
-    - "11450"  # Clothing, Shoes & Accessories
-    - "267"    # Books, Movies & Music / Magazines
-    - "220"    # Toys & Hobbies
     - "293"    # Consumer Electronics
     - "625"    # Cameras & Photo
     - "1249"   # Video Games & Consoles
-    - "281"    # Jewelry & Watches
-    - "1"      # Collectibles
-    - "3213"   # Rocks, Fossils & Minerals
-    - "11116"  # Coins & Paper Money
-    - "260"    # Stamps
-    - "26395"  # Health & Beauty
-    - "619"    # Musical Instruments & Gear
-    - "888"    # Sporting Goods
     - "15032"  # Cell Phones & Accessories
     - "139973" # Cell Phones & Smartphones
     - "112529" # Headphones
     - "111422" # Vintage Electronics
     - "58058"  # Computers/Tablets & Networking
-    - "183454" # Collectible Card Games
-    - "253"    # Sports Mem, Cards & Fan Shop
-    - "183050" # Non-Sport Trading Cards
-    - "11232"  # DVDs & Movies
-    - "19068"  # LEGO
-    - "11848"  # Fragrances
+    - "3213"   # Rocks, Fossils & Minerals
+    - "619"    # Musical Instruments & Gear
+    - "175672" # Tablets & eBook Readers
     - "31388"  # Portable Audio & Headphones
     - "31387"  # Watches
-    - "2984"   # Diecast & Toy Vehicles
-    - "63"     # Comics
-    - "175672" # Tablets & eBook Readers
-    - "16212"  # Handbags
     - "181376" # Vintage Computers
   condition_map:
     NEW: new
@@ -1790,13 +1757,12 @@ ebay:
     FOR_PARTS_OR_NOT_WORKING: for_parts
 
 # Bounded public searches; login/CAPTCHA is never bypassed.
-# 28 covers the fetch_queries pack (phones/1541/Switch) before yaml `all`
-# falls through to bare `commodore` / `c64` / `pokemon`.
+# 28 covers the fetch_queries pack before yaml `all`. No pokemon / clothing.
 central_europe:
   max_queries: 28
   queries:
-    all: [iphone, airpods, nintendo switch, lego, canon, commodore, ametyst, macbook, c64, playstation, gopro, pokemon]
-    retro: [commodore, amiga, nintendo, c64]
+    all: [iphone, airpods, apple watch, nintendo switch, galaxy, gopro, kindle, commodore 1541, ametyst, canon, garmin, pixel]
+    retro: [commodore 1541, nintendo switch, gameboy]
     mineral: [ametyst, galenit, mineral, citrín]
     apple: [iphone, ipad, airpods, apple watch]
     network: [mikrotik, ubiquiti, router]
