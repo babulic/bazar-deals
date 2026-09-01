@@ -40,8 +40,9 @@ hunt:
   min_sold_sample: 5
   # Counts unique normalized product queries, not duplicate listings.
   max_sold_lookups: 80
-  # Detail-fetching every usable ad does not finish in GitHub Actions
-  # (2661 fetched → 2126 usable × ~7s/page). Score this many after round-robin.
+  # Detail-fetching every usable ad does not finish in GitHub Actions.
+  # This cap is expensive work (detail HTTP + live comps), not cache hits.
+  # Ads without 5 comps do not consume it.
   max_score_listings: 80
   # Targeted product searches mixed into newest dumps so the 80-slot cap is
   # not only Vinted clothing. Used for hunt fetch and eBay Browse queries.
@@ -70,24 +71,38 @@ hunt:
     - dji mini
     - garmin
     - yu-gi-oh
+    - pixel
+    - insta360
+    - quest 3
+    - apple pencil
+    - fujifilm
+    - nothing phone
+    - switch oled
+    - airpods pro
+    - canon eos
+    - beats
+    - tamron
+    - shure
+    - vltavín
+    - galenit
   # Second-wave SKUs after a 0 BUY hunt. Not a newest-dump — query-only retry.
   expand_queries:
     - kindle
-    - beats
     - sony wh-1000
-    - tamron
     - sigma 18-50
     - funko pop
     - amiibo
     - citrín
-    - vltavín
-    - galenit
     - atari
     - zx spectrum
     - 1541
     - mos 8502
-    - shure
     - dremel
+    - iphone 12
+    - iphone 13
+    - galaxy s21
+    - lego technic
+    - steam deck oled
   default_shipping_eur: 8
   max_shipping_eur: 15
   cheap_buy_eur: 20

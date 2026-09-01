@@ -486,6 +486,22 @@ def _hard_specs_match(
     return not specs.conflicts_with(extract_specs(right), kind=kind)
 
 
+def _with_storage_aliases(tokens: set[str]) -> set[str]:
+    """Treat `128gb` and `128 GB` as the same product token for peer matching."""
+    extra: set[str] = set()
+    sizes = ("16", "32", "64", "128", "256", "512")
+    for token in tokens:
+        match = re.fullmatch(r"(16|32|64|128|256|512)gb", token)
+        if match:
+            extra.add(match.group(1))
+            extra.add("gb")
+    if "gb" in tokens:
+        for size in sizes:
+            if size in tokens:
+                extra.add(f"{size}gb")
+    return tokens | extra
+
+
 def similar_titles(
     left: str,
     right: str,
@@ -516,8 +532,8 @@ def similar_titles(
     kind = resolved_left_kind if resolved_left_kind is not ItemKind.GENERIC else right_kind
     if not _hard_specs_match(left, right, kind, left_specs):
         return False
-    a = set(significant_tokens(left))
-    b = set(significant_tokens(right))
+    a = _with_storage_aliases(set(significant_tokens(left)))
+    b = _with_storage_aliases(set(significant_tokens(right)))
     if not a or not b:
         return False
     inter = a & b

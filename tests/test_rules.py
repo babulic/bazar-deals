@@ -24,6 +24,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "max_no_comp_alerts" not in data["hunt"]
     assert data["hunt"]["min_sold_sample"] == 5
     assert "iphone" in data["hunt"]["target_queries"]
+    assert "pixel" in data["hunt"]["target_queries"]
     assert "airpods" in data["hunt"]["target_queries"]
     assert "commodore" in data["hunt"]["target_queries"]
     assert "kindle" in data["hunt"]["expand_queries"]

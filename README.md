@@ -16,15 +16,20 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** The hourly Hunt and Sell workflows skip the GitHub ping, then run a **research retry**: expanded fast-moving SKUs, more want-ad phrases and Vinted hosts, query-only fetch (no newest clothing dump). Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
+**0 BUY or 0 sell is a miss, not a quiet success.** The hourly Hunt and Sell workflows skip the GitHub ping, then run a **research retry**: expanded fast-moving SKUs, more want-ad phrases and Vinted hosts, query-only fetch (no newest clothing dump), **plus the listings already fetched in the first pass**. Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
-Price-book gaps now trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
+Price-book gaps trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
-Targeted buyer searches cover every stock item before alternate names, including
-items late in the catalog. Reuse keys and budget-exhausted messages stay in the
-job log, not in the GitHub comment.
+Live comps are searched **up to 3× max buy** (not only the 20–110 € hunt window).
+The hunt batch is a fallback when that live sample already clears a 30 € net BUY,
+or when live search finds fewer than 5 similar ads. Mixing the bargain-bin batch
+into the live P25 is skipped, because P25×0.75 of 20–110 € ads is often too low
+for a 30 € floor. Scoring spends the 80-ad cap on detail HTTP and live lookups,
+not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 30 €)
+are valued first. Target queries include Pixel, Quest 3, Insta360, AirPods Pro and
+similar fast-movers alongside iPhone/Switch/LEGO.
 
 ## Decision rule
 
@@ -61,7 +66,7 @@ BUY only if expected net profit >= 30 EUR
 
 ## What is searched
 
-The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone, AirPods, Switch, LEGO, Commodore, minerals, …) are mixed into newest dumps so the scoring cap is not only unbranded clothing.
+The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone, AirPods, Switch, LEGO, Commodore, Pixel, minerals, …) are mixed into newest dumps so the scoring cap is not only unbranded clothing.
 
 - **Bazoš** SK and CZ RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
 - **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
@@ -105,13 +110,14 @@ reads the entire advertisement rather than the headline.
   seller, not the origin of the stone.
 
 The price-book budget (`hunt.max_sold_lookups`, default 80) counts **unique
-normalized product queries**, not listings. A hunt values ads from similar
-listings already fetched this run plus stored rows in
-`.cache/bazar-comps-v2.sqlite`. If the current batch has at least 5 similar ads,
-that P25×0.75 is written to the database and reused for `COMPS_TTL_DAYS`
-(default 7). The hunt does not search Bazos/Aukro/Vinted again per product —
-that is what blew the GitHub Actions time cap. Ten ads for the same iPhone 13
-128GB still cost one price-book write.
+normalized product queries**, not listings. Before scoring, the hunt live-searches
+the cheapest hunt-target products (iPhone 13 128GB, not "canon") so the budget
+is not spent on whatever showed up first. Live hits (Bazos/Aukro/Vinted/eBay,
+prices up to 3× max buy) are the market sample. The current 20–110 € batch is
+only used when that live sample already clears a 30 € net BUY for the listing,
+or when live search finds fewer than 5 similar ads. Ten ads for the same iPhone
+13 128GB still cost one price-book write. `128 GB` and `128GB` match as the same
+storage token. Ads without 5 comps do not consume the 80-ad scoring cap.
 
 ### AI identification
 
@@ -141,7 +147,7 @@ to make a deal pass.
 For BUY decisions:
 
 1. Comparable items must match price-critical specifications. A 64 GB phone is not priced from 256 GB peers; a base model is not priced from a Pro/Max/Ultra variant.
-2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working Bazos/Aukro/Vinted asking prices, not their median and not eBay.
+2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 20–110 € buy window (up to 3× max buy) so the usual price is not only the bargain bin.
 3. That P25×0.75 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 5 similar ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.

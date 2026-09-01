@@ -256,8 +256,10 @@ def test_regular_hunt_does_not_delete_comments():
     assert "always()" in str(workflow['jobs']['research']['if'])
     assert "buys == '0'" in str(workflow['jobs']['research']['if'])
     assert '--research' in str(workflow['jobs']['research'])
-    assert "delete-issue-comments" not in str(workflow)
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
+    assert 'hunt-listings' in hunt_yaml
+    assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
+    assert "delete-issue-comments" not in str(workflow)
     assert '--source olx' in hunt_yaml
     assert 'hunt-olx.json' in hunt_yaml
     assert '--source ebay' in hunt_yaml

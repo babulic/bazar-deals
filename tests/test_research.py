@@ -16,6 +16,7 @@ def test_expand_queries_join_only_in_research_mode(monkeypatch) -> None:
     monkeypatch.delenv("BAZAR_HUNT_EXPAND", raising=False)
     base = hunt_target_queries()
     assert "iphone" in base
+    assert "pixel" in base
     assert "kindle" not in base
     monkeypatch.setenv("BAZAR_HUNT_RESEARCH", "1")
     expanded = hunt_target_queries()

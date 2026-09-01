@@ -136,6 +136,14 @@ jobs:
           AI_MAX_IDENTIFICATIONS: "12"
           AI_REVIEW_TTL_DAYS: "14"
           AI_MIN_CONFIDENCE: "0.75"
+      - name: Keep first-hunt listings for the 0 BUY retry
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: hunt-listings
+          path: .cache/hunt-*.json
+          if-no-files-found: ignore
+          retention-days: 1
 
   research:
     needs: hunt
@@ -162,8 +170,14 @@ jobs:
       - run: python -m pip install -e .
       - name: Install Copilot CLI for final AI verification
         run: npm install -g @github/copilot
+      - name: Reuse first-hunt listings
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: hunt-listings
+          path: .cache
       - name: Research retry after 0 BUY
-        run: python -u -m bazar_deals hunt --research --notify
+        run: python -u -m bazar_deals hunt --research --notify --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}

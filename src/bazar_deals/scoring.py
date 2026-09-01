@@ -144,3 +144,14 @@ def score_deal(
         action=Action.SKIP,
         reason=f"expected net profit {net} EUR < {threshold} EUR",
     )
+
+
+def estimate_net_profit(
+    item: IdentifiedItem,
+    typical: Decimal,
+    *,
+    settings: Settings | None = None,
+    shipping: Decimal | None = None,
+) -> Decimal:
+    """Same net as `score_deal`, for ranking and price-book live-search decisions."""
+    return score_deal(item, typical, shipping, settings=settings).costs.net_profit
