@@ -92,6 +92,21 @@ def test_queries_prefer_part_numbers_and_locality() -> None:
     assert any("ametyst" in query.casefold() for query in queries)
 
 
+def test_title_fallback_keeps_slovak_letters() -> None:
+    item = InventoryItem(
+        id="safepal",
+        segment="other",
+        title="SafePal hardvérová kryptomenová peňaženka",
+        listed={"bazos": Decimal("40")},
+    )
+    query = queries_for(item)[0]
+    assert "SafePal" in query
+    assert "hardvérová" in query
+    assert "kryptomenová" in query
+    assert "hardv " not in query + " "
+    assert "kryptomenov " not in query + " "
+
+
 def test_numeric_part_needs_product_context() -> None:
     assert match_want("Koupím 6510", chip()) >= 0.8
     assert match_want("SUCHE John Deere 6510", chip()) < 0.5
@@ -344,6 +359,12 @@ def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
     assert "`cpu-6510`" in body
     assert "aukro 25 €" in body
     assert "[aukro.cz](https://aukro.sk/koupim-mos-6510-99)" in body
+    assert "for 'kaufe'" not in body
+    assert "for 'suche'" not in body
+    assert "developer.mozilla.org" not in body
+    ka_notes = [note for note in digest.notes if note.startswith("kleinanzeigen.de")]
+    assert len(ka_notes) == 1
+    assert "want-ads" in ka_notes[0]
 
 
 def test_post_buyer_digest_goes_to_sell_issue() -> None:
@@ -464,6 +485,9 @@ def test_willhaben_stock_hits_include_links_even_when_not_wtb() -> None:
     assert "`apatit-durango`" in body
     assert "názov nie je dopyt kúpim" in body
     assert any("0 want-ads" in note and "willhaben.at" in note for note in digest.notes)
+    assert not any("for 'Suche" in note or "for 'Kaufe" in note for note in digest.notes)
+    will_notes = [note for note in digest.notes if note.startswith("willhaben.at")]
+    assert len(will_notes) == 1
 
 
 def test_ebay_oauth_401_is_a_single_actionable_note() -> None:
@@ -566,3 +590,29 @@ def test_forum64_cloudflare_block_is_reported_once() -> None:
     assert calls["n"] == 1
     assert len(forum_notes) == 1
     assert "Cloudflare" in forum_notes[0]
+
+
+def test_kleinanzeigen_403_stops_and_does_not_dump_queries() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "kleinanzeigen.de" in str(request.url):
+            calls["n"] += 1
+            return httpx.Response(403, text="Forbidden")
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip(), crystal(), apatite()]), settings, client=client)
+
+    assert calls["n"] == 1
+    ka_notes = [note for note in digest.notes if note.startswith("kleinanzeigen.de")]
+    assert len(ka_notes) == 1
+    assert "HTTP 403" in ka_notes[0]
+    assert "stopped after" in ka_notes[0]
+    blob = "\n".join(digest.notes)
+    assert "for 'kaufe'" not in blob
+    assert "developer.mozilla.org" not in blob
+    body = format_buyer_digest(digest)
+    assert "for 'kaufe'" not in body
+    assert "HTTP 403" in body
