@@ -242,6 +242,55 @@ def test_score_listings_caps_detail_work(monkeypatch) -> None:
     assert run.funnel["scored"] == 3
 
 
+def test_unconfirmed_sbazar_does_not_fill_the_score_cap(monkeypatch) -> None:
+    from copy import deepcopy
+
+    import bazar_deals.pipeline as pipeline
+
+    configured = deepcopy(pipeline.rules())
+    configured["hunt"]["max_score_listings"] = 2
+    monkeypatch.setattr(pipeline, "rules", lambda: configured)
+
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"bazos-{index}",
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url=f"https://mobil.bazos.sk/inzerat/ready-{index}/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        )
+        for index in range(2)
+    ] + [
+        Listing(
+            marketplace=Marketplace.SBAZAR,
+            external_id=f"sbazar-{index}",
+            title="Nintendo Switch V2",
+            url=f"https://www.sbazar.cz/inzerat/{index}-switch",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+            ships_to_slovakia=None,
+        )
+        for index in range(4)
+    ]
+    run = score_listings(listings, Settings(), _Sold())
+    assert run.funnel["usable"] == 6
+    assert run.funnel["score_capped"] == 4
+    assert run.funnel["scored"] == 2
+    assert {deal.item.listing.marketplace for deal in run.deals} == {Marketplace.BAZOS}
+
+
 def test_long_description_skips_detail_http() -> None:
     class _Enricher:
         marketplace = Marketplace.BAZOS.value
@@ -351,7 +400,45 @@ def test_hunt_sources_appends_sold_comp_notes() -> None:
 
     run = hunt_sources([_Empty()], settings=Settings(), sold=_Sold())
     assert "bazos: fetched 0" in run.fetch_notes
-    assert "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused (eBay is not used)" in run.fetch_notes
+    assert not any(note.startswith("price book:") for note in run.fetch_notes)
+
+
+def test_hunt_sources_drops_delivery_and_access_notes() -> None:
+    from bazar_deals.adapters.base import ListingSource
+    from bazar_deals.domain import Vertical
+
+    class _Sbazar(ListingSource):
+        marketplace = Marketplace.SBAZAR.value
+        notes = [
+            "sbazar: READY: 329 readable offers (SK eligibility checked separately)",
+            "sbazar: NEEDS_DELIVERY_CONFIRMATION: 329 offers require detail or manual evidence",
+        ]
+
+        def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+            return []
+
+    class _Facebook(ListingSource):
+        marketplace = "facebook"
+        notes = [
+            "facebook: LOGIN_REQUIRED: manual import only; browser login is not unattended API access",
+        ]
+
+        def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
+            return []
+
+    class _Sold:
+        notes = ["price book: live query budget exhausted (16); remaining products are unvalued"]
+
+        def median_sold(self, listing, **kwargs):
+            return None
+
+    run = hunt_sources([_Sbazar(), _Facebook()], settings=Settings(), sold=_Sold())
+    assert "sbazar: fetched 0" in run.fetch_notes
+    assert "facebook: fetched 0" not in run.fetch_notes
+    assert not any("NEEDS_DELIVERY_CONFIRMATION" in note for note in run.fetch_notes)
+    assert not any(": READY:" in note for note in run.fetch_notes)
+    assert not any("LOGIN_REQUIRED" in note for note in run.fetch_notes)
+    assert not any("live query budget exhausted" in note for note in run.fetch_notes)
 
 
 def test_hunt_sources_skips_ebay() -> None:

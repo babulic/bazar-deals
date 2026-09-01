@@ -24,6 +24,9 @@ SITES = {
     "allegro_sk": "allegro.sk",
     "olx": "olx.pl",
 }
+# Hourly hunt can fetch these. Facebook/OLX/Allegro stay sell/manual-only;
+# probing them every hour only nags LOGIN_REQUIRED / ACCESS_NOT_GRANTED.
+HUNT_SITES = ("sbazar",)
 
 
 _WANT = re.compile(r"(?i)^\W*(?:kúpim|kupim|koupím|koupim|kupię|kupie|szukam|hľadám|hladam|hledám|hledam|wanted|wtb|looking for)\b")

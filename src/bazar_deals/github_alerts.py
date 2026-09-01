@@ -4,8 +4,14 @@ import httpx
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
-from bazar_deals.notify import format_compact_deal, format_github_deal, format_price_book_miss
-from bazar_deals.pipeline import HuntRun, is_dry_price_book_miss
+from bazar_deals.notify import (
+    format_compact_deal,
+    format_github_deal,
+    format_price_book_miss,
+    is_cheaper_than_usual,
+    keep_price_book_miss,
+)
+from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
@@ -54,26 +60,34 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report: BUY cards, then scored ads with links, then thin price-book misses."""
+    """Hunt report: BUY cards, then cheaper-than-usual near-misses, then cheap misses."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
-    status = _format_status(run, min_profit=min_profit, buy_count=buy_count, shown=len(shown))
+    watch = _scored_watch(run.deals, shown)
+    misses = [miss for miss in run.price_book_misses if keep_price_book_miss(miss)]
+    status = _format_status(
+        run,
+        min_profit=min_profit,
+        buy_count=buy_count,
+        shown=len(shown),
+        watch_n=len(watch),
+    )
     sections = [f"{ping}{markers}\n{status}" if markers else f"{ping}{status}"]
     if shown:
         sections.append("\n\n---\n\n".join(format_github_deal(deal) for deal in shown))
-    watch = _scored_watch(run.deals, shown)
     if watch:
         rows = "\n".join(f"- {format_compact_deal(deal)}" for deal in watch)
-        sections.append(f"### Ocenené inzeráty (pod prahom {min_profit} €)\n\n{rows}")
-    misses = list(run.price_book_misses)
+        sections.append(
+            f"### Lacnejšie ako obvyklá (pod prahom {min_profit} €)\n\n{rows}"
+        )
     if misses:
         rows = "\n".join(f"- {format_price_book_miss(miss)}" for miss in misses)
         sections.append(
             "### Málo porovnateľných inzerátov\n\n"
-            "Titulok je odkaz na inzerát. U tenkého vzorku je obvyklá cena P25×0.75 "
-            "z nájdených peerov, nie buy signál.\n\n"
+            "Titulok je odkaz na inzerát. Len lacnejšie ako tenká obvyklá, alebo bez obvyklej. "
+            "U tenkého vzorku je obvyklá P25×0.75 z nájdených peerov, nie buy signál.\n\n"
             f"{rows}"
         )
     return "\n\n".join(section.rstrip() for section in sections) + "\n"
@@ -81,46 +95,140 @@ def format_hunt_comment(
 
 def _scored_watch(deals: list[Deal], shown: list[Deal]) -> list[Deal]:
     shown_keys = {listing_key(deal) for deal in shown}
-    return [deal for deal in deals if listing_key(deal) not in shown_keys]
+    return [
+        deal
+        for deal in deals
+        if listing_key(deal) not in shown_keys and is_cheaper_than_usual(deal)
+    ]
 
 
 def _status_notes(run: HuntRun) -> str:
-    notes = [note for note in run.fetch_notes if not is_dry_price_book_miss(note)]
+    notes = [note for note in run.fetch_notes if not is_alert_noise(note)]
     return "\n".join(f"- {note}" for note in notes) or "- (no sources fetched)"
 
 
-def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
-    notes = _status_notes(run)
-    health = []
-    for market, stats in run.source_stats.items():
-        health.append(
-            f"- {market.value}: fetched {stats.get('fetched', 0)}, "
-            f"usable {stats.get('usable', 0)}, scored {stats.get('scored', 0)}, "
-            f"buy {stats.get('buy', 0)}"
+def _funnel_n(run: HuntRun, key: str) -> int:
+    return int(run.funnel.get(key, 0) or 0)
+
+
+def _format_progress(run: HuntRun, *, min_profit) -> str:
+    """Slovak drop-off, only non-zero counts, with units so the numbers add up."""
+    n = lambda key: _funnel_n(run, key)
+    hunt = rules()["hunt"]
+    score_cap = int(hunt.get("max_score_listings", 80))
+    min_buy = hunt.get("min_buy_eur", 20)
+    max_buy = hunt.get("max_buy_eur", 110)
+    usable = n("usable")
+    capped = n("score_capped")
+    tried = max(0, usable - capped) if usable else 0
+    lines: list[str] = []
+
+    if usable:
+        if capped:
+            lines.append(
+                f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €). "
+                f"Ocenenie má limit {score_cap} za hunt, takže sa skúšalo {tried} "
+                f"a {capped} ostalo mimo — hodinovka nestihne otvárať tisíce stránok."
+            )
+        else:
+            lines.append(
+                f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €)."
+            )
+
+    scored_bits: list[str] = []
+    if n("buy"):
+        scored_bits.append(f"{n('buy')} BUY áno")
+    cheaper_under = 0
+    overpriced = 0
+    for deal in run.deals:
+        if deal.action is Action.BUY:
+            continue
+        if is_cheaper_than_usual(deal):
+            cheaper_under += 1
+        elif deal.costs.estimated_resale > 0:
+            overpriced += 1
+    if cheaper_under:
+        scored_bits.append(
+            f"{cheaper_under} lacnejších ako obvyklá, pod prahom {min_profit} €"
         )
-    if not health:
-        health.append("- no marketplace reached scoring")
-    funnel_bits = [
-        f"usable={run.funnel.get('usable', 0)}",
-        f"score_capped={run.funnel.get('score_capped', 0)}",
-        f"under_min={run.funnel.get('under_min', 0)}",
-        f"bulky={run.funnel.get('bulky', 0)}",
-        f"skip_keyword={run.funnel.get('skip_keyword', 0)}",
-        f"heavy={run.funnel.get('heavy', 0)}",
-        f"identity_weak={run.funnel.get('identity_weak', 0)}",
-        f"detail_failed={run.funnel.get('detail_failed', 0)}",
-        f"scored={run.funnel.get('scored', 0)}",
-        f"buy={run.funnel.get('buy', 0)}",
-        f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
-        f"sold_lookup_cap={run.funnel.get('sold_lookup_cap', 0)}",
-        f"asking_only_comps={run.funnel.get('asking_only_comps', 0)}",
-        f"below_net_profit={run.funnel.get('below_net_profit', 0)}",
-        f"identity_ai_rescued={run.funnel.get('identity_ai_rescued', 0)}",
-        f"ai_rejected={run.funnel.get('ai_rejected', 0)}",
-        f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
-    ]
-    scored = int(run.funnel.get("scored", 0) or 0)
-    miss_n = len(run.price_book_misses)
+    if overpriced:
+        word = "ocenený drahší" if overpriced == 1 else "ocenených drahších"
+        scored_bits.append(f"{overpriced} {word} ako obvyklá (nie deal)")
+    elif not cheaper_under:
+        if n("below_net_profit"):
+            count = n("below_net_profit")
+            word = "ocenený" if count == 1 else "ocenených"
+            scored_bits.append(f"{count} {word} pod prahom {min_profit} €")
+        elif n("scored") and not n("buy"):
+            scored_bits.append(f"{n('scored')} ocenených")
+    if n("no_sold_comps"):
+        scored_bits.append(
+            f"{n('no_sold_comps')} inzerátov bez 5 porovnateľných cien (nie sú stratové)"
+        )
+    if n("identity_weak"):
+        scored_bits.append(f"{n('identity_weak')} bez spoľahlivej identity")
+    if n("insufficient_detail"):
+        scored_bits.append(f"{n('insufficient_detail')} s príliš krátkym textom")
+    if n("asking_only_comps"):
+        scored_bits.append(f"{n('asking_only_comps')} len s predbežným cenníkom")
+    if n("identity_ai_rescued"):
+        scored_bits.append(f"{n('identity_ai_rescued')} s identitou doplnenou AI")
+    if n("ai_rejected"):
+        scored_bits.append(f"{n('ai_rejected')} AI zamietlo")
+    if n("ai_unavailable"):
+        scored_bits.append(f"{n('ai_unavailable')} bez AI review")
+    if scored_bits:
+        prefix = f"z tých {tried}: " if capped and tried else ""
+        lines.append(f"- {prefix}{', '.join(scored_bits)}.")
+
+    if n("sold_lookup_cap"):
+        lines.append(
+            f"- cenník vynechal {n('sold_lookup_cap')} produktov (limit live query, "
+            "to nie je počet inzerátov). Bez ceny to nie je strata."
+        )
+    if n("detail_failed"):
+        lines.append(
+            f"- {n('detail_failed')} stránok inzerátu sa nenačítalo. "
+            "Tento počet sa prekrýva s riadkom vyššie, nesčíta sa to na limit."
+        )
+
+    pre = []
+    for key, label in (
+        ("under_min", f"pod {min_buy} €"),
+        ("over_cap", f"nad {max_buy} €"),
+        ("no_sk_delivery", "bez doručenia na SK"),
+        ("not_buy_now", "nie kúpiť hneď"),
+        ("invalid_price", "neplatná cena"),
+        ("bulky", "rozmerné"),
+        ("heavy", "ťažké"),
+        ("damaged", "poškodené"),
+        ("skip_keyword", "zakázané slovo"),
+        ("detail_damaged", "poškodené po detaile"),
+        ("detail_bulky", "rozmerné po detaile"),
+        ("detail_heavy", "ťažké po detaile"),
+        ("detail_skip_keyword", "zakázané slovo po detaile"),
+    ):
+        if n(key):
+            pre.append(f"{n(key)} {label}")
+    if pre:
+        lines.append("- pred použiteľnými / počas detailu ešte vypadlo: " + ", ".join(pre) + ".")
+
+    return "\n".join(lines) or "- (žiadny priebeh)"
+
+
+def _format_status(
+    run: HuntRun, *, min_profit, buy_count: int, shown: int, watch_n: int
+) -> str:
+    notes = _status_notes(run)
+    scored = _funnel_n(run, "scored")
+    miss_n = sum(1 for miss in run.price_book_misses if keep_price_book_miss(miss))
+    overpriced_n = sum(
+        1
+        for deal in run.deals
+        if deal.action is not Action.BUY
+        and deal.costs.estimated_resale > 0
+        and deal.costs.buy_price >= deal.costs.estimated_resale
+    )
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
@@ -133,17 +241,28 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
             f"Toto nie je dôkaz, že sú stratové."
         )
         if miss_n:
-            headline += f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej."
-    else:
+            headline += (
+                f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou "
+                "a rozdielom od obvyklej (len lacnejšie alebo bez obvyklej)."
+            )
+    elif watch_n:
         headline = (
             f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
-            f"Ocenené inzeráty sú nižšie s odkazom, nákupnou cenou a rozdielom od obvyklej ceny."
+            f"Lacnejšie ako obvyklá sú nižšie s odkazom, nákupnou cenou a rozdielom."
+        )
+    elif overpriced_n:
+        headline = (
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
+            f"Ocenené inzeráty boli drahšie ako obvyklá — to nie je deal, v zozname nie sú."
+        )
+    else:
+        headline = (
+            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku)."
         )
     return (
         f"{headline}\n\n"
         f"Zdroje:\n{notes}\n\n"
-        f"Funnel: {' '.join(funnel_bits)}\n\n"
-        f"Marketplace:\n" + "\n".join(health)
+        f"Priebeh:\n{_format_progress(run, min_profit=min_profit)}"
     )
 
 

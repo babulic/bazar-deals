@@ -181,6 +181,23 @@ def format_compact_listing(
     return " · ".join(parts)
 
 
+def is_cheaper_than_usual(deal: Deal) -> bool:
+    """True when asking is below the conservative usual price — a possible near-miss.
+
+    Overpriced ads (šiltovka 20 € vs obvyklá 7 €) are not near-misses.
+    """
+    typical = deal.costs.estimated_resale
+    return typical > 0 and deal.costs.buy_price < typical
+
+
+def keep_price_book_miss(miss: PriceBookMiss) -> bool:
+    """Keep unknown usual, or asking below the thin-sample usual. Drop drahší."""
+    typical = miss.typical
+    if typical is None or typical <= 0:
+        return True
+    return miss.listing.price.amount < typical
+
+
 def format_compact_deal(deal: Deal) -> str:
     listing = deal.item.listing
     typical = deal.costs.estimated_resale

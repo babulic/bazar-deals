@@ -6,7 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bazar_deals.adapters.central_europe import CentralEuropeClient, SITES
+from bazar_deals.adapters.central_europe import CentralEuropeClient, HUNT_SITES, SITES
 from bazar_deals.adapters.aukro import AukroHuntClient
 from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.adapters.ebay import EbayBrowseClient
@@ -16,8 +16,8 @@ from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, listing_key, select_alert_deals
-from bazar_deals.notify import format_compact_deal, format_deal, format_price_book_miss
-from bazar_deals.pipeline import hunt_sources, is_dry_price_book_miss, score_listings
+from bazar_deals.notify import format_compact_deal, format_deal, format_price_book_miss, is_cheaper_than_usual, keep_price_book_miss
+from bazar_deals.pipeline import hunt_sources, is_alert_noise, score_listings
 from bazar_deals.progress import emit
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest
@@ -167,9 +167,12 @@ def main(argv: list[str] | None = None) -> int:
         emit(f"scoring {len(listings)} cached listing(s)")
         run = score_listings(listings, settings, sold, enrichers=enrichers)
         sold_notes = [
-            note for note in (getattr(sold, "notes", []) or []) if not is_dry_price_book_miss(note)
+            note for note in (getattr(sold, "notes", []) or []) if not is_alert_noise(note)
         ]
-        run.fetch_notes = [f"loaded {len(listings)} cached listing(s)", *cached_notes] + sold_notes
+        run.fetch_notes = [
+            f"loaded {len(listings)} cached listing(s)",
+            *(note for note in cached_notes if not is_alert_noise(note)),
+        ] + sold_notes
     else:
         sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
         run = hunt_sources(
@@ -189,15 +192,20 @@ def main(argv: list[str] | None = None) -> int:
     shown = select_alert_deals(deals)
     actionable = [deal for deal in deals if deal.action is Action.BUY]
     shown_keys = {listing_key(deal) for deal in shown}
-    watch = [deal for deal in deals if listing_key(deal) not in shown_keys]
+    watch = [
+        deal
+        for deal in deals
+        if listing_key(deal) not in shown_keys and is_cheaper_than_usual(deal)
+    ]
+    cheaper_misses = [miss for miss in run.price_book_misses if keep_price_book_miss(miss)]
     if shown:
         print("\n\n".join(format_deal(deal) for deal in shown))
     if watch:
-        print("Ocenené inzeráty:")
+        print("Lacnejšie ako obvyklá:")
         print("\n".join(f"- {format_compact_deal(deal)}" for deal in watch))
-    if run.price_book_misses:
+    if cheaper_misses:
         print("Málo porovnateľných inzerátov:")
-        print("\n".join(f"- {format_price_book_miss(miss)}" for miss in run.price_book_misses))
+        print("\n".join(f"- {format_price_book_miss(miss)}" for miss in cheaper_misses))
     if not actionable:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
     if args.notify:
@@ -226,7 +234,7 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
         return [vinted]
     if fixture is not None:
         return [bazos]
-    return [bazos, aukro, vinted, *(CentralEuropeClient(name, settings) for name in SITES)]
+    return [bazos, aukro, vinted, *(CentralEuropeClient(name, settings) for name in HUNT_SITES)]
 
 
 def _dump_listings(path: Path, listings: list[Listing], *, notes: list[str] | None = None) -> None:

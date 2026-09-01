@@ -514,7 +514,6 @@ def find_buyers(
         for source, site in SITES.items():
             searcher = CentralEuropeClient(source, settings, client=client)
             if reason := searcher.manual_mode():
-                special_notes.append(f"{site}: {reason}; manual search: {search_url(source, 'kúpim')}")
                 continue
             phrase = "koupím" if source == "sbazar" else "kupię" if source in {"olx", "allegro_pl"} else "kúpim"
             for query in queries[:int(rules()["central_europe"]["max_queries"])]:

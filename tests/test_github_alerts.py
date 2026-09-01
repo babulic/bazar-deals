@@ -118,13 +118,17 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
     assert "**BUY:" not in body
-    assert "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)" in body
-    assert "no_sold_comps=8" in body
+    assert "ebay: skipped" not in body
+    assert "eBay" not in body
+    assert "no_sold_comps=8" not in body
+    assert "8 inzerátov bez 5 porovnateľných cien" in body
+    assert "Funnel:" not in body
+    assert "Priebeh:" in body
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body
     assert "zisk sa nerátal" not in body
     assert "Stratové položky sa neposielajú" not in body
-    assert "Ocenené inzeráty sú nižšie s odkazom" in body
+    assert "Ocenené inzeráty sú nižšie s odkazom" not in body
 
 
 def test_unscored_hunt_does_not_claim_losing_cards() -> None:
@@ -165,13 +169,114 @@ def test_unscored_hunt_does_not_claim_losing_cards() -> None:
     assert "žiadne ziskové karty" not in body
     assert "usable inzeráty nie sú ocenené" in body
     assert "Stratové položky sa neposielajú" not in body
-    assert "identity_weak=1" in body
-    assert "asking_only_comps=0" in body
-    assert "detail_failed=0" in body
-    assert "sold_lookup_cap=154" in body
-    assert "below_net_profit=0" in body
+    assert "identity_weak=1" not in body
+    assert "1 bez spoľahlivej identity" in body
+    assert "asking_only_comps=0" not in body
+    assert "detail_failed=0" not in body
+    assert "sold_lookup_cap=154" not in body
+    assert "154 produktov" in body
+    assert "below_net_profit=0" not in body
+    assert "Funnel:" not in body
     assert "DataDome" in body
     assert "**BUY:" not in body
+    assert "eBay OAuth" not in body
+    assert "LOGIN_REQUIRED" not in body
+    assert "ACCESS_NOT_GRANTED" not in body
+
+
+def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=10, scored=1, buy=0),
+        source_stats={Marketplace.BAZOS: Counter(fetched=10, usable=10, scored=1, buy=0)},
+        fetch_notes=[
+            "bazos: fetched 10",
+            "sbazar: NEEDS_DELIVERY_CONFIRMATION: 329 offers require detail or manual evidence",
+            "facebook: fetched 0",
+            "facebook: LOGIN_REQUIRED: manual import only; browser login is not unattended API access",
+            "allegro_pl: fetched 0",
+            "allegro_pl: ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available",
+            "allegro_sk: fetched 0",
+            "allegro_sk: ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available",
+            "olx: fetched 0",
+            "olx: BLOCKED: manual import only; standard OLX API does not search other sellers",
+            "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
+            "price book: live query budget exhausted (16); remaining products are unvalued",
+        ],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "bazos: fetched 10" in body
+    assert "NEEDS_DELIVERY_CONFIRMATION" not in body
+    assert "LOGIN_REQUIRED" not in body
+    assert "ACCESS_NOT_GRANTED" not in body
+    assert "manual import only" not in body
+    assert "wlvs siltovka" not in body
+    assert "live query budget exhausted" not in body
+    assert "facebook: fetched 0" not in body
+    assert "allegro_pl: fetched 0" not in body
+    assert "olx: fetched 0" not in body
+
+
+def test_hunt_progress_explains_cap_and_query_units() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(
+            usable=2236,
+            score_capped=2156,
+            under_min=320,
+            bulky=4,
+            skip_keyword=0,
+            heavy=5,
+            identity_weak=0,
+            detail_failed=24,
+            scored=1,
+            buy=0,
+            no_sold_comps=59,
+            sold_lookup_cap=39,
+            asking_only_comps=0,
+            below_net_profit=1,
+            identity_ai_rescued=0,
+            ai_rejected=0,
+            ai_unavailable=0,
+        ),
+        source_stats={Marketplace.BAZOS: Counter(fetched=2000, usable=1800, scored=1, buy=0)},
+        fetch_notes=["bazos: fetched 2000"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "Funnel:" not in body
+    assert "score_capped=2156" not in body
+    assert "sold_lookup_cap=39" not in body
+    assert "no_sold_comps=59" not in body
+    assert "skip_keyword=0" not in body
+    assert "identity_weak=0" not in body
+    assert "asking_only_comps=0" not in body
+    assert "ai_rejected=0" not in body
+    assert "2236 použiteľných inzerátov" in body
+    assert "limit 80" in body
+    assert "skúšalo 80" in body
+    assert "2156 ostalo mimo" in body
+    assert "1 ocenený pod prahom 30 €" in body
+    assert "59 inzerátov bez 5 porovnateľných cien" in body
+    assert "39 produktov" in body
+    assert "to nie je počet inzerátov" in body
+    assert "24 stránok inzerátu sa nenačítalo" in body
+    assert "nesčíta sa to na limit" in body
+    assert "320 pod 20 €" in body
+    assert "4 rozmerné" in body
+    assert "5 ťažké" in body
+    assert "bazos: fetched 2000" in body
+    assert "Marketplace:" not in body
+    assert "stiahnuté" not in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:
@@ -202,7 +307,8 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     assert "**BUY: áno**" in body
     assert "**BUY: nie**" not in body
     assert "- BUY: nie" not in body
-    assert "### Ocenené inzeráty" in body
+    assert "### Lacnejšie ako obvyklá" in body
+    assert "### Ocenené inzeráty" not in body
     assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/0/)" in body
     assert "nákup " in body
     assert "obvyklá " in body
@@ -232,8 +338,9 @@ def test_losing_hunts_post_status_without_cards() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Ocenené inzeráty sú nižšie s odkazom" in body
-    assert "### Ocenené inzeráty" in body
+    assert "Lacnejšie ako obvyklá sú nižšie s odkazom" in body
+    assert "### Lacnejšie ako obvyklá" in body
+    assert "### Ocenené inzeráty" not in body
     assert "[Commodore 1541-II ORIGINAL LISTING TITLE](https://pc.bazos.sk/inzerat/loss/)" in body
     assert "nákup 38 €" in body
     assert "obvyklá 70 €" in body
@@ -241,6 +348,57 @@ def test_losing_hunts_post_status_without_cards() -> None:
     assert "čistý zisk" in body
     assert "**BUY:" not in body
     assert select_alert_deals(run.deals) == []
+
+
+def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+    from bazar_deals.soldcomps import PriceBookMiss
+
+    listing = _deal().item.listing.model_copy(
+        update={
+            "external_id": "siltovka",
+            "title": "wlvs siltovka",
+            "url": "https://www.vinted.sk/items/9849277566-wlvs-siltovka",
+            "price": Money(amount=Decimal("20"), currency="EUR"),
+        }
+    )
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("7.28"), Decimal("15"))
+    assert skip.action is Action.SKIP
+    assert skip.costs.buy_price > skip.costs.estimated_resale
+    expensive_miss = PriceBookMiss(
+        listing=listing.model_copy(
+            update={
+                "external_id": "kabat",
+                "title": "Pravá koža kabát",
+                "url": "https://www.vinted.sk/items/9849540264-prava-koza-kabat",
+            }
+        ),
+        query="prava koza kabat",
+        peer_count=1,
+        required=5,
+        typical=Decimal("11.25"),
+    )
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(scored=1, buy=0, below_net_profit=1),
+        source_stats={Marketplace.VINTED: Counter(fetched=1909, usable=1903, scored=1, buy=0)},
+        fetch_notes=["vinted: fetched 1909"],
+        price_book_misses=[expensive_miss],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "drahšie ako obvyklá" in body
+    assert "### Lacnejšie ako obvyklá" not in body
+    assert "### Ocenené inzeráty" not in body
+    assert "wlvs siltovka" not in body
+    assert "čistý zisk -" not in body
+    assert "Pravá koža kabát" not in body
+    assert "### Málo porovnateľných" not in body
+    assert "Marketplace:" not in body
+    assert "scored 0" not in body
+    assert "1 ocenený drahší ako obvyklá" in body
 
 
 def test_buy_alerts_are_capped_at_top_n() -> None:

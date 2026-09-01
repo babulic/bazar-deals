@@ -2,15 +2,14 @@
 
 Hunter for **small, shippable, working goods** with a conservative resale valuation.
 
-Purchase sources:
+Hourly hunt purchase sources:
 
 - `vinted.sk`
 - `aukro.sk`
 - `bazos.sk`
-- `sbazar.cz`
-- Facebook Marketplace (public data only; login redirects are reported)
-- `allegro.pl` and `allegro.sk` (official API token required)
-- `olx.pl` (public data only; blocking is reported)
+- `sbazar.cz` (detail fetch confirms SK delivery; unconfirmed ads go last so they cannot fill the scoring cap)
+
+Facebook Marketplace, Allegro and OLX are sell-side / manual-import only. The hourly hunt does not fetch them, and their `LOGIN_REQUIRED` / `ACCESS_NOT_GRANTED` banners do not go on the Deal alerts issue.
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded. eBay is not a purchase source and is not used for valuation.
 
@@ -26,9 +25,11 @@ eBay data in GitHub comments, artifacts or the general comps cache. Its schedule
 workflow stays disabled until the deletion receiver has been deployed, registered
 and tested and the no-persistence exemption has been removed.
 
-Price-book gaps now trigger up to `COMPS_LIVE_QUERIES=16` targeted product searches
-per hunt; stale cached prices cannot authorize BUY. Targeted buyer searches cover
-every stock item before alternate names, including items late in the catalog.
+Price-book gaps now trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
+per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
+Targeted buyer searches cover every stock item before alternate names, including
+items late in the catalog. Reuse keys and budget-exhausted messages stay in the
+job log, not in the GitHub comment.
 
 ## Decision rule
 
@@ -212,23 +213,23 @@ The hourly GitHub Actions hunt always comments on the Deal alerts collector
 issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
 cards (at most 5) are ranked by expected net profit and include a clickable
 listing title, asking price, usual quick-sale price, and the difference vs
-usual. **Every scored ad** that is not a BUY card is listed next with the
-same facts so you can open it. Ads that could not be valued (`no_sold_comps`,
-fewer than 5 comparable prices) are listed under **Málo porovnateľných
-inzerátov**: the title is the listing link, plus asking price, usual price
-from the thin sample when `n>0`, the delta, and links to the comparable ads
-that were found. The assignee is mentioned only when at least one BUY card
-is present. If `scored=0`, the comment says profit was never computed
-(missing price-book sample), not that every usable ad is a loss.
+usual. Scored ads **cheaper than usual** that still miss the 30 € floor are
+listed next with the same facts. Overpriced ads (asking above usual, e.g. a
+20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
+could not be valued (`no_sold_comps`, fewer than 5 comparable prices) go
+under **Málo porovnateľných inzerátov** only when cheaper than the thin-sample
+usual, or when usual is still unknown. The assignee is mentioned only when at
+least one BUY card is present. If `scored=0`, the comment says profit was
+never computed (missing price-book sample), not that every usable ad is a loss.
 
-**Funnel** is the drop-off counter printed as `filter: usable=… scored=… buy=…`.
-It is not a status headline. Each key is how many ads left that step:
-fetched → usable (buy-now, 20–110 €, not bulky/damaged) → scored (had a
-price-book value) → buy (expected net profit ≥ 30 €). `no_sold_comps` means
-the ad was never valued. `below_net_profit` means it was valued and missed
-the 30 € floor. At most `max_score_listings` (80) usable ads get a detail
-fetch and a price; the rest are `score_capped`. The hourly hunt cannot open
-2000 Vinted pages.
+GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
+The per-board `scored 0` dump is not on the issue; fetch counts stay under
+Zdroje. Zero funnel counters are omitted. `score_capped` is explained as the
+80-ad scoring limit (the hourly job cannot open thousands of detail pages).
+`sold_lookup_cap` is **products** skipped by the live price-book budget, not
+extra ads — it must not be added to `no_sold_comps`. `detail_failed` can
+overlap later buckets. The compact `filter: usable=… scored=… buy=…` dump
+stays in the job log.
 
 Hunt GitHub Actions is split into **Fetch Bazos / Fetch Aukro / Fetch Vinted /
 Score and comment**. The yellow step is the one still running. Progress also
@@ -356,9 +357,12 @@ integration support, not five verified live production sources. See the
 [concrete access and deployment plan](docs/marketplace-access-plan.md).
 
 
-`hunt --source sbazar|facebook|allegro_pl|allegro_sk|olx` selects one new source;
-`hunt --source all` includes all five. The hourly workflow fetches each source
-separately and preserves source errors in the final report. Searches are bounded
+`hunt --source sbazar|facebook|allegro_pl|allegro_sk|olx` selects one extra source;
+`hunt --source all` is Bazos, Aukro, Vinted and Sbazar. Facebook, OLX and Allegro
+stay explicit `--source` / manual import — probing them every hour only nags.
+The hourly workflow fetches the four hunt boards separately. Useful failures
+(for example Vinted DataDome) still appear on the Deal alerts issue; access and
+price-book diagnostics do not. Searches on the extra boards are bounded
 by `central_europe.queries` and `max_queries` in the packaged YAML; these are a
 small initial set of product searches, not an exhaustive scan of each site.
 `sell --buyers` uses the same sources with Czech, Slovak or Polish buy verbs.
@@ -442,12 +446,13 @@ treating it as net proceeds. Use actual payment-provider costs to tune this esti
 
 ## Manual import for blocked marketplaces
 
-Scheduled hunts and buyer searches keep Facebook/OLX in manual mode and skip
-Allegro without an authorized token. They do not repeatedly probe blocked pages.
-Status notes distinguish `READY` (readable source, not a BUY), `LOGIN_REQUIRED`,
-`BLOCKED`, `ACCESS_NOT_GRANTED`, `STALE_FX`, and
-`NEEDS_DELIVERY_CONFIRMATION`. Public-page parsers remain available for explicit
-diagnostic probes; a successful login is not permission for unattended collection.
+Scheduled hunts buy from Bazos, Aukro, Vinted and Sbazar. Sbazar catalog ads
+without SK delivery are scored last so they cannot fill the 80-ad cap; BUY
+still needs confirmed SK delivery after the detail page. Facebook, OLX and
+Allegro are manual-import / sell-side only — the hourly hunt does not probe
+them, and those `LOGIN_REQUIRED` / `ACCESS_NOT_GRANTED` banners do not go on
+the Deal alerts issue. Price-book reuse keys and live-query budget messages
+stay in the job log, not in the GitHub comment.
 
 Save selected offers locally as JSON (array of objects) or CSV (same field names).
 Keep private evidence in `.cache/`, which is ignored by Git. Example:
