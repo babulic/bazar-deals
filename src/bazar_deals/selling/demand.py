@@ -18,6 +18,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Money, Listing
 from datetime import datetime, timezone, timedelta
 from bazar_deals.htmlparse import parse_vinted_items
+from bazar_deals.identity import advertisement_text
 from bazar_deals.rules import rules
 from bazar_deals.selling.collect import (
     _clean,
@@ -28,7 +29,11 @@ from bazar_deals.selling.collect import (
     similarity,
     tokens,
 )
-from bazar_deals.selling.photos import photos_same_object
+from bazar_deals.selling.photos import (
+    hex_color_family,
+    photos_color_conflict,
+    photos_same_object,
+)
 from bazar_deals.selling.inventory import Inventory, InventoryItem
 
 _AUKRO_SEARCH = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon"
@@ -121,15 +126,12 @@ _VINTED_SITES = (
     ("vinted.be", ("achète", "koop")),
     ("vinted.es", ("compro", "busco")),
 )
+# DE/AT match the hunt storefronts; PL is the nearest WTB board for SK stock.
+# Eight storefronts × stock queries is what 429s the Browse API.
 _EBAY_BOARDS = (
     ("EBAY_DE", "ebay.de", ("kaufe", "suche")),
     ("EBAY_AT", "ebay.at", ("kaufe", "suche")),
-    ("EBAY_FR", "ebay.fr", ("achète", "cherche")),
-    ("EBAY_IT", "ebay.it", ("compro", "cerco")),
     ("EBAY_PL", "ebay.pl", ("kupię", "szukam")),
-    ("EBAY_NL", "ebay.nl", ("koop", "zoek")),
-    ("EBAY_ES", "ebay.es", ("compro", "busco")),
-    ("EBAY_BE", "ebay.be", ("achète", "koop")),
 )
 _KA_PHRASES = ("suche", "kaufe")
 _WILLHABEN_PHRASES = ("Suche", "Kaufe")
@@ -215,6 +217,96 @@ _ACCESSORY_QUERIES = {
     "cable": ("kábel", "microUSB"),
     "case": ("púzdro", "case"),
 }
+# Finished jewelry vs mineral specimen. A pink bracelet WTB is not tumbled jadeite.
+_JEWELRY_FORMS: dict[str, tuple[str, ...]] = {
+    "bracelet": (
+        "bransoletka",
+        "bransoletke",
+        "bransoletki",
+        "bransoleta",
+        "naramok",
+        "naramku",
+        "naramky",
+        "bracelet",
+        "bracciale",
+        "armband",
+    ),
+    "necklace": (
+        "naszyjnik",
+        "nahrdelnik",
+        "necklace",
+        "halskette",
+        "collier",
+    ),
+    "ring": (
+        "pierscionek",
+        "prsten",
+        "prstienok",
+        "prstena",
+    ),
+    "earrings": (
+        "nausnice",
+        "earrings",
+        "ohrring",
+        "kolczyki",
+    ),
+    "pendant": (
+        "wisiorek",
+        "privesok",
+        "privesku",
+        "pendant",
+        "anhanger",
+    ),
+}
+_STOCK_JEWELRY_FORMS = {
+    "privesok": "pendant",
+    "naramok": "bracelet",
+    "nahrdelnik": "necklace",
+    "prsten": "ring",
+    "nausnice": "earrings",
+}
+_SPECIMEN_FORMS = frozenset(
+    {"krystal", "druza", "agregat", "brus", "lesteny rez", "rez", "kaboson", "cabochon"}
+)
+_SPECIMEN_NEEDLES = (
+    "na vyrobu sperkov",
+    "vyrobu sperkov",
+    "vybruseny",
+    "vylesteny",
+    "tumbled",
+    "cabochon",
+    "kaboson",
+    "specimen",
+    "surovy",
+)
+_COLOR_GROUPS: dict[str, tuple[str, ...]] = {
+    "green": ("zelen", "green", "gruen", "grun", "zielon", "zieleni"),
+    "pink": ("ruzov", "rozow", "rozowy", "pink", "fuchsi"),
+    "blue": ("modr", "blue", "blau", "niebies", "bleu"),
+    "yellow": ("zlt", "zlut", "yellow", "gelb", "zolty", "jaune"),
+    "red": ("cerven", "czerw", "rouge", "rosso"),
+    "purple": ("fialov", "purple", "violet", "fiolet"),
+    "white": ("biely", "biela", "white", "weiss", "bialy"),
+    "black": ("cierny", "cierna", "black", "schwarz", "czarny"),
+    "brown": ("hned", "brown", "braun", "brazow"),
+}
+_COLOR_WORDS = frozenset({"pink", "blue", "green", "red"})
+_JEWELRY_SKU_RE = re.compile(r"^[a-z]{2,}\d{3,}$")
+_JEWELRY_BY_BRAND_RE = re.compile(r"\bby\s+([a-z]{3,})\b")
+_WANT_RAW_KEYS = (
+    "brand",
+    "size",
+    "color",
+    "shortDescription",
+    "localizedAspects",
+    "dominant_colors",
+    "subtitle",
+    "material",
+    "manufacturer",
+    "mpn",
+    "model",
+    "images",
+)
 
 
 class WantAd(BaseModel):
@@ -223,9 +315,11 @@ class WantAd(BaseModel):
     external_id: str
     title: str
     url: str
+    description: str = ""
     offer_eur: Decimal | None = None
     query: str = ""
     image_urls: list[str] = Field(default_factory=list)
+    raw: dict = Field(default_factory=dict)
 
 
 class DemandMatch(BaseModel):
@@ -249,6 +343,30 @@ class _SiteStat:
     rows: int = 0
     wants: int = 0
     blocked: str = ""
+
+
+def merge_buyer_digests(first: BuyerDigest, extra: BuyerDigest) -> BuyerDigest:
+    """Union of two sell passes so the research loop keeps first-pass ads."""
+    seen = {f"{row.want.site}:{row.want.external_id}:{row.item.id}" for row in first.matches}
+    matches = list(first.matches)
+    for row in extra.matches:
+        key = f"{row.want.site}:{row.want.external_id}:{row.item.id}"
+        if key in seen:
+            continue
+        seen.add(key)
+        matches.append(row)
+    matches.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
+    notes = list(first.notes) + ["research loop after 0 buyers or throttled eBay"] + list(extra.notes)
+    fetched: Counter[str] = Counter(first.fetched)
+    fetched.update(extra.fetched)
+    boards = list(dict.fromkeys([*first.boards, *extra.boards]))
+    return BuyerDigest(
+        matches=matches,
+        near_misses=[],
+        notes=notes,
+        fetched=fetched,
+        boards=boards,
+    )
 
 
 def searched_buy_phrases() -> list[str]:
@@ -394,9 +512,9 @@ def inventory_accessory_role(item: InventoryItem) -> str | None:
     return None
 
 
-def want_ad_role(title: str) -> str:
+def want_ad_role(text: str) -> str:
     """Classify a buyer's ad: accessory, complete phone, complete watch, or other."""
-    folded = _fold(title)
+    folded = _fold(text)
     for role, needles in _ACCESSORY_NEEDLES.items():
         if any(needle in folded for needle in needles):
             return role
@@ -405,6 +523,88 @@ def want_ad_role(title: str) -> str:
     if _WATCH_COMPLETE_RE.search(folded):
         return "watch"
     return "other"
+
+
+def want_text(ad: str | WantAd) -> str:
+    """Title, body, and structured marketplace fields for one want-ad."""
+    if isinstance(ad, str):
+        return ad
+    return advertisement_text(ad.title, ad.description, ad.raw)
+
+
+def jewelry_form(text: str) -> str | None:
+    folded = _fold(text)
+    for form, needles in _JEWELRY_FORMS.items():
+        if any(_mentions(folded, needle) for needle in needles):
+            return form
+    return None
+
+
+def stock_jewelry_form(item: InventoryItem) -> str | None:
+    mapped = _STOCK_JEWELRY_FORMS.get(_fold(item.form))
+    if mapped:
+        return mapped
+    return jewelry_form(" ".join([item.form, item.title, item.id]))
+
+
+def stock_is_specimen(item: InventoryItem) -> bool:
+    if item.segment != "minerals":
+        return False
+    if stock_jewelry_form(item):
+        return False
+    form = _fold(item.form)
+    if form in _SPECIMEN_FORMS:
+        return True
+    blob = _fold(" ".join([item.form, item.title, item.id]))
+    return any(needle in blob for needle in _SPECIMEN_NEEDLES) or item.segment == "minerals"
+
+
+def colors_in(text: str) -> set[str]:
+    folded = _fold(text)
+    found: set[str] = set()
+    for family, needles in _COLOR_GROUPS.items():
+        if any(_mentions(folded, needle) for needle in needles):
+            found.add(family)
+    return found
+
+
+def stock_colors(item: InventoryItem) -> set[str]:
+    return colors_in(" ".join([item.color, item.title, item.form, item.id]))
+
+
+def want_colors(ad: str | WantAd, blob: str) -> set[str]:
+    found = colors_in(blob)
+    if not isinstance(ad, WantAd):
+        return found
+    for swatch in ad.raw.get("dominant_colors") or []:
+        family = hex_color_family(str(swatch))
+        if family:
+            found.add(family)
+    return found
+
+
+def _mentions(folded: str, needle: str) -> bool:
+    token = _fold(needle)
+    if not token:
+        return False
+    if token in _COLOR_WORDS:
+        return re.search(rf"(?<![a-z0-9]){re.escape(token)}(?![a-z0-9])", folded) is not None
+    return token in folded
+
+
+def _foreign_jewelry_brand(blob: str, item: InventoryItem) -> bool:
+    folded = _fold(blob)
+    stock = _fold(
+        " ".join([item.title, item.id, item.form, *item.part_numbers, *item.keywords, *item.match_hints])
+    )
+    for match in _JEWELRY_BY_BRAND_RE.finditer(folded):
+        brand = match.group(1)
+        if brand and brand not in stock:
+            return True
+    for token in tokens(blob):
+        if _JEWELRY_SKU_RE.fullmatch(token) and token not in stock:
+            return True
+    return False
 
 
 def _is_power_supply(item: InventoryItem) -> bool:
@@ -417,16 +617,23 @@ def _title_has_power(title: str) -> bool:
     return any(needle in folded for needle in _POWER_NEEDLES)
 
 
-def match_want(title: str, item: InventoryItem) -> float:
-    """Score a want-ad against one inventory item. Part numbers beat fuzzy titles."""
-    score = max(score_match(title, item), similarity(title, item.title), closeness(title, item.title))
-    folded = _fold(title)
+def match_want(ad: str | WantAd, item: InventoryItem) -> float:
+    """Score a want-ad against one inventory item. Part numbers beat fuzzy titles.
+
+    Uses the whole advertisement (title, description, brand, colour swatches),
+    not the headline alone. Finished jewelry is not a mineral specimen; a pink
+    bracelet is not a green tumbled jadeite.
+    """
+    blob = want_text(ad)
+    title = ad.title if isinstance(ad, WantAd) else ad
+    score = max(score_match(blob, item), similarity(blob, item.title), closeness(title, item.title))
+    folded = _fold(blob)
     if item.match_hints and not any(_fold(hint) in folded for hint in item.match_hints):
         score = min(score * 0.5, 0.49)
-    title_tokens = tokens(title)
+    title_tokens = tokens(blob)
     support = _support_tokens(item)
     power_item = _is_power_supply(item)
-    if power_item and not _title_has_power(title):
+    if power_item and not _title_has_power(blob):
         # A PSU SKU lists 1541/C64 as the machine it fits. A floppy or computer
         # ad with that number is not a buyer for the brick.
         score = min(score, 0.49)
@@ -435,7 +642,7 @@ def match_want(title: str, item: InventoryItem) -> float:
         token = _fold(part)
         if len(token) < 4 or not _part_in_title(token, title_tokens):
             continue
-        if power_item and not _title_has_power(title):
+        if power_item and not _title_has_power(blob):
             continue
         if token.isdigit() and not _numeric_part_fits(token, title_tokens, support):
             continue
@@ -461,7 +668,19 @@ def match_want(title: str, item: InventoryItem) -> float:
         score = max(score, 0.62)
     if species_hits and any(_place_in_title(place, folded) for place in places):
         score = max(score, 0.85)
-    if stock_role in _ACCESSORY_ROLES and want_ad_role(title) != stock_role:
+    if stock_role in _ACCESSORY_ROLES and want_ad_role(blob) != stock_role:
+        score = min(score, 0.49)
+    want_form = jewelry_form(blob)
+    stock_form = stock_jewelry_form(item)
+    if want_form and stock_is_specimen(item):
+        score = min(score, 0.49)
+    if stock_form and want_form != stock_form:
+        score = min(score, 0.49)
+    if want_form and _foreign_jewelry_brand(blob, item):
+        score = min(score, 0.49)
+    have_colors = stock_colors(item)
+    asked_colors = want_colors(ad, blob)
+    if have_colors and asked_colors and not (have_colors & asked_colors):
         score = min(score, 0.49)
     return score
 
@@ -497,24 +716,39 @@ def _part_in_title(token: str, title_tokens: set[str]) -> bool:
 
 
 def best_item(
-    title: str,
+    ad: str | WantAd,
     items: list[InventoryItem],
     *,
     want_images: list[str] | None = None,
     fetch_image=None,
 ) -> tuple[InventoryItem, float] | None:
     ranked = sorted(
-        ((match_want(title, item), item) for item in items),
+        ((match_want(ad, item), item) for item in items),
         key=lambda pair: pair[0],
         reverse=True,
     )
+    images = list(want_images or [])
+    swatches: list[str] = []
+    if isinstance(ad, WantAd):
+        if not images:
+            images = list(ad.image_urls)
+        swatches = [str(item) for item in (ad.raw.get("dominant_colors") or []) if item]
     for score, item in ranked:
         if score < _MATCH_FLOOR:
             break
-        if want_images and item.image_urls:
-            same = photos_same_object(item.image_urls, want_images, fetch=fetch_image)
+        if images and item.image_urls:
+            same = photos_same_object(item.image_urls, images, fetch=fetch_image)
             if same is False:
                 continue
+        conflict = photos_color_conflict(
+            item.image_urls,
+            images,
+            fetch=fetch_image,
+            stock_colors=stock_colors(item),
+            want_swatches=swatches,
+        )
+        if conflict is True:
+            continue
         return item, score
     return None
 
@@ -556,9 +790,18 @@ def find_buyers(
                 price = (price * (1 - settings.fx_fee_rate)).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
         except ValueError:
             price = None
-        ad = WantAd(marketplace=listing.marketplace.value, site=SITES[listing.marketplace.value],
-                    external_id=listing.external_id, title=listing.title, url=str(listing.url),
-                    offer_eur=price if price and price > 0 else None, query="manual import")
+        ad = WantAd(
+            marketplace=listing.marketplace.value,
+            site=SITES[listing.marketplace.value],
+            external_id=listing.external_id,
+            title=listing.title,
+            description=listing.description or "",
+            url=str(listing.url),
+            offer_eur=price if price and price > 0 else None,
+            query="manual import",
+            image_urls=_listing_image_urls(listing),
+            raw=_want_raw(listing.raw),
+        )
         ingest([ad], f"{ad.site}: user-selected demand (not a confirmed sale)", ad.site)
 
     if not offline:
@@ -671,7 +914,7 @@ def find_buyers(
 
         if not settings.ebay_client_id or not settings.ebay_client_secret:
             special_notes.append(
-                "ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 "
+                "ebay.de/.at/.pl: fetched 0 "
                 "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
             )
         else:
@@ -680,10 +923,13 @@ def find_buyers(
                 browse._access_token()
             except (RuntimeError, httpx.HTTPError) as exc:
                 special_notes.append(
-                    f"ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 ({exc})"
+                    f"ebay.de/.at/.pl: fetched 0 ({exc})"
                 )
             else:
+                ebay_blocked = False
                 for marketplace_id, site, phrases in _EBAY_BOARDS:
+                    if ebay_blocked:
+                        break
                     site_count = 0
                     blocked = False
                     for wtb in phrases:
@@ -695,8 +941,29 @@ def find_buyers(
                                 browse,
                                 client=client,
                             )
+                            if note and _is_http_429(note):
+                                _throttle_pause(settings, client)
+                                batch, note = _search_ebay(
+                                    f"{wtb} {query}",
+                                    marketplace_id,
+                                    site,
+                                    browse,
+                                    client=client,
+                                )
+                                if not note:
+                                    site_count += len(batch)
+                                    for ad in batch:
+                                        ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
+                                    _pause(settings, client)
+                                    continue
                             if note:
-                                special_notes.append(note)
+                                if _is_http_429(note):
+                                    special_notes.append(
+                                        f"ebay: HTTP 429 — remaining storefronts skipped after {site}"
+                                    )
+                                    ebay_blocked = True
+                                else:
+                                    special_notes.append(note)
                                 blocked = True
                                 break
                             site_count += len(batch)
@@ -704,6 +971,8 @@ def find_buyers(
                                 ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
                         if blocked:
                             break
+                    if ebay_blocked:
+                        break
                     if not blocked:
                         digest.fetched[site] += site_count
                         special_notes.append(f"{site}: fetched {site_count} rows")
@@ -718,8 +987,9 @@ def find_buyers(
                 try:
                     batch = searcher.search(full_query)
                 except (RuntimeError, httpx.HTTPError, ValueError) as exc:
-                    if source == "facebook":
-                        special_notes.append("facebook: public marketplace unavailable")
+                    wall = _login_wall_note(source, site, exc)
+                    if wall:
+                        special_notes.append(wall)
                         break
                     special_notes.append(
                         f"{_http_note(site, exc)}; manual search: {search_url(source, full_query)}"
@@ -735,9 +1005,20 @@ def find_buyers(
                             price = None
                     except ValueError:
                         price = None  # A demand can have an unknown budget.
-                    wants.append(WantAd(marketplace=source, site=site, external_id=listing.external_id,
-                                        title=listing.title, url=str(listing.url), offer_eur=price, query=full_query,
-                                        image_urls=_listing_image_urls(listing)))
+                    wants.append(
+                        WantAd(
+                            marketplace=source,
+                            site=site,
+                            external_id=listing.external_id,
+                            title=listing.title,
+                            description=listing.description or "",
+                            url=str(listing.url),
+                            offer_eur=price,
+                            query=full_query,
+                            image_urls=_listing_image_urls(listing),
+                            raw=_want_raw(listing.raw),
+                        )
+                    )
                 ingest(wants, f"{site}: fetched {len(wants)} rows", site)
 
     def fetch_image(url: str) -> bytes | None:
@@ -747,7 +1028,7 @@ def find_buyers(
     seen_pair: set[str] = set()
     for ad in ads.values():
         hit = best_item(
-            ad.title,
+            ad,
             items,
             want_images=ad.image_urls,
             fetch_image=fetch_image,
@@ -1072,9 +1353,12 @@ def _search_vinted(
                 site=site,
                 external_id=listing.external_id,
                 title=listing.title,
+                description=listing.description or "",
                 url=href,
                 offer_eur=listing.price.amount or None,
                 query=query,
+                image_urls=_listing_image_urls(listing),
+                raw=_want_raw(listing.raw),
             )
         )
     _pause(settings, client)
@@ -1399,23 +1683,62 @@ def _search_ebay(
         except InvalidOperation:
             amount = Decimal("0")
         ads.append(
-            WantAd(
-                marketplace="ebay",
-                site=site,
-                external_id=identifier,
-                title=title,
-                url=href,
-                offer_eur=amount or None,
-                query=query,
-                image_urls=_https_image_urls(node.get("image"), node.get("thumbnailImages")),
-            )
+                    WantAd(
+                        marketplace="ebay",
+                        site=site,
+                        external_id=identifier,
+                        title=title,
+                        description=str(node.get("shortDescription") or ""),
+                        url=href,
+                        offer_eur=amount or None,
+                        query=query,
+                        image_urls=_https_image_urls(node.get("image"), node.get("thumbnailImages")),
+                        raw=_want_raw(
+                            {
+                                "shortDescription": node.get("shortDescription"),
+                                "localizedAspects": node.get("localizedAspects"),
+                                "color": node.get("color"),
+                            }
+                        ),
+                    )
         )
     return ads, ""
 
 
 def _listing_image_urls(listing: Listing) -> list[str]:
     raw = listing.raw if isinstance(listing.raw, dict) else {}
-    return _https_image_urls(raw.get("images"), raw.get("image"))
+    return _https_image_urls(
+        raw.get("images"),
+        raw.get("image"),
+        raw.get("photos"),
+        raw.get("photo"),
+    )
+
+
+def _want_raw(raw: object) -> dict:
+    if not isinstance(raw, dict):
+        return {}
+    keep: dict = {}
+    for key in _WANT_RAW_KEYS:
+        value = raw.get(key)
+        if value in (None, "", [], {}):
+            continue
+        keep[key] = value
+    return keep
+
+
+def _login_wall_note(source: str, site: str, exc: BaseException) -> str:
+    """Facebook/OLX public pages that require login are skipped, not retried."""
+    if source == "facebook":
+        return "facebook: skipped (public marketplace is a login wall)"
+    if source == "olx":
+        return "olx.pl: skipped (public search is a login wall)"
+    return ""
+
+
+def _is_http_429(note: str) -> bool:
+    folded = (note or "").casefold()
+    return "http 429" in folded or "too many requests" in folded
 
 
 def _https_image_urls(*values: object) -> list[str]:
@@ -1462,6 +1785,13 @@ def _pause(settings: Settings, client: httpx.Client | None) -> None:
     if client is not None:
         return
     time.sleep(min(0.4, settings.bazos_request_gap_seconds))
+
+
+def _throttle_pause(settings: Settings, client: httpx.Client | None) -> None:
+    """Backoff before retrying a 429. Tests pass a client and skip the wait."""
+    if client is not None:
+        return
+    time.sleep(max(2.0, min(8.0, settings.bazos_request_gap_seconds * 4)))
 
 
 def _get(

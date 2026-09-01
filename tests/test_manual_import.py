@@ -268,4 +268,6 @@ def test_regular_hunt_does_not_delete_comments():
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])
+    assert "looped != '1'" in str(sell['jobs']['research']['if'])
+    assert sell['jobs']['sell-buyers']['outputs']['looped']
     assert '--research' in str(sell['jobs']['research'])

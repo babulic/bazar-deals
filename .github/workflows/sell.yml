@@ -11,12 +11,19 @@ permissions:
   contents: read
   issues: write
 
+# Do not cancel an in-progress sell: the 0-kupec / 429 loop runs inside the
+# sell-buyers step. Queue the next hour instead of dropping that retry.
+concurrency:
+  group: sell-buyers
+  cancel-in-progress: false
+
 jobs:
   sell-buyers:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     outputs:
       buyers: ${{ steps.sell.outputs.buyers }}
+      looped: ${{ steps.sell.outputs.looped }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -60,7 +67,7 @@ jobs:
 
   research:
     needs: sell-buyers
-    if: ${{ always() && needs.sell-buyers.result == 'success' && (needs.sell-buyers.outputs.buyers == '0' || needs.sell-buyers.outputs.buyers == '') }}
+    if: ${{ always() && needs.sell-buyers.result == 'success' && (needs.sell-buyers.outputs.buyers == '0' || needs.sell-buyers.outputs.buyers == '') && needs.sell-buyers.outputs.looped != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:

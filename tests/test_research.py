@@ -18,8 +18,10 @@ from bazar_deals.domain import Listing, Marketplace, Money
 from bazar_deals.pipeline import HuntRun
 from bazar_deals.research import (
     hunt_research_hint,
+    retryable_sell_errors,
     sell_research_hint,
     should_research_loop,
+    should_sell_research_loop,
     write_github_output,
 )
 
@@ -110,6 +112,32 @@ def test_should_research_loop_only_after_zero_buy_live_hunt() -> None:
     assert not should_research_loop(buy_count=1, already_research=False, offline=False)
     assert not should_research_loop(buy_count=0, already_research=True, offline=False)
     assert not should_research_loop(buy_count=0, already_research=False, offline=True)
+
+
+def test_should_sell_research_loop_on_zero_buyers_or_ebay_429() -> None:
+    assert should_sell_research_loop(
+        buyers=0, notes=[], already_research=False, offline=False
+    )
+    assert should_sell_research_loop(
+        buyers=1,
+        notes=["ebay: HTTP 429 — remaining storefronts skipped after ebay.de"],
+        already_research=False,
+        offline=False,
+    )
+    assert not should_sell_research_loop(
+        buyers=0, notes=[], already_research=True, offline=False
+    )
+    assert not should_sell_research_loop(
+        buyers=0, notes=[], already_research=False, offline=True
+    )
+    walls = [
+        "facebook: skipped (public marketplace is a login wall)",
+        "olx.pl: skipped (public search is a login wall)",
+    ]
+    assert retryable_sell_errors(walls) == []
+    assert not should_sell_research_loop(
+        buyers=1, notes=walls, already_research=False, offline=False
+    )
 
 
 def test_sku_search_skips_vinted_and_aukro_newest_dumps(monkeypatch) -> None:

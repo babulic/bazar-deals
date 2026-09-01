@@ -127,6 +127,11 @@ def test_vinted_current_nextjs_hydration_catalog() -> None:
         "title": "Apple iPhone 13 128 GB",
         "total_item_price": {"amount": "95.20", "currency_code": "EUR"},
         "url": "/items/9726128618-apple-iphone-13-128-gb",
+        "photo": {
+            "url": "https://images1.vinted.net/thumbs/jadeit.jpg",
+            "dominant_color": "#2d8a3e",
+            "full_size_url": "https://images1.vinted.net/jadeit.jpg",
+        },
         "user": {"id": 42, "login": "seller"},
     }
     hydrated = "7:" + json.dumps([item], ensure_ascii=False, separators=(",", ":"))
@@ -140,6 +145,8 @@ def test_vinted_current_nextjs_hydration_catalog() -> None:
     assert listing.seller_id == "seller"
     assert "Veľmi dobrý" in listing.description
     assert "/items/9726128618-apple-iphone-13-128-gb" in str(listing.url)
+    assert listing.raw["images"] == ["https://images1.vinted.net/jadeit.jpg"]
+    assert listing.raw["dominant_colors"] == ["#2d8a3e"]
 
 
 def test_vinted_detail_extracts_description() -> None:
