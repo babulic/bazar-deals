@@ -6,24 +6,18 @@ Hourly hunt purchase sources:
 
 - `vinted.sk`
 - `aukro.sk`
-- `bazos.sk`
+- `bazos.sk` and `bazos.cz` RSS
 - `sbazar.cz` (detail fetch confirms SK delivery; unconfirmed ads go last so they cannot fill the scoring cap)
+- `ebay.de` Browse API, only buy-now ads that `deliveryCountry:SK` confirms
+- Facebook Marketplace public HTML when the page actually returns listings (login walls stay fail-closed; they are not bypassed)
 
-Facebook Marketplace, Allegro and OLX are sell-side / manual-import only. The hourly hunt does not fetch them, and their `LOGIN_REQUIRED` / `ACCESS_NOT_GRANTED` banners do not go on the Deal alerts issue.
+Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Buy-now only. Auctions and for-parts / damaged listings are excluded. eBay is not a purchase source and is not used for valuation.
+Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**eBay is currently test-only:** `EBAY_RETENTION_ENABLED=false` blocks normal
-eBay imports and reports while using the no-data-persistence exemption. Run
-`python -m bazar_deals.ebay_probe` or the manual **eBay no-persistence test**
-workflow to check OAuth and Browse; response data stays in memory and only
-technical PASS/FAIL statuses are logged. See [access requirements](docs/automatic-marketplace-access.md).
+**0 BUY or 0 sell is a miss, not a quiet success.** The hourly Hunt and Sell workflows skip the GitHub ping, then run a **research retry**: expanded fast-moving SKUs, more want-ad phrases and Vinted hosts, query-only fetch (no newest clothing dump). Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
 
-For a real retained evaluation, the optional [private eBay store](deploy/ebay-store/README.md)
-collects stock comparisons and unreviewed purchase candidates without putting
-eBay data in GitHub comments, artifacts or the general comps cache. Its scheduled
-workflow stays disabled until the deletion receiver has been deployed, registered
-and tested and the no-persistence exemption has been removed.
+Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
 Price-book gaps now trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
@@ -40,7 +34,7 @@ A listing becomes **BUY only when expected conservative net profit is at least 3
 ```text
 newest buy-now listing
     ↓
-small + working + shoebox-scale (max 5 kg) + purchase at least 20 EUR
+small + working + shoebox (max 2 kg, longest edge 50 cm, L+W+H ≤ 120 cm, e.g. 50×40×30) + purchase 20–110 EUR
     ↓
 identify the product from the whole ad, not the headline
 (title + body + marketplace fields; AI names what the rules cannot)
@@ -50,7 +44,7 @@ strict identity / variant matching
     ↓
 minimum similar sample (5 ads)
     ↓
-quick-sale resale value = P25 × 0.75 of similar Bazos/Aukro/Vinted asking prices
+quick-sale resale value = P25 × 0.75 of similar Bazos/Aukro/Vinted/eBay asking prices
 stored in `.cache/bazar-comps-v2.sqlite` and reused on the next hunt
     ↓
 subtract:
@@ -66,13 +60,13 @@ BUY only if expected net profit >= 30 EUR
 
 ## What is searched
 
-The hunt looks for **small, working, fast-moving goods that fit a shoebox and weigh at most 5 kg**, priced **20–110 EUR**.
+The hunt looks for **small, working, fast-moving goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Targeted SKU searches (iPhone, AirPods, Switch, LEGO, Commodore, minerals, …) are mixed into newest dumps so the scoring cap is not only unbranded clothing.
 
-- **Bazoš** RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
+- **Bazoš** SK and CZ RSS rubrics: Počítače, Mobily, Elektro, Foto, Hudba, Oblečenie, Knihy, Ostatné, Dom a záhrada, Šport, Deti. Furniture, cars, motorcycles, machines, jobs, real estate, services, tickets and animals are not fetched.
 - **Aukro** ~50 fast-moving shoebox categories: phones, wearables, chargers, photo/lenses, components, small appliances, flashlights, games/consoles, retro PCs, notebooks, clothing, bags, perfume, jewelry, vinyl/cassettes, comics, LEGO/figures, hiking/combat gear, coins, minerals, trading cards, merch, stamps, tools. **Christmas lights** are dropped; headlamps and ordinary lighting stay in.
 - **Vinted** public catalogs: footwear, clothing, bags, jewellery, cosmetics, kids, games, phones, computers, audio, cameras, wearables, trading cards, board games, coins, books, music, tools, small kitchen — not TV, garden, bikes or winter sports. Hunt uses the public catalog JSON (`/api/v2/catalog/items`) after an anonymous homepage session, then HTML hydration as fallback. It does **not** use `VINTED_ACCESS_KEY` / `VINTED_SIGNING_KEY`; those are sell-side Pro Integrations for your own shop.
 
-eBay is skipped on hunt. Want-to-buy ads on eBay still belong to `sell --buyers`, not to buying.
+eBay Browse is a hunt purchase source when `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` are set and `EBAY_RETENTION_ENABLED=true`. Ads must confirm delivery to Slovakia. The same Browse search feeds the price book. Want-to-buy ads on eBay still belong to `sell --buyers`.
 
 ## Identification
 
@@ -361,10 +355,10 @@ integration support, not five verified live production sources. See the
 
 
 `hunt --source sbazar|facebook|allegro_pl|allegro_sk|olx` selects one extra source;
-`hunt --source all` is Bazos, Aukro, Vinted and Sbazar. Facebook, OLX and Allegro
-stay explicit `--source` / manual import — probing them every hour only nags.
-The hourly workflow fetches the four hunt boards separately. Useful failures
-(for example Vinted DataDome) still appear on the Deal alerts issue; access and
+`hunt --source all` is Bazos, Aukro, Vinted, eBay, Sbazar and Facebook.
+Allegro and OLX stay explicit `--source` / manual import — probing them every hour only nags.
+The hourly workflow fetches hunt boards separately. Useful failures
+(for example Vinted DataDome) still appear on the Deal alerts issue when there is a BUY; access and
 price-book diagnostics do not. Searches on the extra boards are bounded
 by `central_europe.queries` and `max_queries` in the packaged YAML; these are a
 small initial set of product searches, not an exhaustive scan of each site.

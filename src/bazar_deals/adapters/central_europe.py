@@ -13,6 +13,7 @@ import httpx
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.allegro_auth import AllegroAuth, USER_AGENT
+from bazar_deals.catalog import hunt_expand, hunt_target_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.rules import rules
@@ -24,9 +25,9 @@ SITES = {
     "allegro_sk": "allegro.sk",
     "olx": "olx.pl",
 }
-# Hourly hunt can fetch these. Facebook/OLX/Allegro stay sell/manual-only;
-# probing them every hour only nags LOGIN_REQUIRED / ACCESS_NOT_GRANTED.
-HUNT_SITES = ("sbazar",)
+# Hourly hunt fetches sbazar (SK delivery on detail) and tries Facebook
+# Marketplace public HTML. Login walls stay fail-closed; they are not scraped.
+HUNT_SITES = ("sbazar", "facebook")
 
 
 _WANT = re.compile(r"(?i)^\W*(?:kúpim|kupim|koupím|koupim|kupię|kupie|szukam|hľadám|hladam|hledám|hledam|wanted|wtb|looking for)\b")
@@ -233,8 +234,6 @@ class CentralEuropeClient(ListingSource):
         self._auth = AllegroAuth(settings, client)
 
     def manual_mode(self) -> str | None:
-        if self.marketplace == "facebook":
-            return "LOGIN_REQUIRED: manual import only; browser login is not unattended API access"
         if self.marketplace == "olx":
             return "BLOCKED: manual import only; standard OLX API does not search other sellers"
         if self.marketplace.startswith("allegro_") and not self._auth.configured:
@@ -279,9 +278,21 @@ class CentralEuropeClient(ListingSource):
             self.notes.append(f"{self.marketplace}: {reason}")
             return []
         config = rules()["central_europe"]
-        queries = config["queries"].get(vertical.value if vertical else "all", [])
+        base = list(config["queries"].get(vertical.value if vertical else "all", []))
+        extra = list(hunt_target_queries()) if not vertical else []
+        queries: list[str] = []
+        seen: set[str] = set()
+        for query in extra + base:
+            key = query.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            queries.append(query)
+        cap = int(config["max_queries"])
+        if hunt_expand():
+            cap = max(cap, 20)
         found = {}
-        for query in queries[:config["max_queries"]]:
+        for query in queries[:cap]:
             try:
                 for listing in self.search(query):
                     found.setdefault(listing.external_id, listing)

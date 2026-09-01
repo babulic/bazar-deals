@@ -20,6 +20,8 @@ jobs:
   hunt:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    outputs:
+      buys: ${{ steps.score.outputs.buys }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -77,8 +79,24 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Fetch eBay
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source ebay --fetch-only --listings-out .cache/hunt-ebay.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_RETENTION_ENABLED: "true"
+      - name: Fetch Facebook
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source facebook --fetch-only --listings-out .cache/hunt-facebook.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Score and comment
-        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --notify
+        id: score
+        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
@@ -99,6 +117,68 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
           COMPS_LIVE_QUERIES: "80"
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_RETENTION_ENABLED: "true"
+          AI_PROVIDER: copilot
+          COPILOT_MODEL: auto
+          AI_REVIEW_ENABLED: "true"
+          AI_REVIEW_REQUIRED: "true"
+          AI_MAX_REVIEWS: "8"
+          AI_MAX_IDENTIFICATIONS: "12"
+          AI_REVIEW_TTL_DAYS: "14"
+          AI_MIN_CONFIDENCE: "0.75"
+
+  research:
+    needs: hunt
+    if: needs.hunt.result == 'success' && needs.hunt.outputs.buys == '0'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/cache@v4
+        with:
+          path: .cache/bazar-comps-v2.sqlite
+          key: sold-comps-fx-v3-${{ github.run_id }}
+          restore-keys: |
+            sold-comps-fx-v3-
+      - uses: actions/cache@v4
+        with:
+          path: .cache/ecb-fx.json
+          key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            ecb-fx-
+      - run: python -m pip install -e .
+      - name: Install Copilot CLI for final AI verification
+        run: npm install -g @github/copilot
+      - name: Research retry after 0 BUY
+        run: python -u -m bazar_deals hunt --research --notify
+        env:
+          PYTHONUNBUFFERED: "1"
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_ALERT_ISSUE: "1"
+          GITHUB_ASSIGNEE: babulic
+          MAX_BUY_EUR: "110"
+          EUR_CZK: ${{ vars.EUR_CZK }}
+          EUR_PLN: ${{ vars.EUR_PLN }}
+          MIN_BUY_EUR: "20"
+          MIN_NET_PROFIT_EUR: "30"
+          MAX_SHIPPING_EUR: "15"
+          CHEAP_BUY_EUR: "20"
+          MAX_SHIPPING_CHEAP_EUR: "11"
+          RESALE_FEE_RATE: "0.10"
+          SELLER_RISK_RESERVE_RATE: "0.05"
+          NO_BOX_HAIRCUT_EUR: "5"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
+          COMPS_TTL_DAYS: "7"
+          COMPS_LIVE_QUERIES: "80"
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_RETENTION_ENABLED: "true"
           AI_PROVIDER: copilot
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"

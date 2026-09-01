@@ -173,11 +173,13 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
         ("invalid_price", "neplatná cena"),
         ("bulky", "rozmerné"),
         ("heavy", "ťažké"),
+        ("oversized", "nezmestí sa do krabice od topánok"),
         ("damaged", "poškodené"),
         ("skip_keyword", "zakázané slovo"),
         ("detail_damaged", "poškodené po detaile"),
         ("detail_bulky", "rozmerné po detaile"),
         ("detail_heavy", "ťažké po detaile"),
+        ("detail_oversized", "krabica od topánok po detaile"),
         ("detail_skip_keyword", "zakázané slovo po detaile"),
     ):
         if n(key):
@@ -277,7 +279,10 @@ class GitHubIssueAlerts:
         return 1
 
     def post_run(self, run: HuntRun) -> int:
-        """Post the hunt report even when there is no BUY, so the collector is never blank."""
+        """Post BUY cards only. A zero-BUY hunt stays in the job log, not the issue."""
+        buys = sum(1 for deal in run.deals if deal.action is Action.BUY)
+        if not buys:
+            return 0
         self._require_auth()
         issue = self.ensure_issue()
         body = format_hunt_comment(
@@ -292,8 +297,10 @@ class GitHubIssueAlerts:
         )
         return 1
 
-    def post_buyer_digest(self, body: str) -> int:
-        """Post the sell-side buyer digest even when no want-ad matched."""
+    def post_buyer_digest(self, body: str, *, has_buyers: bool = True) -> int:
+        """Post the sell digest only when a want-ad matched own stock."""
+        if not has_buyers:
+            return 0
         self._require_auth()
         issue = self.ensure_issue()
         self._request(

@@ -10,7 +10,14 @@ import feedparser
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import BAZOS_RSS, SMALL_BAZOS_RUBS, VERTICAL_RSS, reject_physical
+from bazar_deals.catalog import (
+    BAZOS_RSS,
+    SMALL_BAZOS_RUBS,
+    VERTICAL_RSS,
+    hunt_research_only,
+    hunt_target_queries,
+    reject_physical,
+)
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_bazos_detail
@@ -25,11 +32,11 @@ class BazosRssClient(ListingSource):
         self,
         settings: Settings | None = None,
         *,
-        sites: tuple[str, ...] = ("sk",),
+        sites: tuple[str, ...] | None = None,
         fixture_path: Path | None = None,
     ) -> None:
         self.settings = settings or Settings()
-        self.sites = sites
+        self.sites = sites if sites is not None else tuple(BAZOS_RSS)
         self.fixture_path = fixture_path
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
@@ -42,23 +49,52 @@ class BazosRssClient(ListingSource):
             ]
 
         listings: list[Listing] = []
-        if vertical:
-            params_list = VERTICAL_RSS.get(vertical, SMALL_BAZOS_RUBS)
-        else:
-            params_list = SMALL_BAZOS_RUBS
-        for site in self.sites:
-            base = BAZOS_RSS[site]
-            for params in params_list:
-                url = f"{base}?{urlencode(params)}" if params else base
-                xml = self._get(url)
-                listings.extend(self._parse(xml, site=site))
+        if not hunt_research_only():
+            if vertical:
+                params_list = VERTICAL_RSS.get(vertical, SMALL_BAZOS_RUBS)
+            else:
+                params_list = SMALL_BAZOS_RUBS
+            for site in self.sites:
+                base = BAZOS_RSS[site]
+                for params in params_list:
+                    url = f"{base}?{urlencode(params)}" if params else base
+                    xml = self._get(url)
+                    listings.extend(self._parse(xml, site=site))
+                    time.sleep(self.settings.bazos_request_gap_seconds)
+            listings = [
+                item
+                for item in listings
+                if reject_physical(f"{item.title} {item.description}") is None
+            ]
+        if not self.fixture_path:
+            for query in hunt_target_queries():
+                listings.extend(self.search(query))
                 time.sleep(self.settings.bazos_request_gap_seconds)
-        listings = [
+            seen: set[str] = set()
+            unique: list[Listing] = []
+            for item in listings:
+                if item.external_id in seen:
+                    continue
+                seen.add(item.external_id)
+                unique.append(item)
+            listings = unique
+        return listings
+
+    def search(self, query: str) -> list[Listing]:
+        """Current RSS hits for one product query (hunt mix + price book)."""
+        text = query.strip()
+        if self.fixture_path or not text:
+            return []
+        listings: list[Listing] = []
+        for site in self.sites:
+            url = f"{BAZOS_RSS[site]}?{urlencode({'hledat': text})}"
+            listings.extend(self._parse(self._get(url), site=site))
+            time.sleep(min(0.4, self.settings.bazos_request_gap_seconds))
+        return [
             item
             for item in listings
             if reject_physical(f"{item.title} {item.description}") is None
         ]
-        return listings
 
     def enrich_listing(self, listing: Listing) -> Listing:
         if self.fixture_path:

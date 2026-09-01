@@ -15,13 +15,19 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
     assert data["hunt"]["min_buy_eur"] == 20
-    assert data["hunt"]["max_weight_kg"] == 5
+    assert data["hunt"]["max_weight_kg"] == 2
+    assert data["hunt"]["max_edge_cm"] == 50
+    assert data["hunt"]["max_sum_cm"] == 120
     assert data["hunt"]["min_net_profit_eur"] == 30
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
     assert "max_no_comp_alerts" not in data["hunt"]
     assert data["hunt"]["min_sold_sample"] == 5
-    assert data["hunt"]["max_sold_lookups"] == 80
+    assert "iphone" in data["hunt"]["target_queries"]
+    assert "airpods" in data["hunt"]["target_queries"]
+    assert "commodore" in data["hunt"]["target_queries"]
+    assert "kindle" in data["hunt"]["expand_queries"]
+    assert "cz" in data["catalog"]["bazos_rss"]
     assert Settings().comps_live_queries == 80
     assert data["hunt"]["max_score_listings"] == 80
     assert Settings().copilot_model == "auto"
@@ -48,6 +54,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert 144304 in data["aukro"]["small_categories"]
     assert 148663 in data["aukro"]["small_categories"]
     assert 88874 in data["aukro"]["small_categories"]
+    assert "139973" in data["ebay"]["small_categories"]
     assert "183454" in data["ebay"]["small_categories"]
     assert "19068" in data["ebay"]["small_categories"]
     assert "16-footwear" in data["vinted"]["catalogs"]

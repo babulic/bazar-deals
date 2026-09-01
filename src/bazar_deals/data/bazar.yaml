@@ -31,7 +31,10 @@ domain:
 hunt:
   max_buy_eur: 110
   min_buy_eur: 20
-  max_weight_kg: 5
+  # Packeta shoebox: 2 kg, longest edge 50 cm, L+W+H <= 120 cm (e.g. 50x40x30).
+  max_weight_kg: 2
+  max_edge_cm: 50
+  max_sum_cm: 120
   max_price_vs_typical: 0.5
   alert_price_vs_typical: 1.0
   min_sold_sample: 5
@@ -40,6 +43,51 @@ hunt:
   # Detail-fetching every usable ad does not finish in GitHub Actions
   # (2661 fetched → 2126 usable × ~7s/page). Score this many after round-robin.
   max_score_listings: 80
+  # Targeted product searches mixed into newest dumps so the 80-slot cap is
+  # not only Vinted clothing. Used for hunt fetch and eBay Browse queries.
+  target_queries:
+    - iphone
+    - airpods
+    - apple watch
+    - ipad
+    - macbook
+    - samsung galaxy
+    - nintendo switch
+    - playstation
+    - xbox series
+    - steam deck
+    - gameboy
+    - pokemon
+    - lego
+    - canon
+    - nikon
+    - commodore
+    - c64
+    - amiga
+    - mos 6510
+    - ametyst
+    - gopro
+    - dji mini
+    - garmin
+    - yu-gi-oh
+  # Second-wave SKUs after a 0 BUY hunt. Not a newest-dump — query-only retry.
+  expand_queries:
+    - kindle
+    - beats
+    - sony wh-1000
+    - tamron
+    - sigma 18-50
+    - funko pop
+    - amiibo
+    - citrín
+    - vltavín
+    - galenit
+    - atari
+    - zx spectrum
+    - 1541
+    - mos 8502
+    - shure
+    - dremel
   default_shipping_eur: 8
   max_shipping_eur: 15
   cheap_buy_eur: 20
@@ -105,6 +153,12 @@ identity:
     - acer
     - logitech
     - bosch
+    - gopro
+    - dji
+    - garmin
+    - pokemon
+    - funko
+    - steam
     - makita
     - panasonic
     - philips
@@ -913,6 +967,7 @@ working:
 catalog:
   bazos_rss:
     sk: https://www.bazos.sk/rss.php
+    cz: https://www.bazos.cz/rss.php
   # pc=Počítače mo=Mobily el=Elektro fo=Foto hu=Hudba ob=Oblečenie
   # kn=Knihy os=Ostatné du=Dom a záhrada sp=Šport de=Deti
   small_bazos_rubs: [pc, mo, el, fo, hu, ob, kn, os, du, sp, de]
@@ -1206,6 +1261,7 @@ aukro:
     - 100701   # PC komponenty
     - 100702   # Příslušenství k PC
     - 252973   # Externí disky
+    - 101202   # USB / přenosná elektronika
     # Fashion, beauty, jewelry
     - 8525     # Oblečení, obuv a doplňky
     - 7340     # Módní doplňky
@@ -1267,6 +1323,7 @@ vinted:
     - 3566-electronics_audio
     - 3054-electronics_cameras_accessories
     - 3004-electronics_wearables
+    - 2315-electronics_other
     - 4874-hc_trading_cards
     - 4881-hc_board_games
     - 4895-hc_numismatics
@@ -1642,6 +1699,9 @@ ebay:
     - "619"    # Musical Instruments & Gear
     - "888"    # Sporting Goods
     - "15032"  # Cell Phones & Accessories
+    - "139973" # Cell Phones & Smartphones
+    - "112529" # Headphones
+    - "111422" # Vintage Electronics
     - "58058"  # Computers/Tablets & Networking
     - "183454" # Collectible Card Games
     - "253"    # Sports Mem, Cards & Fan Shop
@@ -1668,10 +1728,10 @@ ebay:
 
 # Bounded public searches; login/CAPTCHA is never bypassed.
 central_europe:
-  max_queries: 6
+  max_queries: 12
   queries:
-    all: [iphone, nintendo, lego, sony, canon, commodore]
-    retro: [commodore, amiga, nintendo]
-    mineral: [ametyst, galenit, mineral]
-    apple: [iphone, ipad, airpods]
+    all: [iphone, airpods, nintendo switch, lego, canon, commodore, ametyst, macbook, c64, playstation, gopro, pokemon]
+    retro: [commodore, amiga, nintendo, c64]
+    mineral: [ametyst, galenit, mineral, citrín]
+    apple: [iphone, ipad, airpods, apple watch]
     network: [mikrotik, ubiquiti, router]

@@ -118,7 +118,11 @@ def test_missing_allegro_credentials_and_blocked_public_pages_report_unavailable
             source = CentralEuropeClient("facebook", Settings(), client=client)
             run = hunt_sources([source], settings=Settings(), sold=object(), score=False)
             assert not run.listings
-            assert any("LOGIN_REQUIRED" in note for note in source.notes)
+            assert any(
+                marker in note
+                for note in source.notes
+                for marker in ("LOGIN_REQUIRED", "BLOCKED")
+            )
             assert not any("facebook:" in note for note in run.fetch_notes)
 
 
@@ -180,10 +184,12 @@ def test_all_sources_are_registered_and_offline_stays_offline():
         "bazos",
         "aukro",
         "vinted",
+        "ebay",
         "sbazar",
+        "facebook",
     }
     assert "sbazar.cz" in searched_sites()
-    assert "facebook.com" not in searched_sites()
+    assert "facebook.com" in searched_sites()
     assert [s.marketplace for s in _sources("all", Settings(), fixture="unused")] == ["bazos"]
 
 

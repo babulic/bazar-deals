@@ -158,7 +158,7 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "ebay.nl",
     ):
         assert host in sites
-    assert "facebook.com" not in sites
+    assert "facebook.com" in sites
     assert "allegro.pl" not in sites
     assert "olx.pl" not in sites
 
@@ -168,6 +168,16 @@ def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
     for verb in ("kupię", "veszek", "compro", "achète", "koop", "kaufe", "Gesucht"):
         assert verb in phrases
     assert BUY_VERBS[-5:] == ("kupię", "veszek", "compro", "achète", "koop")
+
+
+def test_research_mode_adds_glossary_aliases_for_stock() -> None:
+    from bazar_deals.selling.demand import queries_for
+
+    base = queries_for(crystal())
+    extra = queries_for(crystal(), research=True)
+    assert extra
+    assert len(extra) >= len(base)
+    assert any("amethyst" in query.casefold() or "ametyst" in query.casefold() for query in extra)
 
 
 def test_postcard_part_number_does_not_match_chip() -> None:
@@ -234,7 +244,7 @@ def test_cli_buyers_prints_digest(monkeypatch, capsys) -> None:
 
     item = chip()
 
-    def fake_find(inventory, settings, client=None):
+    def fake_find(inventory, settings, client=None, **kwargs):
         return BuyerDigest(
             matches=[
                 DemandMatch(
@@ -437,6 +447,7 @@ def test_post_buyer_digest_goes_to_sell_issue() -> None:
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
         alerts = GitHubIssueAlerts.for_sell_buyers(settings, client=client)
         assert alerts.post_buyer_digest(body) == 1
+        assert alerts.post_buyer_digest("**0 kupcov** na tvoj tovar.", has_buyers=False) == 0
     assert created[0]["title"] == "Sell buyers"
     assert created[0]["labels"] == ["bazar-sell"]
     assert posts[0] == body

@@ -127,7 +127,7 @@ def _lower_quartile(amounts: list[Decimal]) -> Decimal:
 
 def _comp_label(n: int, source: str = "market") -> str:
     if source in {"market", "ask"}:
-        return f"trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n={n})"
+        return f"trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted/ebay (n={n})"
     return f"konzervatívna rýchlopredajná cena, ebay.de sold P25 (n={n})"
 
 
@@ -151,11 +151,10 @@ def _market_value(peers: list[Listing]) -> Decimal:
 class SoldCompClient:
     """Price book of discovered comparable asking prices.
 
-    Live hunts search Bazos, Aukro and Vinted for similar buy-now ads, store
-    P25×0.75 under the product query in SQLite, and reuse that row on the next
-    hunt while it is fresh. eBay is not a comps source. Offline fixtures still
-    parse bundled eBay sold HTML so unit tests can check P25 math without the
-    network.
+    Live hunts search Bazos, Aukro, Vinted and eBay Browse for similar buy-now
+    ads, store P25×0.75 under the product query in SQLite, and reuse that row
+    on the next hunt while it is fresh. Offline fixtures still parse bundled
+    eBay sold HTML so unit tests can check P25 math without the network.
     """
 
     def __init__(
@@ -343,8 +342,7 @@ class SoldCompClient:
         if self._db_path is not None:
             self._store_fetch(query, peers, peers, 200, _utc_now(), source="market")
         self._note(
-            "price book: Bazos/Aukro/Vinted P25×0.75 stored in comps DB and reused "
-            "(eBay is not used)"
+            "price book: Bazos/Aukro/Vinted/eBay P25×0.75 stored in comps DB and reused"
         )
         return SoldComp(
             median=value,
@@ -464,19 +462,24 @@ class SoldCompClient:
         return hits
 
     def _live_market_search(self, query: str) -> list[Listing]:
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=4) as pool:
             bazos = pool.submit(self._bazos_search, query)
             aukro = pool.submit(self._aukro_search, query)
             vinted = pool.submit(self._vinted_search, query)
-            return [*bazos.result(), *aukro.result(), *vinted.result()]
+            ebay = pool.submit(self._ebay_search, query)
+            return [*bazos.result(), *aukro.result(), *vinted.result(), *ebay.result()]
 
     def _bazos_search(self, query: str) -> list[Listing]:
-        url = f"{BAZOS_RSS['sk']}?{urlencode({'hledat': query})}"
-        try:
-            xml = self._get_text(url, accept="application/rss+xml")
-        except httpx.HTTPError:
-            return []
-        return BazosRssClient(self.settings)._parse(xml, site="sk")
+        hits: list[Listing] = []
+        client = BazosRssClient(self.settings)
+        for site, base in BAZOS_RSS.items():
+            url = f"{base}?{urlencode({'hledat': query})}"
+            try:
+                xml = self._get_text(url, accept="application/rss+xml")
+            except httpx.HTTPError:
+                continue
+            hits.extend(client._parse(xml, site=site))
+        return hits
 
     def _aukro_search(self, query: str) -> list[Listing]:
         from bazar_deals.adapters.aukro import AukroHuntClient
@@ -503,6 +506,26 @@ class SoldCompClient:
             return self._vinted.search(query)
         except (httpx.HTTPError, RuntimeError, ValueError):
             return []
+
+    def _ebay_search(self, query: str) -> list[Listing]:
+        """Active buy-now ads on ebay.de that ship to SK, for the asking price book."""
+        if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
+            return []
+        if not self.settings.ebay_retention_enabled:
+            return []
+        from bazar_deals.adapters.ebay import EbayBrowseClient
+
+        try:
+            client = EbayBrowseClient(self.settings)
+            data = client.search_query(query, limit=50, purchase_budget=False)
+        except (httpx.HTTPError, RuntimeError, ValueError):
+            return []
+        found: list[Listing] = []
+        for item in data.get("itemSummaries") or []:
+            listing = client._to_listing(item)
+            if listing.price.amount > 0 and listing.is_immediate_buy():
+                found.append(listing)
+        return found
 
     def _to_eur(self, item: Listing) -> Listing:
         from decimal import ROUND_FLOOR
