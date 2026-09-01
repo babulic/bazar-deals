@@ -16,6 +16,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "kassette" in data["identity"]["kind_markers"]["media"]
     assert "pasek" in data["identity"]["kind_markers"]["accessories"]
     assert "alpine loop" not in data["identity"]["kind_markers"]["accessories"]
+    assert "airpods" in data["identity"]["kind_markers"]["hardware"]
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
     assert data["hunt"]["min_buy_eur"] == 20

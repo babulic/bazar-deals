@@ -28,8 +28,12 @@ or when live search finds fewer than 5 similar ads. Mixing the bargain-bin batch
 into the live P25 is skipped, because P25×0.75 of 20–110 € ads is often too low
 for a 30 € floor. Scoring spends the 80-ad cap on detail HTTP and live lookups,
 not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 30 €)
-are valued first. Target queries include Pixel, Quest 3, Insta360, AirPods Pro and
-similar fast-movers alongside iPhone/Switch/LEGO.
+are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
+C64 cassette games or watch straps that only share a platform keyword. Live
+comps are skipped for media/clothing/accessories so the 80 query budget can
+price iPhones and disk drives. Target queries include Pixel, Quest 3, Insta360, AirPods Pro and
+similar fast-movers alongside iPhone/Switch/LEGO. eBay Browse stops further
+searches on a 429 instead of emptying the whole fetch.
 
 ## Decision rule
 

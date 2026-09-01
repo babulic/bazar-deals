@@ -79,7 +79,39 @@ def matches_hunt_target(text: str) -> bool:
     hay = (text or "").casefold()
     if len(hay) < 3:
         return False
-    return any(len(query) >= 3 and query.casefold() in hay for query in hunt_target_queries())
+    for query in hunt_target_queries():
+        token = query.casefold()
+        if len(token) < 3:
+            continue
+        if re.search(rf"(?<![\w]){re.escape(token)}(?![\w])", hay):
+            return True
+    return False
+
+
+# Cassette games, straps and unbranded tees can match a hunt keyword
+# ("commodore", "apple watch") without ever clearing 30 € net on honest comps.
+# Live price-book budget goes to kinds that still can.
+_LOW_YIELD_KINDS = frozenset({"media", "clothing", "accessories", "books"})
+_HIGH_YIELD_KINDS = frozenset({
+    "phones",
+    "hardware",
+    "photo",
+    "jewelry",
+    "minerals",
+    "collectibles",
+    "musical",
+    "tools",
+})
+
+
+def is_high_yield_kind(kind: str, text: str = "") -> bool:
+    """True when same-object comps of this kind can still make a 30 € BUY."""
+    key = (kind or "").casefold()
+    if key in _LOW_YIELD_KINDS:
+        return False
+    if key in _HIGH_YIELD_KINDS:
+        return True
+    return bool(text.strip()) and matches_hunt_target(text)
 
 
 # Match "6 kg" / "6,5kg" but not storage like "16GB".

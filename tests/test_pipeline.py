@@ -491,6 +491,61 @@ def test_cheaper_hunt_target_is_scored_first_when_cap_is_one(monkeypatch) -> Non
     assert run.funnel["score_capped"] == 1
 
 
+def test_iphone_is_scored_before_cheaper_c64_game_when_cap_is_one(monkeypatch) -> None:
+    from copy import deepcopy
+
+    import bazar_deals.pipeline as pipeline
+
+    configured = deepcopy(pipeline.rules())
+    configured["hunt"]["max_score_listings"] = 1
+    monkeypatch.setattr(pipeline, "rules", lambda: configured)
+
+    class _Sold:
+        live: list[str] = []
+
+        def cached_typical(self, listing, **kwargs):
+            return None
+
+        def median_sold(self, listing, **kwargs):
+            self.live.append(listing.external_id)
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+        def prepare_price_book(self, listings):
+            return None
+
+    sold = _Sold()
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="game",
+            title="Computing Videothek Billardspiele Commodore 64/128",
+            description="Kassette s jednou hrou na C64.",
+            url="https://pc.bazos.sk/inzerat/game/",
+            price=Money(amount=Decimal("24"), currency="EUR"),
+        ),
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="phone",
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url="https://mobil.bazos.sk/inzerat/phone/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        ),
+    ]
+    run = score_listings(listings, Settings(), sold)
+    assert sold.live == ["phone"]
+    assert [deal.item.listing.external_id for deal in run.deals] == ["phone"]
+    assert run.funnel["score_capped"] == 1
+
+
 def test_cached_buy_candidate_is_scored_without_live_lookup(monkeypatch) -> None:
     from copy import deepcopy
 
