@@ -303,16 +303,57 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert body.startswith("@babulic\n")
-    assert body.count("**BUY:") == 1
     assert "**BUY: áno**" in body
-    assert "**BUY: nie**" not in body
-    assert "- BUY: nie" not in body
-    assert "### Lacnejšie ako obvyklá" not in body
-    assert "### Ocenené inzeráty" not in body
-    assert "https://pc.bazos.sk/inzerat/0/" not in body
+    assert body.count("**BUY: áno**") == 1
     selected = select_alert_deals(run.deals)
-    assert len(selected) == 1
     assert selected[0].action is Action.BUY
+    assert len(selected) <= 5
+    # Losses stay out: asking above usual with non-positive net profit.
+    loss_listing = _deal().item.listing.model_copy(
+        update={"external_id": "loss-over", "url": "https://pc.bazos.sk/inzerat/loss-over/"}
+    )
+    loss_item = _deal().item.model_copy(update={"listing": loss_listing})
+    loss = score_deal(loss_item, Decimal("7"), Decimal("15"))
+    assert loss.costs.net_profit <= 0
+    mixed = HuntRun(
+        deals=[buy, loss],
+        funnel=Counter(scored=2, buy=1),
+        source_stats={},
+        fetch_notes=["aukro: fetched 2"],
+    )
+    mixed_body = format_hunt_comment(mixed, mention="babulic", min_profit=30)
+    assert "https://pc.bazos.sk/inzerat/loss-over/" not in mixed_body
+    assert select_alert_deals(mixed.deals) == [buy]
+
+
+def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    listing = _deal().item.listing.model_copy(
+        update={"external_id": "near", "url": "https://pc.bazos.sk/inzerat/near/"}
+    )
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    assert skip.action is Action.SKIP
+    assert skip.costs.net_profit > 0
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(scored=1, buy=0, below_net_profit=1),
+        source_stats={},
+        fetch_notes=["aukro: fetched 1"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert not body.startswith("@babulic")
+    assert "**0 BUY áno**" in body
+    assert "najlepších stále ziskových inzerátov" in body
+    assert "https://pc.bazos.sk/inzerat/near/" in body
+    assert "**BUY: nie**" in body
+    assert "- nákupná cena:" in body
+    assert "- finálna konzervatívna rýchlopredajná cena:" in body
+    assert "- rozdiel od obvyklej ceny:" in body
+    assert select_alert_deals(run.deals) == [skip]
 
 
 def test_losing_hunts_post_status_without_cards() -> None:
@@ -324,8 +365,9 @@ def test_losing_hunts_post_status_without_cards() -> None:
         update={"external_id": "loss", "url": "https://pc.bazos.sk/inzerat/loss/"}
     )
     item = _deal().item.model_copy(update={"listing": listing})
-    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    skip = score_deal(item, Decimal("7"), Decimal("15"))
     assert skip.action is Action.SKIP
+    assert skip.costs.net_profit <= 0
     run = HuntRun(
         deals=[skip],
         funnel=Counter(scored=1, buy=0),
@@ -336,8 +378,6 @@ def test_losing_hunts_post_status_without_cards() -> None:
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
     assert "Stratové a podprahové inzeráty sa neposielajú" in body
-    assert "### Lacnejšie ako obvyklá" not in body
-    assert "### Ocenené inzeráty" not in body
     assert "https://pc.bazos.sk/inzerat/loss/" not in body
     assert "**BUY:" not in body
     assert select_alert_deals(run.deals) == []
@@ -497,6 +537,53 @@ def test_post_run_skips_github_when_there_are_no_buys() -> None:
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
         assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
     assert posts == []
+
+
+def test_post_run_posts_profitable_near_misses_without_mention() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/labels/" in path and request.method == "GET":
+            return httpx.Response(200, json={"name": "bazar-alert"})
+        if request.method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json={"number": 1})
+        if request.method == "GET" and path.endswith("/issues"):
+            return httpx.Response(200, json=[{"number": 1, "title": "Deal alerts"}])
+        if request.method == "GET" and path.endswith("/comments"):
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and path.endswith("/comments"):
+            posts.append(json.loads(request.content)["body"])
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(404, json={"message": path})
+
+    listing = _deal().item.listing.model_copy(
+        update={"external_id": "near", "url": "https://pc.bazos.sk/inzerat/near/"}
+    )
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    settings = Settings(
+        github_token="t",
+        github_repository="babulic/bazar-deals",
+        github_alert_issue=1,
+        github_assignee="babulic",
+    )
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(buy=0, scored=1, below_net_profit=1),
+        source_stats={},
+        fetch_notes=["aukro: fetched 1"],
+    )
+    with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
+    assert len(posts) == 1
+    assert not posts[0].startswith("@babulic")
+    assert "https://pc.bazos.sk/inzerat/near/" in posts[0]
+    assert "**BUY: nie**" in posts[0]
 
 
 def test_price_book_misses_use_listing_links_prices_and_delta() -> None:

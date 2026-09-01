@@ -25,19 +25,29 @@ def listing_key(deal: Deal) -> str:
 
 
 def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
-    """BUY deals only, ranked by expected net profit, capped at `alert_top_n`.
+    """Top hunt cards: BUY first, then still-profitable ads under the 30 € floor.
 
-    Losses, cheaper-than-usual near-misses, and price-book misses stay out of
-    the GitHub comment. Profit is the only hunt result that gets a card.
+    A listing is still-profitable when expected net profit is > 0. Losses and
+    overpriced ads stay out. The BUY action itself still requires the 30 € floor.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     buys = [deal for deal in deals if deal.action is Action.BUY]
-    ranked = sorted(
+    near = [
+        deal
+        for deal in deals
+        if deal.action is not Action.BUY and deal.costs.net_profit > 0
+    ]
+    ranked_buys = sorted(
         buys,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    return ranked[:cap]
+    ranked_near = sorted(
+        near,
+        key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
+        reverse=True,
+    )
+    return (ranked_buys + ranked_near)[:cap]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -57,11 +67,7 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report: BUY cards only, plus why the rest dropped off.
-
-    Cheaper-but-unprofitable ads and thin price-book misses stay out of the
-    comment. Showing a loss is not a hunt result.
-    """
+    """Hunt report: BUY cards, then still-profitable ads under the 30 € floor."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
@@ -197,9 +203,21 @@ def _format_status(
     scored = _funnel_n(run, "scored")
     above = _funnel_n(run, "above_typical")
     if buy_count:
+        if shown > buy_count:
+            headline = (
+                f"**{buy_count} BUY áno** · {shown} kariet (BUY a stále ziskové pod prahom "
+                f"{min_profit} €) podľa očakávaného čistého zisku."
+            )
+        else:
+            headline = (
+                f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
+                f"(prah {min_profit} €)."
+            )
+    elif shown:
         headline = (
-            f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
-            f"(prah {min_profit} €)."
+            f"**0 BUY áno** · prah {min_profit} € čistého zisku. Nižšie je {shown} "
+            "najlepších stále ziskových inzerátov (čistý zisk > 0, aj pod prahom) "
+            "s odkazom, nákupnou cenou a rozdielom od obvyklej."
         )
     elif scored == 0:
         if above:
@@ -279,9 +297,8 @@ class GitHubIssueAlerts:
         return 1
 
     def post_run(self, run: HuntRun) -> int:
-        """Post BUY cards only. A zero-BUY hunt stays in the job log, not the issue."""
-        buys = sum(1 for deal in run.deals if deal.action is Action.BUY)
-        if not buys:
+        """Post BUY cards and still-profitable near-misses. Skip an empty hunt."""
+        if not select_alert_deals(run.deals):
             return 0
         self._require_auth()
         issue = self.ensure_issue()
