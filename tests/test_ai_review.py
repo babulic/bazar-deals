@@ -167,6 +167,41 @@ def test_ai_can_only_lower_price_and_veto_after_recalculation() -> None:
     assert result.ai_review is not None
 
 
+def test_ai_gate_retries_once_when_review_raises() -> None:
+    class _Reviewer:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def review(self, deal):
+            self.calls += 1
+            if self.calls == 1:
+                raise RuntimeError("copilot busy")
+            return AIReview(
+                approved=True,
+                complete_product=True,
+                canonical_name="Apple iPhone 13 128GB",
+                kind="phones",
+                quick_sale_price_eur=Decimal("120"),
+                confidence=0.95,
+                reason="Verified from sold comps.",
+                source_urls=["https://www.ebay.de/example"],
+                model="copilot",
+            )
+
+    reviewer = _Reviewer()
+    funnel = Counter()
+    settings = Settings(
+        ai_review_enabled=True,
+        ai_review_required=True,
+        openai_api_key="test-key",
+        min_net_profit_eur=Decimal("30"),
+    )
+    result = _apply_ai_gate([_deal()], settings, reviewer, funnel)[0]
+    assert reviewer.calls == 2
+    assert funnel["ai_unavailable"] == 0
+    assert result.action.value == "buy"
+
+
 def test_round_robin_prevents_bazos_from_consuming_lookup_budget() -> None:
     listings = [
         *[_listing(Marketplace.BAZOS, f"b{i}") for i in range(6)],
