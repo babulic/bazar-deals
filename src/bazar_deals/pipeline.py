@@ -64,6 +64,7 @@ _FUNNEL_KEYS = (
     "no_sold_comps",
     "asking_only_comps",
     "asking_only_provisional",
+    "above_typical",
     "scored",
     "pre_ai_buy",
     "ai_reviewed",
@@ -333,8 +334,15 @@ def score_listings(
             item = item.model_copy(
                 update={"asking_sample": comp.sample, "sold_label": comp.label}
             )
+            typical = comp.median
+            if listing.price.amount >= typical:
+                # Asking at or above usual is not a candidate. Computing
+                # net profit of -30 € on a 20 € cap vs 7 € usual is not
+                # "ocenenie".
+                funnel["above_typical"] += 1
+                continue
             shipping = _shipping_eur(listing, settings)
-            deal = score_deal(item, comp.median, shipping, settings=settings)
+            deal = score_deal(item, typical, shipping, settings=settings)
             funnel["scored"] += 1
             source_stats[listing.marketplace]["scored"] += 1
             if deal.action is Action.BUY:

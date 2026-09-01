@@ -382,14 +382,16 @@ def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
         typical=Decimal("11.25"),
     )
     run = HuntRun(
-        deals=[skip],
-        funnel=Counter(scored=1, buy=0, below_net_profit=1),
-        source_stats={Marketplace.VINTED: Counter(fetched=1909, usable=1903, scored=1, buy=0)},
+        deals=[],
+        funnel=Counter(scored=0, buy=0, above_typical=1),
+        source_stats={Marketplace.VINTED: Counter(fetched=1909, usable=1903, scored=0, buy=0)},
         fetch_notes=["vinted: fetched 1909"],
         price_book_misses=[expensive_miss],
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
-    assert "drahšie ako obvyklá" in body
+    assert "žiadne ocenené kandidáty" in body
+    assert "nákup nad obvyklou" in body
+    assert "nie ocenené, nie deal" in body
     assert "### Lacnejšie ako obvyklá" not in body
     assert "### Ocenené inzeráty" not in body
     assert "wlvs siltovka" not in body
@@ -397,8 +399,7 @@ def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
     assert "Pravá koža kabát" not in body
     assert "### Málo porovnateľných" not in body
     assert "Marketplace:" not in body
-    assert "scored 0" not in body
-    assert "1 ocenený drahší ako obvyklá" in body
+    assert "ocenený drahší" not in body
 
 
 def test_buy_alerts_are_capped_at_top_n() -> None:
