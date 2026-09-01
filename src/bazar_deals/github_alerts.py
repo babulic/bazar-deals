@@ -139,21 +139,17 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
     if n("buy"):
         scored_bits.append(f"{n('buy')} BUY áno")
     cheaper_under = 0
-    overpriced = 0
     for deal in run.deals:
-        if deal.action is Action.BUY:
-            continue
-        if is_cheaper_than_usual(deal):
+        if deal.action is not Action.BUY and is_cheaper_than_usual(deal):
             cheaper_under += 1
-        elif deal.costs.estimated_resale > 0:
-            overpriced += 1
     if cheaper_under:
         scored_bits.append(
             f"{cheaper_under} lacnejších ako obvyklá, pod prahom {min_profit} €"
         )
-    if overpriced:
-        word = "ocenený drahší" if overpriced == 1 else "ocenených drahších"
-        scored_bits.append(f"{overpriced} {word} ako obvyklá (nie deal)")
+    if n("above_typical"):
+        scored_bits.append(
+            f"{n('above_typical')} s nákupom nad obvyklou (nie ocenené, nie deal)"
+        )
     elif not cheaper_under:
         if n("below_net_profit"):
             count = n("below_net_profit")
@@ -221,25 +217,26 @@ def _format_status(
 ) -> str:
     notes = _status_notes(run)
     scored = _funnel_n(run, "scored")
+    above = _funnel_n(run, "above_typical")
     miss_n = sum(1 for miss in run.price_book_misses if keep_price_book_miss(miss))
-    overpriced_n = sum(
-        1
-        for deal in run.deals
-        if deal.action is not Action.BUY
-        and deal.costs.estimated_resale > 0
-        and deal.costs.buy_price >= deal.costs.estimated_resale
-    )
     if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
             f"(prah {min_profit} €)."
         )
     elif scored == 0:
-        headline = (
-            f"**0 BUY áno** · zisk sa nerátal — usable inzeráty nie sú ocenené "
-            f"(chýba trhový cenník Bazos/Aukro/Vinted / málo podobných inzerátov). "
-            f"Toto nie je dôkaz, že sú stratové."
-        )
+        if above:
+            headline = (
+                f"**0 BUY áno** · žiadne ocenené kandidáty. "
+                f"{above} inzerátov malo nákup nad obvyklou cenou — to nie je deal "
+                "a nie je to ocenenie."
+            )
+        else:
+            headline = (
+                f"**0 BUY áno** · zisk sa nerátal — usable inzeráty nie sú ocenené "
+                f"(chýba trhový cenník Bazos/Aukro/Vinted / málo podobných inzerátov). "
+                f"Toto nie je dôkaz, že sú stratové."
+            )
         if miss_n:
             headline += (
                 f" {miss_n} inzerátov bez 5 peerov je nižšie s odkazom, nákupnou cenou "
@@ -249,11 +246,6 @@ def _format_status(
         headline = (
             f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
             f"Lacnejšie ako obvyklá sú nižšie s odkazom, nákupnou cenou a rozdielom."
-        )
-    elif overpriced_n:
-        headline = (
-            f"**0 BUY áno** · žiadne ziskové karty (prah {min_profit} € čistého zisku). "
-            f"Ocenené inzeráty boli drahšie ako obvyklá — to nie je deal, v zozname nie sú."
         )
     else:
         headline = (

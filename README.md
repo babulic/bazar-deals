@@ -219,8 +219,11 @@ listed next with the same facts. Overpriced ads (asking above usual, e.g. a
 could not be valued (`no_sold_comps`, fewer than 5 comparable prices) go
 under **Málo porovnateľných inzerátov** only when cheaper than the thin-sample
 usual, or when usual is still unknown. The assignee is mentioned only when at
-least one BUY card is present. If `scored=0`, the comment says profit was
-never computed (missing price-book sample), not that every usable ad is a loss.
+least one BUY card is present. `scored` means cheaper than usual with a
+net-profit number. Asking at or above usual is `above_typical`, not scored:
+a 20 € cap vs 7 € usual is not a −30 € “ocenenie”. If `scored=0` and there
+was no usual price, the comment says profit was never computed (missing
+price-book sample), not that every usable ad is a loss.
 
 GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
 The per-board `scored 0` dump is not on the issue; fetch counts stay under

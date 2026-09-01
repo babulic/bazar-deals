@@ -107,7 +107,8 @@ def test_hunt_batch_price_book_scores_without_ebay(tmp_path) -> None:
     assert cheap[0].costs.net_profit < 30
     assert all(deal.action is not Action.BUY for deal in run.deals)
     assert cheap[0].item.sold_label.startswith("trhová rýchlopredajná cena")
-    assert run.funnel["scored"] == 6
+    assert run.funnel["scored"] + run.funnel["above_typical"] == 6
+    assert run.funnel["scored"] >= 1
     assert run.funnel["no_sold_comps"] == 0
     import sqlite3
 
@@ -291,6 +292,35 @@ def test_unconfirmed_sbazar_does_not_fill_the_score_cap(monkeypatch) -> None:
     assert {deal.item.listing.marketplace for deal in run.deals} == {Marketplace.BAZOS}
 
 
+def test_overpriced_listing_is_not_scored() -> None:
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            return SoldComp(
+                median=Decimal("7.28"),
+                sample=17,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=17)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    listing = Listing(
+        marketplace=Marketplace.VINTED,
+        external_id="siltovka",
+        title="wlvs siltovka",
+        description="Nike šiltovka, nová, s visačkou.",
+        url="https://www.vinted.sk/items/9849277566-wlvs-siltovka",
+        price=Money(amount=Decimal("20"), currency="EUR"),
+    )
+    run = score_listings([listing], Settings(), _Sold())
+    assert run.deals == []
+    assert run.funnel["scored"] == 0
+    assert run.funnel["below_net_profit"] == 0
+    assert run.funnel["above_typical"] == 1
+    assert run.source_stats[Marketplace.VINTED]["scored"] == 0
+
+
 def test_long_description_skips_detail_http() -> None:
     class _Enricher:
         marketplace = Marketplace.BAZOS.value
@@ -372,7 +402,8 @@ def test_price_book_from_hunt_batch_scores_and_can_buy(tmp_path) -> None:
         patch.object(sold, "_vinted_search", return_value=[]),
     ):
         run = score_listings(listings, settings, sold, reviewer=_Reviewer())
-    assert run.funnel["scored"] == 6
+    assert run.funnel["scored"] >= 1
+    assert run.funnel["scored"] + run.funnel["above_typical"] == 6
     assert run.funnel["asking_only_comps"] == 0
     assert run.funnel["no_sold_comps"] == 0
     assert any(deal.action is Action.BUY for deal in run.deals)
