@@ -193,8 +193,19 @@ def main(argv: list[str] | None = None) -> int:
             note_path = Path(path).with_suffix(".notes.json")
             if note_path.is_file():
                 cached_notes.extend(json.loads(note_path.read_text(encoding="utf-8")))
-        sources = _sources("all", settings, fixture=None)
+        sources = _sources("all", settings, fixture=None if not args.offline else FIXTURE)
         enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
+        if args.research and not args.offline:
+            extra = hunt_sources(
+                sources,
+                vertical=vertical,
+                settings=settings,
+                sold=sold,
+                score=False,
+            )
+            listings = _merge_listings(listings, extra.listings)
+            cached_notes.extend(extra.fetch_notes)
+            emit(f"research fetch merged to {len(listings)} listing(s)")
         emit(f"scoring {len(listings)} cached listing(s)")
         run = score_listings(listings, settings, sold, enrichers=enrichers)
         sold_notes = [
@@ -266,6 +277,19 @@ def _sources(name: str, settings: Settings, *, fixture: Path | None):
     if fixture is not None:
         return [bazos]
     return [bazos, aukro, vinted, EbayBrowseClient(settings), *(CentralEuropeClient(name, settings) for name in HUNT_SITES)]
+
+
+def _merge_listings(*batches: list[Listing]) -> list[Listing]:
+    seen: set[tuple[object, str]] = set()
+    out: list[Listing] = []
+    for batch in batches:
+        for item in batch:
+            key = (item.marketplace, item.external_id)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(item)
+    return out
 
 
 def _dump_listings(path: Path, listings: list[Listing], *, notes: list[str] | None = None) -> None:

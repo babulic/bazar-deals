@@ -27,7 +27,7 @@ from bazar_deals.domain import (
 from bazar_deals.identity import ItemSpecs, identify, identity_subject, listing_text, with_specs
 from bazar_deals.progress import emit, set_phase, start_heartbeat, stop_heartbeat
 from bazar_deals.rules import rules
-from bazar_deals.scoring import assumed_shipping, score_deal
+from bazar_deals.scoring import assumed_shipping, estimate_net_profit, score_deal
 from bazar_deals.soldcomps import PriceBookMiss, SoldCompClient
 from bazar_deals.working import is_working_listing
 
@@ -240,10 +240,16 @@ def score_listings(
     seeder = getattr(sold, "seed_asking", None)
     if callable(seeder):
         seeder(converted)
+    preparer = getattr(sold, "prepare_price_book", None)
+    if callable(preparer):
+        set_phase("price book")
+        emit(f"price book: preparing hunt-target products from {len(usable)} usable ads")
+        preparer(usable)
 
-    # Round-robin by marketplace in fetch order (not cheapest-first, which
-    # filled the cap with €20 Vinted clothing). Cached-overpriced ads do not
-    # consume the 80 valuation slots. Unconfirmed SK (sbazar catalog) stays last.
+    # Round-robin by marketplace, cheapest first within each board. Cached
+    # overpriced ads do not consume the 80 valuation slots. Unconfirmed SK
+    # (sbazar catalog) stays last. BUY-candidate cache hits (net >= 30 €) go
+    # first so the cap is not 69 live misses and four below-floor ads.
     ready: list[Listing] = []
     pending_sk: list[Listing] = []
     for listing in usable:
@@ -251,12 +257,31 @@ def score_listings(
             pending_sk.append(listing)
         else:
             ready.append(listing)
-    # Targeted SKUs first so the 80-slot cap is iPhone/LEGO/Commodore, not
-    # whatever showed up first in a Vinted clothing dump.
-    hits = [item for item in ready if matches_hunt_target(f"{item.title} {item.search_query or ''}")]
-    hit_ids = {(item.marketplace, item.external_id) for item in hits}
-    rest = [item for item in ready if (item.marketplace, item.external_id) not in hit_ids]
-    queue = _round_robin_listings(hits) + _round_robin_listings(rest) + pending_sk
+    peeker = getattr(sold, "cached_typical", None)
+    min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+    buy_hits: list[Listing] = []
+    target_hits: list[Listing] = []
+    rest: list[Listing] = []
+    overpriced: list[Listing] = []
+    for item in ready:
+        bucket = _buy_likelihood_bucket(
+            item, peeker=peeker, settings=settings, min_conf=min_conf
+        )
+        if bucket == 0:
+            buy_hits.append(item)
+        elif bucket == 4:
+            overpriced.append(item)
+        elif matches_hunt_target(listing_text(item)):
+            target_hits.append(item)
+        else:
+            rest.append(item)
+    queue = (
+        _round_robin_listings(buy_hits)
+        + _round_robin_listings(target_hits)
+        + _round_robin_listings(rest)
+        + _round_robin_listings(overpriced)
+        + pending_sk
+    )
     score_cap = int(rules()["hunt"].get("max_score_listings", 80))
     if hunt_research_only():
         score_cap = max(score_cap, 120)
@@ -283,6 +308,7 @@ def score_listings(
             if item.kind == "clothing" and not (words & brands):
                 funnel["identity_weak"] += 1
                 continue
+            cached = None
             if item.confidence >= min_conf and item.search_query:
                 lookup_key = with_specs(
                     item.search_query,
@@ -298,16 +324,27 @@ def score_listings(
                     funnel["above_typical"] += 1
                     continue
 
-            if score_cap > 0 and work >= score_cap:
-                funnel["score_capped"] = len(queue) - index + 1
-                emit(f"scoring cap {score_cap} valued; {funnel['score_capped']} left")
-                break
-            work += 1
-
             enricher = enrichers.get(listing.marketplace)
-            if not listing.manual_import and enricher is not None and (len(listing.description.strip()) < 40 or (
-                listing.marketplace.value in SITES and listing.ships_to_slovakia is not True
-            )):
+            need_enrich = (
+                not listing.manual_import
+                and enricher is not None
+                and (
+                    len(listing.description.strip()) < 40
+                    or (
+                        listing.marketplace.value in SITES
+                        and listing.ships_to_slovakia is not True
+                    )
+                )
+            )
+            cheap_cached = cached is not None and not need_enrich
+            if not cheap_cached:
+                if score_cap > 0 and work >= score_cap:
+                    funnel["score_capped"] = len(queue) - index + 1
+                    emit(f"scoring cap {score_cap} valued; {funnel['score_capped']} left")
+                    break
+                work += 1
+
+            if need_enrich:
                 listing = enricher.enrich_listing(listing)
                 if listing.raw.get("detail_fetched") is False and not listing.description.strip():
                     funnel["detail_failed"] += 1
@@ -347,14 +384,29 @@ def score_listings(
                 item.specs if isinstance(item.specs, ItemSpecs) else None,
             ).casefold().strip()
             item = item.model_copy(update={"search_query": lookup_key, "model": lookup_key or item.model})
-            comp = sold.median_sold(
-                listing,
-                query=lookup_key,
-                specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
-                subject=identity_subject(item),
+            cached_after = (
+                peeker(
+                    listing,
+                    query=lookup_key,
+                    specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+                    subject=identity_subject(item),
+                )
+                if callable(peeker)
+                else None
             )
+            if cached_after is not None:
+                comp = cached_after
+            else:
+                comp = sold.median_sold(
+                    listing,
+                    query=lookup_key,
+                    specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+                    subject=identity_subject(item),
+                )
             if comp is None:
                 funnel["no_sold_comps"] += 1
+                if not cheap_cached and not need_enrich:
+                    work = max(0, work - 1)
                 continue
             if not comp.reliable_for_buy:
                 funnel["asking_only_comps"] += 1
@@ -517,7 +569,40 @@ def _round_robin_listings(listings: list[Listing]) -> list[Listing]:
     groups: dict[Marketplace, list[Listing]] = defaultdict(list)
     for listing in listings:
         groups[listing.marketplace].append(listing)
+    for batch in groups.values():
+        batch.sort(key=lambda item: (item.price.amount, item.external_id))
     return _round_robin_groups(groups)
+
+
+def _buy_likelihood_bucket(
+    listing: Listing,
+    *,
+    peeker,
+    settings: Settings,
+    min_conf: float,
+) -> int:
+    """0 = cached net >= 30 €, 4 = over usual price, else hunt-target vs rest."""
+    item = identify(listing)
+    cached = None
+    if callable(peeker) and item.confidence >= min_conf and item.search_query:
+        lookup_key = with_specs(
+            item.search_query,
+            item.specs if isinstance(item.specs, ItemSpecs) else None,
+        ).casefold().strip()
+        cached = peeker(
+            listing,
+            query=lookup_key,
+            specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+            subject=identity_subject(item),
+        )
+    if cached is None:
+        return 3
+    if listing.price.amount >= cached.median:
+        return 4
+    net = estimate_net_profit(item, cached.median, settings=settings)
+    if net >= settings.min_net_profit_eur:
+        return 0
+    return 1
 
 
 def _round_robin_deals(deals: list[Deal]) -> list[Deal]:

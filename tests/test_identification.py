@@ -144,6 +144,15 @@ def test_a_lot_is_not_priced_from_a_single_piece() -> None:
     assert "8ks" in lot.search_query
 
 
+def test_split_storage_tokens_still_match_glued_gb() -> None:
+    assert similar_titles(
+        "Apple iPhone 13 128GB",
+        "Apple iPhone 13 128 GB Midnight",
+        left_specs=ItemSpecs(storage=frozenset({"128gb"})),
+        left_kind=ItemKind.PHONES,
+    )
+
+
 def test_vague_title_still_matches_sold_comps_from_the_body() -> None:
     ad = listing(
         title="Predám telefón",

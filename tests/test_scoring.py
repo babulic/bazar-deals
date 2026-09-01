@@ -25,6 +25,14 @@ def test_buy_requires_at_least_30_eur_expected_net_profit() -> None:
     assert deal.costs.net_profit >= Decimal("30")
 
 
+def test_estimate_net_profit_matches_score_deal() -> None:
+    from bazar_deals.scoring import estimate_net_profit
+
+    item = identify(_listing("38"), Vertical.RETRO)
+    deal = score_deal(item, Decimal("120"), Decimal("8"))
+    assert estimate_net_profit(item, Decimal("120"), shipping=Decimal("8")) == deal.costs.net_profit
+
+
 def test_skip_when_gross_spread_looks_good_but_net_is_under_30() -> None:
     item = identify(_listing("38"), Vertical.RETRO)
     deal = score_deal(item, Decimal("89"), Decimal("8"))

@@ -23,6 +23,8 @@ from bazar_deals.identity import (
     ItemSpecs,
     classify_kind,
     extract_specs,
+    identify,
+    identity_subject,
     listing_text,
     similar_titles,
     sold_query,
@@ -221,6 +223,48 @@ class SoldCompClient:
             found.append(item)
         self._asking_catalog = found
 
+    def prepare_price_book(self, listings: list[Listing]) -> None:
+        """Live-search cheapest hunt-target products before the scoring loop.
+
+        The 20–110 € hunt batch is a bargain bin. Spending the live query budget
+        on those SKUs first (not on whatever showed up first in round-robin)
+        is what can still produce a P25 high enough for a 30 € net BUY.
+        """
+        if self._fixture_html is not None:
+            return
+        from bazar_deals.catalog import matches_hunt_target
+
+        min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+        groups: dict[str, list[Listing]] = {}
+        for listing in listings:
+            hay = listing_text(listing)
+            if not matches_hunt_target(hay):
+                continue
+            item = identify(listing)
+            if item.confidence < min_conf or not item.search_query:
+                continue
+            specs = item.specs if isinstance(item.specs, ItemSpecs) else None
+            key = with_specs(item.search_query, specs).casefold().strip()
+            groups.setdefault(key, []).append(listing)
+        ranked = sorted(
+            groups.items(),
+            key=lambda pair: min(item.price.amount for item in pair[1]),
+        )
+        warmed = 0
+        for query, members in ranked:
+            cheapest = min(members, key=lambda item: item.price.amount)
+            item = identify(cheapest)
+            specs = item.specs if isinstance(item.specs, ItemSpecs) else None
+            if self.median_sold(
+                cheapest,
+                query=query,
+                specs=specs,
+                subject=identity_subject(item),
+            ) is not None:
+                warmed += 1
+        if warmed:
+            self._note(f"price book: prepared {warmed} hunt-target product(s) before scoring")
+
     def _comp_query(
         self,
         listing: Listing,
@@ -299,19 +343,45 @@ class SoldCompClient:
             return self._comp_from_fixture(subject, query, specs, kind, self_key, min_n)
 
         seed_peers = self._filter_peers(
-            self._asking_catalog or [], subject, specs, kind, self_key
+            self._asking_catalog or [],
+            subject,
+            specs,
+            kind,
+            self_key,
+            source_title=listing.title,
         )
+        # Hunt fetch is capped at 20–110 €. P25×0.75 of that bargain bin is often
+        # too low for a 30 € net BUY. Skip the live search only when the seed
+        # sample already clears the floor for this listing.
+        if self._seed_covers_buy(listing, seed_peers, min_n):
+            return self._store_market_comp(query, seed_peers)
+
+        live_peers = self._similar_market_peers(
+            query, subject, specs, kind, self_key, source_title=listing.title
+        )
+        if len(live_peers) >= min_n:
+            return self._store_market_comp(query, live_peers)
         if len(seed_peers) >= min_n:
             return self._store_market_comp(query, seed_peers)
 
-        # A heterogeneous newest-listings batch rarely contains five copies of
-        # the same product. Fill those gaps with a bounded targeted search.
-        peers = self._similar_market_peers(query, subject, specs, kind, self_key)
-        if len(peers) >= min_n:
-            return self._store_market_comp(query, peers)
-
-        self._record_miss(listing, query=query, peers=peers, required=min_n)
+        self._record_miss(
+            listing, query=query, peers=live_peers or seed_peers, required=min_n
+        )
         return None
+
+    def _seed_covers_buy(
+        self, listing: Listing, seed_peers: list[Listing], min_n: int
+    ) -> bool:
+        if len(seed_peers) < min_n:
+            return False
+        from bazar_deals.scoring import estimate_net_profit
+
+        typical = _market_value(seed_peers)
+        if typical <= 0:
+            return False
+        return estimate_net_profit(identify(listing), typical, settings=self.settings) >= (
+            self.settings.min_net_profit_eur
+        )
 
     def _record_miss(
         self,
@@ -358,9 +428,12 @@ class SoldCompClient:
         specs: ItemSpecs | None,
         kind,
         self_key: str,
+        *,
+        source_title: str | None = None,
     ) -> list[Listing]:
         found: list[Listing] = []
         seen: set[str] = set()
+        headline = (source_title or "").strip()
         for item in listings:
             try:
                 item = self._to_eur(item)
@@ -373,7 +446,16 @@ class SoldCompClient:
             key = _url_key(item.url)
             if key == self_key or key in seen:
                 continue
-            if not similar_titles(subject, item.title, left_specs=specs, left_kind=kind):
+            hit = similar_titles(subject, item.title, left_specs=specs, left_kind=kind)
+            if (
+                not hit
+                and headline
+                and headline.casefold() != subject.strip().casefold()
+            ):
+                hit = similar_titles(
+                    headline, item.title, left_specs=specs, left_kind=kind
+                )
+            if not hit:
                 continue
             seen.add(key)
             found.append(item)
@@ -421,9 +503,16 @@ class SoldCompClient:
         specs: ItemSpecs | None,
         kind,
         self_key: str,
+        *,
+        source_title: str | None = None,
     ) -> list[Listing]:
         return self._filter_peers(
-            self._market_hits(query), subject, specs, kind, self_key
+            self._market_hits(query),
+            subject,
+            specs,
+            kind,
+            self_key,
+            source_title=source_title,
         )
 
     def _sold_hits(self, query: str) -> tuple[list[Listing], int | None, bool]:
@@ -437,18 +526,26 @@ class SoldCompClient:
         return hits, 200, False
 
     def _market_hits(self, query: str) -> list[Listing]:
+        """Live marketplace hits only. Hunt-batch ads are seed fallback, not mixed in.
+
+        Mixing the 20–110 € bargain bin into the live sample pulls P25 down so a
+        30 € net BUY becomes mathematically impossible.
+        """
         if query in self._market_cache:
             return self._market_cache[query]
-        seen: set[str] = set()
-        hits: list[Listing] = []
         extra: list[Listing] = []
         if self._live_sold_used < self._live_sold_budget:
             self._live_sold_used += 1
             extra = self._live_market_search(query)
         else:
             self.live_sold_skipped += 1
-            self._note(f"price book: live query budget exhausted ({self._live_sold_budget}); remaining products are unvalued")
-        for item in (*extra, *(self._asking_catalog or ())):
+            self._note(
+                f"price book: live query budget exhausted ({self._live_sold_budget}); "
+                "remaining products are unvalued"
+            )
+        hits: list[Listing] = []
+        seen: set[str] = set()
+        for item in extra:
             try:
                 item = self._to_eur(item)
             except ValueError:

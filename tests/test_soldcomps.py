@@ -266,9 +266,18 @@ def test_unique_queries_share_one_live_price_book_search(tmp_path: Path) -> None
     assert first.median == second.median
 
 
-def test_hunt_batch_seed_skips_live_marketplace_search(tmp_path: Path) -> None:
+def test_hunt_batch_seed_that_clears_profit_skips_live_marketplace_search(tmp_path: Path) -> None:
     client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
-    peers = _peers()
+    peers = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"peer-{index}",
+            title="Commodore 1541-II disk drive",
+            url=f"https://pc.bazos.sk/inzerat/peer-{index}/",
+            price=Money(amount=Decimal("200") + index, currency="EUR"),
+        )
+        for index in range(6)
+    ]
     client.seed_asking(peers)
     with (
         patch.object(client, "_bazos_search", side_effect=AssertionError("live")) as bazos,
@@ -281,6 +290,65 @@ def test_hunt_batch_seed_skips_live_marketplace_search(tmp_path: Path) -> None:
     assert comp.sample == 6
     assert comp.median == _market_value(peers)
     bazos.assert_not_called()
+
+
+def test_seed_typical_below_floor_still_searches_live(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    client.seed_asking(_peers())
+    live = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"live-{index}",
+            title="Commodore 1541-II disk drive",
+            url=f"https://pc.bazos.sk/inzerat/live-{index}/",
+            price=Money(amount=Decimal("160"), currency="EUR"),
+        )
+        for index in range(6)
+    ]
+    with (
+        patch.object(client, "_bazos_search", return_value=live) as bazos,
+        patch.object(client, "_aukro_search", return_value=[]),
+        patch.object(client, "_vinted_search", return_value=[]),
+    ):
+        comp = client.median_sold(_listing())
+    assert bazos.call_count == 1
+    assert comp is not None
+    assert comp.median == _market_value(live)
+    assert comp.median > _market_value(_peers())
+
+
+def test_live_comps_are_not_poisoned_by_cheap_hunt_batch(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    cheap = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"cheap-{index}",
+            title="Commodore 1541-II disk drive",
+            url=f"https://pc.bazos.sk/inzerat/cheap-{index}/",
+            price=Money(amount=Decimal("50"), currency="EUR"),
+        )
+        for index in range(6)
+    ]
+    live = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=f"live-{index}",
+            title="Commodore 1541-II disk drive",
+            url=f"https://pc.bazos.sk/inzerat/live-{index}/",
+            price=Money(amount=Decimal("160"), currency="EUR"),
+        )
+        for index in range(6)
+    ]
+    client.seed_asking(cheap)
+    with (
+        patch.object(client, "_bazos_search", return_value=live),
+        patch.object(client, "_aukro_search", return_value=[]),
+        patch.object(client, "_vinted_search", return_value=[]),
+    ):
+        mixed = client.median_sold(_listing())
+    assert mixed is not None
+    assert mixed.median == _market_value(live)
+    assert mixed.median > _market_value(cheap)
 
 
 def test_thin_hunt_batch_searches_for_missing_comparables(tmp_path: Path) -> None:
