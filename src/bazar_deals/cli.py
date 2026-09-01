@@ -233,11 +233,12 @@ def main(argv: list[str] | None = None) -> int:
             "hint": hunt_research_hint(run.funnel) if not buys else "",
         },
     )
-    if buys:
-        print("\n\n".join(format_deal(deal) for deal in select_alert_deals(buys, limit=len(buys))))
-    else:
+    shown = select_alert_deals(deals)
+    if not buys:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
         emit(hunt_research_hint(run.funnel))
+    if shown:
+        print("\n\n".join(format_deal(deal) for deal in shown))
     if args.notify:
         try:
             posted = GitHubIssueAlerts(settings).post_run(run)

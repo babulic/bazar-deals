@@ -55,8 +55,6 @@ def test_cli_offline_reports_no_false_buy(capsys) -> None:
     out = capsys.readouterr().out
     assert "filter:" in out
     assert "No deals" in out
-    assert "Lacnejšie ako obvyklá" not in out
-    assert "Málo porovnateľných" not in out
     assert "BUY: áno" not in out
 
 
