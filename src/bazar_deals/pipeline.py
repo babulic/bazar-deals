@@ -37,6 +37,9 @@ _MARKETPLACE_PRIORITY = (
     Marketplace.AUKRO,
     Marketplace.EBAY,
     Marketplace.BAZOS,
+    Marketplace.SBAZAR,
+    Marketplace.FACEBOOK,
+    Marketplace.OLX,
 )
 
 _FUNNEL_KEYS = (
@@ -559,9 +562,9 @@ def is_alert_noise(note: str) -> bool:
     text = note or ""
     if is_dry_price_book_miss(text) or text.startswith("price book:"):
         return True
-    if text.startswith(("allegro_pl:", "allegro_sk:", "olx:")):
+    if text.startswith(("allegro_pl:", "allegro_sk:")):
         return True
-    if text.startswith("facebook:"):
+    if text.startswith(("facebook:", "olx:")):
         return "fetched " not in text or "fetched 0" in text
     if text.startswith("ebay:") and any(
         marker in text

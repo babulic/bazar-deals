@@ -171,8 +171,8 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
     ):
         assert host in sites
     assert "facebook.com" in sites
+    assert "olx.pl" in sites
     assert "allegro.pl" not in sites
-    assert "olx.pl" not in sites
 
 
 def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
@@ -511,8 +511,21 @@ def _quiet_handler(request: httpx.Request) -> httpx.Response:
             "ebay.com",
             "delcampe.net",
             "forum64.de",
+            "olx.pl",
+            "sbazar.cz",
+            "facebook.com",
         )
     ):
+        if "olx.pl" in url:
+            return httpx.Response(
+                200,
+                text=(
+                    "<html>Nie znaleziono ogłoszeń"
+                    '<script type="application/ld+json">'
+                    '{"@type":"ItemList","numberOfItems":0,"itemListElement":[]}'
+                    "</script></html>"
+                ),
+            )
         return httpx.Response(200, text="<html></html>")
     return httpx.Response(404, json={"message": url})
 
@@ -539,7 +552,6 @@ def test_willhaben_stock_hits_include_links_even_when_not_wtb() -> None:
     assert "názov nie je dopyt kúpim" not in body
     assert "facebook.com" not in body
     assert "allegro.pl" not in body
-    assert "olx.pl" not in body
     assert any("0 want-ads" in note and "willhaben.at" in note for note in digest.notes)
     assert not any("for 'Suche" in note or "for 'Kaufe" in note for note in digest.notes)
     will_notes = [note for note in digest.notes if note.startswith("willhaben.at")]
@@ -693,3 +705,128 @@ def test_bazos_stops_after_429_on_the_first_stock_query() -> None:
     assert calls[0].casefold().startswith("kúpim ametyst") or calls[0].startswith("kúpim ametyst")
     assert len(calls) == 1
     assert any("bazos.sk" in note and "429" in note for note in digest.notes)
+
+
+def strap() -> InventoryItem:
+    return InventoryItem(
+        id="watch-strap",
+        segment="commodity",
+        title="Silikónový remienok na Samsung Galaxy Watch 7, 6, 5, 4",
+        listed={"aukro": Decimal("6"), "vinted": Decimal("6")},
+    )
+
+
+def glass_44() -> InventoryItem:
+    return InventoryItem(
+        id="watch-glass-44",
+        segment="commodity",
+        title="2 ochranné sklá pre Samsung Galaxy Watch Active 2, 44mm",
+        match_hints=["44"],
+        listed={"ebay": Decimal("5"), "vinted": Decimal("5")},
+    )
+
+
+def glass_40() -> InventoryItem:
+    return InventoryItem(
+        id="watch-glass-40",
+        segment="commodity",
+        title="2 ochranné sklá pre Samsung Galaxy Watch Active 2, 40mm",
+        match_hints=["40"],
+        listed={"bazos": Decimal("5"), "ebay": Decimal("5")},
+    )
+
+
+def test_watch_strap_does_not_match_phone_want_ads() -> None:
+    stock = [strap(), glass_44(), chip()]
+    for title in (
+        "Kúpim Samsung galaxy A 57. 8/265GB",
+        "Kúpim poškodený Samsung Galaxy A56",
+        "KÚPIM - Samsung Galaxy A17 5G 4GB / 128GB",
+    ):
+        assert is_want_to_buy(title)
+        assert match_want(title, strap()) < 0.5
+        assert best_item(title, stock) is None
+
+
+def test_watch_glass_does_not_match_other_watch_want_ads() -> None:
+    stock = [glass_40(), glass_44(), strap()]
+    for title in (
+        "KUPIM Samsung Galaxy Watch Ultra (2025) 47mm LTE SM-L705",
+        "Kúpim Samsung galaxy watch ultra 2 (2026)",
+        "Koupim samsung galaxy watch ultra 2",
+        "Kupim Samsung galaxy watch ultra 2 2026 nove",
+    ):
+        assert is_want_to_buy(title)
+        assert match_want(title, glass_40()) < 0.5
+        assert match_want(title, glass_44()) < 0.5
+        assert best_item(title, stock) is None
+
+
+def test_watch_glass_matches_same_size_protector_want() -> None:
+    title = "Kúpim ochranné sklo Samsung Galaxy Watch Active 2 44mm"
+    assert is_want_to_buy(title)
+    hit = best_item(title, [glass_40(), glass_44(), strap()])
+    assert hit is not None
+    assert hit[0].id == "watch-glass-44"
+    assert hit[1] >= 0.5
+
+
+def test_strap_queries_are_the_accessory_not_samsung() -> None:
+    queries = queries_for(strap())
+    blob = " ".join(queries).casefold()
+    assert "remienok" in blob
+    assert "samsung" not in blob
+
+
+def test_photos_reject_a_phone_want_ad_even_if_titles_overlap() -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from bazar_deals.selling.photos import photos_same_object
+
+    def png(pattern: str) -> bytes:
+        image = Image.new("RGB", (64, 64), (0, 0, 0))
+        pixels = image.load()
+        for y in range(64):
+            for x in range(64):
+                if pattern == "strap":
+                    on = (y // 8) % 2 == 0
+                else:
+                    on = ((x // 8) + (y // 8)) % 2 == 0
+                pixels[x, y] = (255, 255, 255) if on else (0, 0, 0)
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+        return buf.getvalue()
+
+    strap_png = png("strap")
+    phone_png = png("phone")
+    blobs = {
+        "https://img.example/strap.png": strap_png,
+        "https://img.example/phone.png": phone_png,
+    }
+    item = strap().model_copy(update={"image_urls": ["https://img.example/strap.png"]})
+    assert photos_same_object(
+        item.image_urls,
+        ["https://img.example/phone.png"],
+        fetch=blobs.get,
+    ) is False
+    assert (
+        best_item(
+            "Kúpim remienok Samsung Galaxy Watch 7",
+            [item],
+            want_images=["https://img.example/phone.png"],
+            fetch_image=blobs.get,
+        )
+        is None
+    )
+    assert (
+        best_item(
+            "Kúpim remienok Samsung Galaxy Watch 7",
+            [item],
+            want_images=["https://img.example/strap.png"],
+            fetch_image=blobs.get,
+        )
+        is not None
+    )
+

@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation
 import httpx
 from pydantic import BaseModel, Field
 
-from bazar_deals.adapters.ebay import EbayBrowseClient
+from bazar_deals.adapters.ebay import EbayBrowseClient, hunt_ebay_marketplace_ids
 from bazar_deals.adapters.vinted import VintedProClient
 from bazar_deals.config import Settings
 from bazar_deals.domain import Money
@@ -27,7 +27,9 @@ BAZOS_PAGE_SIZE = 20
 MAX_PAGES = 25
 
 _BAZOS_BLOCK_RE = re.compile(
-    r'<div class="inzeratynadpis">.*?<h2 class=nadpis><a href="(?P<url>[^"]+)">(?P<title>.*?)</a>.*?'
+    r'<div class="inzeraty(?:flex)?[^"]*"[^>]*>.*?'
+    r'(?:<img[^>]*src="(?P<img>[^"]+)"[^>]*>)?.*?'
+    r'<h2 class=nadpis><a href="(?P<url>[^"]+)">(?P<title>.*?)</a>.*?'
     r'<div class="inzeratycena"><b><span[^>]*>(?P<price>[^<]*)</span>'
     r'(?:.*?<div class="inzeratyview">(?P<views>\d+)\s*x</div>)?',
     re.S,
@@ -46,6 +48,7 @@ class CollectedListing(BaseModel):
     # named buyer that a marketplace will expose.
     watchers: int | None = None
     views: int | None = None
+    image_urls: list[str] = Field(default_factory=list)
 
 
 class SourceResult(BaseModel):
@@ -78,6 +81,31 @@ def _price(text: str) -> Decimal:
         return Decimal(digits) if digits else Decimal("0")
     except InvalidOperation:
         return Decimal("0")
+
+
+def _https_urls(*values: object) -> list[str]:
+    found: list[str] = []
+    for value in values:
+        if isinstance(value, str) and value.startswith("https://") and value not in found:
+            found.append(value)
+        elif isinstance(value, dict):
+            found.extend(_https_urls(*value.values()))
+        elif isinstance(value, list):
+            found.extend(_https_urls(*value))
+    return found[:4]
+
+
+def _node_image_urls(node: dict) -> list[str]:
+    return _https_urls(
+        node.get("mainImage"),
+        node.get("imageUrl"),
+        node.get("thumbnailUrl"),
+        node.get("image"),
+        node.get("images"),
+        node.get("photo"),
+        node.get("photos"),
+        (node.get("image") or {}).get("imageUrl") if isinstance(node.get("image"), dict) else None,
+    )
 
 
 def collect_bazos(query: str, settings: Settings) -> SourceResult:
@@ -119,6 +147,7 @@ def collect_bazos(query: str, settings: Settings) -> SourceResult:
                 price_eur=_price(match.group("price")),
                 url=url,
                 views=int(views) if views else None,
+                image_urls=_https_urls(match.groupdict().get("img")),
             )
         # A page that adds nothing new means the offset walked past the end.
         if len(listings) == before:
@@ -189,6 +218,7 @@ def collect_aukro(seller_id: int, settings: Settings) -> SourceResult:
                 price_eur=amount,
                 url=f"https://aukro.sk/{node.get('seoUrl', '')}-{identifier}",
                 watchers=int(watchers) if isinstance(watchers, int) else None,
+                image_urls=_node_image_urls(node),
             )
 
         if not content or page + 1 >= int(meta.get("totalPages") or 1):
@@ -218,53 +248,55 @@ def collect_ebay(seller: str, settings: Settings) -> SourceResult:
             reason="eBay no-persistence test mode: regular imports are disabled",
         )
     client = EbayBrowseClient(settings)
-    headers = {
-        "Authorization": f"Bearer {client._access_token()}",
-        "X-EBAY-C-MARKETPLACE-ID": settings.ebay_marketplace,
-    }
     listings: dict[str, CollectedListing] = {}
     pages = 0
 
     # Browse API needs a category or query alongside the seller filter, so the
-    # seller's categories are walked one by one.
-    for category in rules()["ebay"]["small_categories"]:
-        offset = 0
-        for _ in range(MAX_PAGES):
-            params = {
-                "category_ids": category,
-                "filter": f"sellers:{{{seller}}}",
-                "limit": "200",
-                "offset": str(offset),
-            }
-            try:
-                response = httpx.get(_EBAY_SEARCH, headers=headers, params=params, timeout=30.0)
-                response.raise_for_status()
-                payload = response.json()
-            except (httpx.HTTPError, ValueError) as exc:
-                return SourceResult(
-                    marketplace="ebay", ok=False, pages=pages, reason=str(exc),
-                    listings=list(listings.values()),
-                )
+    # seller's categories are walked one by one on both DE and AT storefronts.
+    for marketplace_id in hunt_ebay_marketplace_ids():
+        headers = {
+            "Authorization": f"Bearer {client._access_token()}",
+            "X-EBAY-C-MARKETPLACE-ID": marketplace_id,
+        }
+        for category in rules()["ebay"]["small_categories"]:
+            offset = 0
+            for _ in range(MAX_PAGES):
+                params = {
+                    "category_ids": category,
+                    "filter": f"sellers:{{{seller}}}",
+                    "limit": "200",
+                    "offset": str(offset),
+                }
+                try:
+                    response = httpx.get(_EBAY_SEARCH, headers=headers, params=params, timeout=30.0)
+                    response.raise_for_status()
+                    payload = response.json()
+                except (httpx.HTTPError, ValueError) as exc:
+                    return SourceResult(
+                        marketplace="ebay", ok=False, pages=pages, reason=str(exc),
+                        listings=list(listings.values()),
+                    )
 
-            pages += 1
-            summaries = payload.get("itemSummaries") or []
-            for node in summaries:
-                price = node.get("price") or {}
-                identifier = str(node.get("itemId") or "")
-                if not identifier:
-                    continue
-                watchers = node.get("watchCount")
-                listings[identifier] = CollectedListing(
-                    marketplace="ebay",
-                    external_id=identifier,
-                    title=str(node.get("title") or "").strip(),
-                    price_eur=Decimal(str(price.get("value") or "0")),
-                    url=str(node.get("itemWebUrl") or ""),
-                    watchers=int(watchers) if isinstance(watchers, int) else None,
-                )
-            offset += len(summaries)
-            if not summaries or offset >= int(payload.get("total") or 0):
-                break
+                pages += 1
+                summaries = payload.get("itemSummaries") or []
+                for node in summaries:
+                    price = node.get("price") or {}
+                    identifier = str(node.get("itemId") or "")
+                    if not identifier:
+                        continue
+                    watchers = node.get("watchCount")
+                    listings[identifier] = CollectedListing(
+                        marketplace="ebay",
+                        external_id=identifier,
+                        title=str(node.get("title") or "").strip(),
+                        price_eur=Decimal(str(price.get("value") or "0")),
+                        url=str(node.get("itemWebUrl") or ""),
+                        watchers=int(watchers) if isinstance(watchers, int) else None,
+                        image_urls=_node_image_urls(node),
+                    )
+                offset += len(summaries)
+                if not summaries or offset >= int(payload.get("total") or 0):
+                    break
 
     return SourceResult(
         marketplace="ebay", ok=True, pages=pages, listings=list(listings.values())
@@ -310,6 +342,7 @@ def collect_vinted(settings: Settings) -> SourceResult:
                 title=str(node.get("title") or "").strip(),
                 price_eur=Decimal(str((node.get("price") or {}).get("amount") or "0")),
                 url=str(node.get("url") or ""),
+                image_urls=_node_image_urls(node),
             )
         if not items:
             break
@@ -416,6 +449,7 @@ def refresh_inventory(
     prices: dict[str, dict[str, Decimal]] = {item.id: {} for item in items}
     watchers: dict[str, dict[str, int]] = {item.id: {} for item in items}
     views: dict[str, dict[str, int]] = {item.id: {} for item in items}
+    photos: dict[str, list[str]] = {item.id: list(item.image_urls) for item in items}
 
     for source in results:
         if not source.ok:
@@ -431,6 +465,10 @@ def refresh_inventory(
                 watchers[matched.id][source.marketplace] = listing.watchers
             if listing.views is not None:
                 views[matched.id][source.marketplace] = listing.views
+            if listing.image_urls:
+                photos[matched.id] = list(
+                    dict.fromkeys([*photos[matched.id], *listing.image_urls])
+                )[:8]
 
     collected = {source.marketplace for source in results if source.ok}
     refreshed: list[InventoryItem] = []
@@ -455,6 +493,7 @@ def refresh_inventory(
                     "listed": dict(sorted(listed.items())),
                     "watchers": dict(sorted(watched.items())),
                     "views": dict(sorted(seen.items())),
+                    "image_urls": photos[item.id],
                 }
             )
         )

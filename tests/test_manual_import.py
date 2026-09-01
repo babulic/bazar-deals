@@ -116,7 +116,7 @@ def test_import_command_csv_and_no_source_overwrite(tmp_path):
         main(['import', '--manual-in', str(path), '--listings-out', str(path)])
 
 
-@pytest.mark.parametrize('source,status', [('olx','BLOCKED'), ('allegro_pl','ACCESS_NOT_GRANTED'), ('allegro_sk','ACCESS_NOT_GRANTED')])
+@pytest.mark.parametrize('source,status', [('allegro_pl','ACCESS_NOT_GRANTED'), ('allegro_sk','ACCESS_NOT_GRANTED')])
 def test_scheduled_manual_sources_do_not_attempt_blocked_requests(source, status):
     def fail(request):
         pytest.fail('A manual source must not make unattended requests')
@@ -135,6 +135,98 @@ def test_facebook_hunt_tries_public_html_and_fails_closed_on_login():
     )
     assert client.fetch_new() == []
     assert any("LOGIN_REQUIRED" in note for note in client.notes)
+
+
+def test_olx_hunt_reads_public_jsonld_and_fails_closed_on_login():
+    from bazar_deals.adapters.central_europe import parse_public_listings
+
+    def login(request):
+        return httpx.Response(302, headers={"Location": "https://www.olx.pl/login"})
+
+    blocked = CentralEuropeClient(
+        "olx",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(login)),
+    )
+    assert blocked.fetch_new() == []
+    assert any("LOGIN_REQUIRED" in note for note in blocked.notes)
+
+    body = (
+        '<script type="application/ld+json">'
+        '{"@type":"Product","name":"Nintendo Switch V2",'
+        '"description":"Working console. Shipping to Slovakia.",'
+        '"image":"https://www.olx.pl/img/switch.jpg",'
+        '"offers":{"@type":"Offer","url":"https://www.olx.pl/item/123",'
+        '"price":"215","priceCurrency":"PLN",'
+        '"availability":"https://schema.org/InStock",'
+        '"shippingDetails":{"shippingDestination":{"addressCountry":"SK"},'
+        '"shippingRate":{"value":"43","currency":"PLN"}}}}'
+        "</script>"
+    )
+    parsed = parse_public_listings(body, "olx")
+    assert parsed and parsed[0].ships_to_slovakia is True
+    assert parsed[0].raw.get("images") == ["https://www.olx.pl/img/switch.jpg"]
+
+    def offers(request):
+        return httpx.Response(200, text=body)
+
+    ready = CentralEuropeClient(
+        "olx",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(offers)),
+    )
+    rows = ready.fetch_new()
+    assert rows
+    assert rows[0].marketplace.value == "olx"
+
+
+def test_olx_empty_search_is_not_a_login_wall():
+    empty = (
+        "<html>Nie znaleziono ogłoszeń"
+        '<script type="application/ld+json">'
+        '{"@type":"ItemList","numberOfItems":0,"itemListElement":[]}'
+        "</script></html>"
+    )
+
+    def handler(request):
+        return httpx.Response(200, text=empty)
+
+    client = CentralEuropeClient(
+        "olx",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    assert client.search("nintendo") == []
+    assert any("READY: no matches" in note for note in client.notes)
+
+
+def test_olx_same_host_redirect_is_followed():
+    body = (
+        '<script type="application/ld+json">'
+        '{"@type":"Product","name":"Nintendo Switch V2",'
+        '"description":"Working console. Shipping to Slovakia.",'
+        '"offers":{"@type":"Offer","url":"https://www.olx.pl/item/123",'
+        '"price":"215","priceCurrency":"PLN",'
+        '"availability":"https://schema.org/InStock"}}'
+        "</script>"
+    )
+
+    def handler(request):
+        if str(request.url).endswith("/q-nintendo/"):
+            return httpx.Response(
+                301,
+                headers={"Location": "https://www.olx.pl/oferty/q-nintendo/?page=1"},
+            )
+        return httpx.Response(200, text=body)
+
+    client = CentralEuropeClient(
+        "olx",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    rows = client.search("nintendo")
+    assert len(rows) == 1
+    assert rows[0].external_id == "123"
 
 
 def test_czk_reserve_for_goods_and_postage_matches_pln(tmp_path):
@@ -164,7 +256,11 @@ def test_regular_hunt_does_not_delete_comments():
     assert "always()" in str(workflow['jobs']['research']['if'])
     assert "buys == '0'" in str(workflow['jobs']['research']['if'])
     assert '--research' in str(workflow['jobs']['research'])
-    assert 'delete-issue-comments' not in str(workflow)
+    assert "delete-issue-comments" not in str(workflow)
+    hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
+    assert '--source olx' in hunt_yaml
+    assert 'hunt-olx.json' in hunt_yaml
+    assert '--source ebay' in hunt_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])

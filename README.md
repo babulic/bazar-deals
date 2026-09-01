@@ -8,7 +8,8 @@ Hourly hunt purchase sources:
 - `aukro.sk`
 - `bazos.sk` and `bazos.cz` RSS
 - `sbazar.cz` (detail fetch confirms SK delivery; unconfirmed ads go last so they cannot fill the scoring cap)
-- `ebay.de` Browse API, only buy-now ads that `deliveryCountry:SK` confirms
+- `ebay.de` and `ebay.at` Browse API, only buy-now ads that `deliveryCountry:SK` confirms
+- `olx.pl` public HTML/JSON-LD when the search page actually returns listings (login walls stay fail-closed; the official OLX API is not used to search other sellers)
 - Facebook Marketplace public HTML when the page actually returns listings (login walls stay fail-closed; they are not bypassed)
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
@@ -355,8 +356,8 @@ integration support, not five verified live production sources. See the
 
 
 `hunt --source sbazar|facebook|allegro_pl|allegro_sk|olx` selects one extra source;
-`hunt --source all` is Bazos, Aukro, Vinted, eBay, Sbazar and Facebook.
-Allegro and OLX stay explicit `--source` / manual import — probing them every hour only nags.
+`hunt --source all` is Bazos, Aukro, Vinted, eBay.de/.at, Sbazar, Facebook and OLX.pl.
+Allegro stays explicit `--source` / manual import — probing it every hour only nags.
 The hourly workflow fetches hunt boards separately. Useful failures
 (for example Vinted DataDome) still appear on the Deal alerts issue when there is a BUY; access and
 price-book diagnostics do not. Searches on the extra boards are bounded
@@ -383,12 +384,13 @@ availability and shipping after fetching a shortlisted detail page.
   CAPTCHA bypass is used. The lowest displayed postage is not assumed to be SK
   postage; the conservative shipping reserve remains when the actual cost is
   unknown. The same offer on both domains counts once in the price-book sample.
-- **OLX/Facebook:** scheduled runs use manual mode. Public Product/Offer
-  structured data is supported for explicit diagnostics. Login,
-  redirects, HTTP 403/429 or unreadable results are reported as unavailable,
-  with a manual-search link. These sources are **not guaranteed to work
-  unattended**. The verification on 2026-08-31 returned OLX HTTP 403 and a
-  Facebook login redirect; no live results were claimed for either site.
+- **OLX/Facebook:** scheduled runs fetch public HTML. OLX.pl uses Product/Offer
+  JSON-LD on the public search page (the official API still cannot search other
+  sellers). Login, off-site redirects, HTTP 403/429 or unreadable chrome fail
+  closed and are not scraped. Facebook login walls stay silent on the Deal
+  alerts issue; a successful OLX fetch (`olx: fetched N`) is shown. These
+  sources are **not guaranteed** — a 2026-08-31 check saw OLX HTTP 403 and a
+  Facebook login redirect. Public structured data is still scored when present.
 - **CZK and PLN:** online scoring, buyer search and inventory refresh load both
   rates from one dated ECB snapshot automatically. `EUR_CZK` / `EUR_PLN` are
   optional manual overrides, not required configuration. GitHub Actions caches

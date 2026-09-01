@@ -204,7 +204,10 @@ def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
             "allegro_sk: fetched 0",
             "allegro_sk: ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available",
             "olx: fetched 0",
-            "olx: BLOCKED: manual import only; standard OLX API does not search other sellers",
+            "olx: BLOCKED: no readable public listing data",
+            "olx: fetched 12",
+            "ebay.de: fetched 9",
+            "ebay.at: fetched 3",
             "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
             "price book: live query budget exhausted (16); remaining products are unvalued",
         ],
@@ -220,6 +223,9 @@ def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
     assert "facebook: fetched 0" not in body
     assert "allegro_pl: fetched 0" not in body
     assert "olx: fetched 0" not in body
+    assert "olx: fetched 12" in body
+    assert "ebay.de: fetched 9" in body
+    assert "ebay.at: fetched 3" in body
 
 
 def test_hunt_progress_explains_cap_and_query_units() -> None:

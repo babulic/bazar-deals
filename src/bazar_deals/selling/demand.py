@@ -10,7 +10,7 @@ from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 from urllib.parse import urlencode, urljoin
 
 import httpx
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from bazar_deals.adapters.central_europe import CentralEuropeClient, SITES, search_url
 from bazar_deals.adapters.ebay import EbayBrowseClient
@@ -28,6 +28,7 @@ from bazar_deals.selling.collect import (
     similarity,
     tokens,
 )
+from bazar_deals.selling.photos import photos_same_object
 from bazar_deals.selling.inventory import Inventory, InventoryItem
 
 _AUKRO_SEARCH = "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon"
@@ -50,6 +51,7 @@ _SELL_PREFIX = re.compile(
 )
 _BAZOS_BLOCK_RE = re.compile(
     r'<div class="inzeraty inzeratyflex">.*?'
+    r'(?:<img[^>]*src="(?P<img>[^"]+)"[^>]*>)?.*?'
     r'<h2 class=nadpis><a href="(?P<url>[^"]+)">(?P<title>.*?)</a>'
     r'(?:.*?<div class="inzeratycena"><b><span[^>]*>(?P<price>[^<]*)</span>)?',
     re.S,
@@ -146,6 +148,73 @@ _POWER_NEEDLES = (
     "transformer",
     "power supply",
 )
+# Accessory stock must see the same accessory language in the want-ad.
+# "Samsung Galaxy" overlap is not enough: a phone is not a watch strap.
+_ACCESSORY_NEEDLES = {
+    "strap": (
+        "remienok",
+        "reminek",
+        "strap",
+        "watch band",
+        "uhrenarmband",
+        "armband",
+        "pasek do",
+        "opaska",
+    ),
+    "glass": (
+        "ochranne sklo",
+        "ochranne skla",
+        "sklicko",
+        "folia na",
+        "folie na",
+        "screen protector",
+        "watch glass",
+        "schutzglas",
+        "szklo ochronne",
+        "skla pre",
+        "sklo pre",
+        "skla na",
+        "sklo na",
+    ),
+    "charger": (
+        "nabijacka",
+        "nabijecka",
+        "charger",
+        "koliska",
+        "ladovacka",
+        "ep-or825",
+        "watch charger",
+    ),
+    "cable": (
+        "kabel",
+        "cable",
+        "microusb",
+        "ep-dg925",
+        "datovy",
+    ),
+    "case": (
+        "puzdro",
+        "pouzdro",
+        "etui",
+        "huelle",
+        "obalek",
+    ),
+}
+_ACCESSORY_ROLES = frozenset(_ACCESSORY_NEEDLES)
+_PHONE_RE = re.compile(
+    r"galaxy\s*a\s*\d+|galaxy\s*s\s*\d+|galaxy\s*z\b|\biphone\b|\bredmi\b|"
+    r"\bpixel\b|\bsmartphone\b|\bmobil(?:ny)?\b|\btelefon\b",
+)
+_WATCH_COMPLETE_RE = re.compile(
+    r"galaxy\s*watch|\bapple\s*watch\b|\bhodinky\b|\bwatch\s*ultra\b"
+)
+_ACCESSORY_QUERIES = {
+    "strap": ("remienok", "watch strap"),
+    "glass": ("ochranné sklo", "watch glass"),
+    "charger": ("nabíjačka", "watch charger"),
+    "cable": ("kábel", "microUSB"),
+    "case": ("púzdro", "case"),
+}
 
 
 class WantAd(BaseModel):
@@ -156,6 +225,7 @@ class WantAd(BaseModel):
     url: str
     offer_eur: Decimal | None = None
     query: str = ""
+    image_urls: list[str] = Field(default_factory=list)
 
 
 class DemandMatch(BaseModel):
@@ -227,6 +297,7 @@ def searched_sites() -> list[str]:
     sites.append("forum64.de")
     sites.append("sbazar.cz")
     sites.append("facebook.com")
+    sites.append("olx.pl")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
     return sites
 
@@ -251,6 +322,9 @@ def _is_song_or_already_bought(title: str) -> bool:
 def queries_for(item: InventoryItem, *, research: bool = False) -> list[str]:
     """Short distinctive queries a European buyer would type."""
     found: list[str] = []
+    role = inventory_accessory_role(item)
+    if role in _ACCESSORY_QUERIES:
+        found.extend(_ACCESSORY_QUERIES[role])
     for part in item.part_numbers:
         token = part.strip()
         if len(token) >= 4:
@@ -307,6 +381,32 @@ def _german_locality(item: InventoryItem) -> str:
     return ""
 
 
+def inventory_accessory_role(item: InventoryItem) -> str | None:
+    """Strap/glass/charger/cable/case, or None for complete goods and minerals."""
+    folded_id = _fold(item.id).replace("-", " ")
+    for role in _ACCESSORY_ROLES:
+        if role in folded_id:
+            return role
+    blob = _fold(" ".join([item.title, *item.keywords, *item.match_hints]))
+    for role, needles in _ACCESSORY_NEEDLES.items():
+        if any(needle in blob for needle in needles):
+            return role
+    return None
+
+
+def want_ad_role(title: str) -> str:
+    """Classify a buyer's ad: accessory, complete phone, complete watch, or other."""
+    folded = _fold(title)
+    for role, needles in _ACCESSORY_NEEDLES.items():
+        if any(needle in folded for needle in needles):
+            return role
+    if _PHONE_RE.search(folded):
+        return "phone"
+    if _WATCH_COMPLETE_RE.search(folded):
+        return "watch"
+    return "other"
+
+
 def _is_power_supply(item: InventoryItem) -> bool:
     blob = _fold(" ".join([item.id, item.title, *item.keywords, *item.part_numbers]))
     return any(needle in blob for needle in _POWER_NEEDLES)
@@ -321,6 +421,8 @@ def match_want(title: str, item: InventoryItem) -> float:
     """Score a want-ad against one inventory item. Part numbers beat fuzzy titles."""
     score = max(score_match(title, item), similarity(title, item.title), closeness(title, item.title))
     folded = _fold(title)
+    if item.match_hints and not any(_fold(hint) in folded for hint in item.match_hints):
+        score = min(score * 0.5, 0.49)
     title_tokens = tokens(title)
     support = _support_tokens(item)
     power_item = _is_power_supply(item)
@@ -328,6 +430,7 @@ def match_want(title: str, item: InventoryItem) -> float:
         # A PSU SKU lists 1541/C64 as the machine it fits. A floppy or computer
         # ad with that number is not a buyer for the brick.
         score = min(score, 0.49)
+    stock_role = inventory_accessory_role(item)
     for part in item.part_numbers:
         token = _fold(part)
         if len(token) < 4 or not _part_in_title(token, title_tokens):
@@ -358,6 +461,8 @@ def match_want(title: str, item: InventoryItem) -> float:
         score = max(score, 0.62)
     if species_hits and any(_place_in_title(place, folded) for place in places):
         score = max(score, 0.85)
+    if stock_role in _ACCESSORY_ROLES and want_ad_role(title) != stock_role:
+        score = min(score, 0.49)
     return score
 
 
@@ -391,14 +496,27 @@ def _part_in_title(token: str, title_tokens: set[str]) -> bool:
     return f"mos{token}" in title_tokens or f"cbm{token}" in title_tokens
 
 
-def best_item(title: str, items: list[InventoryItem]) -> tuple[InventoryItem, float] | None:
-    ranked = [(match_want(title, item), item) for item in items]
-    if not ranked:
-        return None
-    score, item = max(ranked, key=lambda pair: pair[0])
-    if score < _MATCH_FLOOR:
-        return None
-    return item, score
+def best_item(
+    title: str,
+    items: list[InventoryItem],
+    *,
+    want_images: list[str] | None = None,
+    fetch_image=None,
+) -> tuple[InventoryItem, float] | None:
+    ranked = sorted(
+        ((match_want(title, item), item) for item in items),
+        key=lambda pair: pair[0],
+        reverse=True,
+    )
+    for score, item in ranked:
+        if score < _MATCH_FLOOR:
+            break
+        if want_images and item.image_urls:
+            same = photos_same_object(item.image_urls, want_images, fetch=fetch_image)
+            if same is False:
+                continue
+        return item, score
+    return None
 
 
 def find_buyers(
@@ -618,13 +736,22 @@ def find_buyers(
                     except ValueError:
                         price = None  # A demand can have an unknown budget.
                     wants.append(WantAd(marketplace=source, site=site, external_id=listing.external_id,
-                                        title=listing.title, url=str(listing.url), offer_eur=price, query=full_query))
+                                        title=listing.title, url=str(listing.url), offer_eur=price, query=full_query,
+                                        image_urls=_listing_image_urls(listing)))
                 ingest(wants, f"{site}: fetched {len(wants)} rows", site)
+
+    def fetch_image(url: str) -> bytes | None:
+        return _fetch_image_bytes(url, client=client)
 
     matches: list[DemandMatch] = []
     seen_pair: set[str] = set()
     for ad in ads.values():
-        hit = best_item(ad.title, items)
+        hit = best_item(
+            ad.title,
+            items,
+            want_images=ad.image_urls,
+            fetch_image=fetch_image,
+        )
         if hit is None:
             continue
         item, score = hit
@@ -861,6 +988,7 @@ def _search_bazos(
                     url=href,
                     offer_eur=amount or None,
                     query=query,
+                    image_urls=_https_image_urls(match.groupdict().get("img")),
                 )
             )
         _pause(settings, client)
@@ -911,6 +1039,7 @@ def _search_aukro(
                     url=f"https://aukro.sk/{seo}-{identifier}" if seo else f"https://aukro.cz/{identifier}",
                     offer_eur=amount or None,
                     query=query,
+                    image_urls=_https_image_urls(node.get("mainImage"), node.get("images")),
                 )
             )
         _pause(settings, client)
@@ -1278,9 +1407,55 @@ def _search_ebay(
                 url=href,
                 offer_eur=amount or None,
                 query=query,
+                image_urls=_https_image_urls(node.get("image"), node.get("thumbnailImages")),
             )
         )
     return ads, ""
+
+
+def _listing_image_urls(listing: Listing) -> list[str]:
+    raw = listing.raw if isinstance(listing.raw, dict) else {}
+    return _https_image_urls(raw.get("images"), raw.get("image"))
+
+
+def _https_image_urls(*values: object) -> list[str]:
+    found: list[str] = []
+
+    def walk(value: object) -> None:
+        if len(found) >= 4:
+            return
+        if isinstance(value, str) and value.startswith("https://") and value not in found:
+            found.append(value)
+        elif isinstance(value, dict):
+            for key in ("imageUrl", "url", "contentUrl", "src"):
+                walk(value.get(key))
+            for item in value.values():
+                if isinstance(item, (dict, list)):
+                    walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    for blob in values:
+        walk(blob)
+    return found
+
+
+def _fetch_image_bytes(url: str, *, client: httpx.Client | None) -> bytes | None:
+    if not str(url).startswith("https://"):
+        return None
+    try:
+        if client is not None:
+            response = client.get(url)
+        else:
+            response = httpx.get(url, timeout=10.0, follow_redirects=True)
+        response.raise_for_status()
+    except httpx.HTTPError:
+        return None
+    data = response.content or b""
+    if not data or len(data) > 2_000_000:
+        return None
+    return data
 
 
 def _pause(settings: Settings, client: httpx.Client | None) -> None:
