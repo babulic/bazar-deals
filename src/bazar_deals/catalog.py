@@ -100,10 +100,10 @@ def hunt_fetch_queries() -> tuple[str, ...]:
 
 
 def skip_newest_dumps() -> bool:
-    """Vinted/Aukro dumps are electronics-only and still skipped when SKU search is set."""
+    """Skip Vinted/Aukro newest dumps when SKU search is configured.
 
-    When fetch_queries is configured, search those SKUs instead. Research mode
-    already skips dumps. Bazos RSS rubs stay; eBay skips dumps after SKU hits.
+    Research mode already skips dumps. Bazos RSS rubs stay; eBay skips dumps
+    after SKU hits.
     """
     return hunt_research_only() or bool(hunt_fetch_queries())
 
