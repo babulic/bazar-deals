@@ -17,7 +17,7 @@ from bazar_deals.adapters.bazos import BazosRssClient
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.catalog import BAZOS_RSS
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing
+from bazar_deals.domain import ItemKind, Listing
 from bazar_deals.htmlparse import parse_ebay_html
 from bazar_deals.identity import (
     ItemSpecs,
@@ -34,7 +34,7 @@ from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
 _LIVE_SEARCH_SECONDS = 20
-_PRICE_BOOK_VERSION = "product-role-v2:"
+_PRICE_BOOK_VERSION = "same-object-v3:"
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS sold_listings (
@@ -151,6 +151,18 @@ def _market_value(peers: list[Listing]) -> Decimal:
     )
 
 
+def _resolve_kind(kind, subject: str, full_text: str):
+    """Kind of the sellable object, not the raw ad bag of words.
+
+    A rescued identity ("Commodore 1541-II") must match drive comps even when
+    the original headline was "Predám". The listing body must not reclassify
+    a named product back to GENERIC.
+    """
+    if kind is not None:
+        return kind if isinstance(kind, ItemKind) else ItemKind(str(kind))
+    return classify_kind(subject or full_text)
+
+
 class SoldCompClient:
     """Price book of discovered comparable asking prices.
 
@@ -260,6 +272,7 @@ class SoldCompClient:
                 query=query,
                 specs=specs,
                 subject=identity_subject(item),
+                kind=item.kind,
             ) is not None:
                 warmed += 1
         if warmed:
@@ -272,6 +285,7 @@ class SoldCompClient:
         query: str | None = None,
         specs: ItemSpecs | None = None,
         subject: str | None = None,
+        kind=None,
     ) -> tuple[str, ItemSpecs, str, str] | None:
         full_text = listing_text(listing)
         subject = (subject or "").strip() or listing.title
@@ -288,13 +302,14 @@ class SoldCompClient:
         query: str | None = None,
         specs: ItemSpecs | None = None,
         subject: str | None = None,
+        kind=None,
     ) -> SoldComp | None:
         """Reuse a fresh SQLite price-book row without a live search.
 
         The hunt peeks here before spending a valuation slot so already-known
         overpriced ads (ask ≥ usual) do not consume the cap.
         """
-        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject)
+        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject, kind=kind)
         if parsed is None:
             return None
         query, _specs, _full_text, _subject = parsed
@@ -316,14 +331,15 @@ class SoldCompClient:
         query: str | None = None,
         specs: ItemSpecs | None = None,
         subject: str | None = None,
+        kind=None,
     ) -> SoldComp | None:
         """Conservative resale value from the SQLite price book."""
-        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject)
+        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject, kind=kind)
         if parsed is None:
             return None
         query, specs, full_text, subject = parsed
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        kind = classify_kind(full_text)
+        kind = _resolve_kind(kind, subject, full_text)
         self_key = _url_key(listing.url)
 
         cached = self._db_summary(query) or self._db_summary(f"ask:{query}")

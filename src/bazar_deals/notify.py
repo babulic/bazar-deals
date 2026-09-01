@@ -189,11 +189,22 @@ def format_compact_listing(
     return " · ".join(parts)
 
 
+def is_ai_rejected(deal: Deal) -> bool:
+    """True when the price review vetoed identity or the typical."""
+    review = deal.ai_review
+    if review is not None and not review.approved:
+        return True
+    return (deal.reason or "").casefold().startswith("ai rejected")
+
+
 def is_cheaper_than_usual(deal: Deal) -> bool:
     """True when asking is below the conservative usual price — a possible near-miss.
 
     Overpriced ads (šiltovka 20 € vs obvyklá 7 €) are not near-misses.
+    A discarded AI typical is not a near-miss either.
     """
+    if is_ai_rejected(deal):
+        return False
     typical = deal.costs.estimated_resale
     return typical > 0 and deal.costs.buy_price < typical
 

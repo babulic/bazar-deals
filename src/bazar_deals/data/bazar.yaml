@@ -219,6 +219,12 @@ identity:
       - case
       - cover
       - puzdro
+      - pasek
+      - pásek
+      - remienok
+      - remínek
+      - strap
+      - watch band
       - nabíjačka
       - nabijacka
       - charger
@@ -233,6 +239,13 @@ identity:
     media:
       - kazeta
       - cassette
+      - kassette
+      - datasette
+      - diskette
+      - disketa
+      - videothek
+      - software
+      - magnetofon
       - tape
       - páska
       - paska
@@ -749,6 +762,8 @@ identity:
       - mechanika
       - unlocked
       - breadbin
+      - commodore 64
+      - commodore 128
       - grafická karta
       - graficka karta
       - ssd

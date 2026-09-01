@@ -319,6 +319,7 @@ def score_listings(
                     query=lookup_key,
                     specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
                     subject=identity_subject(item),
+                    kind=item.kind,
                 ) if callable(peeker) else None
                 if cached is not None and listing.price.amount >= cached.median:
                     funnel["above_typical"] += 1
@@ -390,6 +391,7 @@ def score_listings(
                     query=lookup_key,
                     specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
                     subject=identity_subject(item),
+                    kind=item.kind,
                 )
                 if callable(peeker)
                 else None
@@ -402,6 +404,7 @@ def score_listings(
                     query=lookup_key,
                     specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
                     subject=identity_subject(item),
+                    kind=item.kind,
                 )
             if comp is None:
                 funnel["no_sold_comps"] += 1
@@ -594,6 +597,7 @@ def _buy_likelihood_bucket(
             query=lookup_key,
             specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
             subject=identity_subject(item),
+            kind=item.kind,
         )
     if cached is None:
         return 3

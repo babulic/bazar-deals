@@ -10,6 +10,7 @@ from bazar_deals.identity import (
     identify,
     is_replacement_part_text,
     similar_titles,
+    sold_query,
 )
 from bazar_deals.pipeline import hunt
 from bazar_deals.soldcomps import SoldCompClient
@@ -104,7 +105,28 @@ def test_normal_iphone_is_still_phone() -> None:
     ).kind == ItemKind.PHONES.value
 
 
-def test_konami_cassette_is_media_not_c64_computer() -> None:
+def test_billardspiele_cassette_is_not_a_c64_computer() -> None:
+    title = "Computing Videothek Billardspiele Commodore 64/128"
+    assert classify_kind(title) is ItemKind.MEDIA
+    assert classify_kind("Commodore 64 breadbin computer") is ItemKind.HARDWARE
+    assert classify_kind("Commodore 64") is ItemKind.HARDWARE
+    assert not similar_titles(title, "Commodore 64 C64 Computer breadbin")
+    assert not similar_titles(title, "Commodore 64/128 computer")
+    assert not similar_titles(title, "Vzlámavanie Konami Commodore 64/128 C64 C128")
+    assert similar_titles(
+        title,
+        "Computing Videothek Billardspiele C64 Kassette",
+    )
+    query = sold_query(title)
+    assert query is not None
+    assert "videothek" in query
+    assert "billardspiele" in query
+    assert "64" not in query.split()
+    assert "128" not in query.split()
+    assert "commodore" not in query
+
+
+def test_konami_cassette_is_media_not_a_c64_computer() -> None:
     listing = Listing(
         marketplace=Marketplace.AUKRO,
         external_id="7089809337",
@@ -113,9 +135,20 @@ def test_konami_cassette_is_media_not_c64_computer() -> None:
         price=Money(amount=Decimal("12.62"), currency="EUR"),
     )
     assert classify_kind(CASSETTE_TITLE) is ItemKind.MEDIA
+    assert classify_kind("Commodore 64 C64C komplet počítač") is ItemKind.HARDWARE
+    assert not similar_titles(CASSETTE_TITLE, "Commodore 64 C64C komplet počítač")
     item = identify(listing)
+    assert item.kind == ItemKind.MEDIA.value
     assert item.confidence >= 0.5
     assert "konami" in (item.search_query or "")
+
+
+def test_watch_strap_is_accessory_not_a_watch() -> None:
+    strap = "Oryginalny pasek Apple Watch Alpine Loop Pomarańczowy 49mm L Ultra"
+    watch = "Apple Watch Series 2 - 42mm - GPS"
+    assert classify_kind(strap) is ItemKind.ACCESSORIES
+    assert classify_kind(watch) is ItemKind.JEWELRY
+    assert not similar_titles(strap, watch)
 
 
 def test_cassette_does_not_buy_against_c64_computer_sold_comps() -> None:

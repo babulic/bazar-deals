@@ -12,6 +12,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert ALERT_LABEL == "bazar-alert"
     assert "gauč" in data["catalog"]["bulky_keywords"]
     assert "kazeta" in data["identity"]["kind_markers"]["media"]
+    assert "videothek" in data["identity"]["kind_markers"]["media"]
+    assert "kassette" in data["identity"]["kind_markers"]["media"]
+    assert "pasek" in data["identity"]["kind_markers"]["accessories"]
+    assert "alpine loop" not in data["identity"]["kind_markers"]["accessories"]
     assert data["domain"]["item_kinds"][-1] == "generic"
     assert data["hunt"]["max_buy_eur"] == 110
     assert data["hunt"]["min_buy_eur"] == 20

@@ -362,6 +362,59 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
     assert select_alert_deals(run.deals) == [skip]
 
 
+def test_ai_rejected_typical_is_not_a_still_profitable_card() -> None:
+    from collections import Counter
+
+    from bazar_deals.notify import is_cheaper_than_usual
+    from bazar_deals.pipeline import HuntRun
+
+    listing = _deal().item.listing.model_copy(
+        update={
+            "external_id": "287558443831",
+            "title": "Computing Videothek Billardspiele Commodore 64/128",
+            "url": "https://www.ebay.de/itm/287558443831",
+            "price": Money(amount=Decimal("24.40"), currency="EUR"),
+        }
+    )
+    item = _deal().item.model_copy(
+        update={
+            "listing": listing,
+            "canonical_name": "Computing Videothek Billardspiele Commodore 64/128",
+            "kind": "generic",
+        }
+    )
+    skip = score_deal(item, Decimal("104.25"), Decimal("8"))
+    skip = skip.model_copy(
+        update={
+            "action": Action.SKIP,
+            "reason": "AI rejected candidate: generic software label, not one verifiable SKU",
+            "ai_review": AIReview(
+                approved=False,
+                complete_product=False,
+                canonical_name="C64 cassette game, not a computer",
+                kind="media",
+                quick_sale_price_eur=None,
+                confidence=0.2,
+                reason="One game on cassette is not a Commodore 64 computer.",
+            ),
+        }
+    )
+    assert skip.costs.net_profit > 0
+    assert not is_cheaper_than_usual(skip)
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(scored=1, buy=0, ai_rejected=1, below_net_profit=1),
+        source_stats={},
+        fetch_notes=["ebay.de: fetched 1"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert select_alert_deals(run.deals) == []
+    assert "https://www.ebay.de/itm/287558443831" not in body
+    assert "104.25" not in body
+    assert "**BUY: nie**" not in body
+    assert "AI zamietlo" in body
+
+
 def test_losing_hunts_post_status_without_cards() -> None:
     from collections import Counter
 
