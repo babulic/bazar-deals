@@ -418,6 +418,17 @@ def test_boilerplate_stripping_keeps_the_actual_product_words() -> None:
     assert "dohodou" not in query
 
 
+def test_listing_boilerplate_znacka_stav_nove_dropped_from_query() -> None:
+    from bazar_deals.identity import sold_query
+
+    query = sold_query("wlvs siltovka znacka nike stav nove")
+    assert query is not None
+    assert "siltovka" in query
+    assert "znacka" not in query
+    assert "stav" not in query
+    assert "nove" not in query
+
+
 def test_rss_image_markup_never_reaches_the_identity() -> None:
     from bazar_deals.identity import sold_query, strip_markup
 

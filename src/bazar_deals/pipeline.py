@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -23,7 +24,7 @@ from bazar_deals.domain import (
     Money,
     Vertical,
 )
-from bazar_deals.identity import ItemSpecs, identify, identity_subject, with_specs
+from bazar_deals.identity import ItemSpecs, identify, identity_subject, listing_text, with_specs
 from bazar_deals.progress import emit, set_phase, start_heartbeat, stop_heartbeat
 from bazar_deals.rules import rules
 from bazar_deals.scoring import assumed_shipping, score_deal
@@ -243,10 +244,9 @@ def score_listings(
     if callable(seeder):
         seeder(converted)
 
-    # Do not let a large/cheap Bazos batch consume the global price-book budget.
-    # Every active marketplace gets one turn per round, with Vinted/Aukro
-    # deliberately placed before Bazos in each round. Unconfirmed SK delivery
-    # (sbazar catalog rows) goes last so it cannot fill the 80-ad score cap.
+    # Round-robin by marketplace in fetch order (not cheapest-first, which
+    # filled the cap with €20 Vinted clothing). Cached-overpriced ads do not
+    # consume the 80 valuation slots. Unconfirmed SK (sbazar catalog) stays last.
     ready: list[Listing] = []
     pending_sk: list[Listing] = []
     for listing in usable:
@@ -254,12 +254,8 @@ def score_listings(
             pending_sk.append(listing)
         else:
             ready.append(listing)
-    usable = _round_robin_listings(ready) + pending_sk
+    queue = _round_robin_listings(ready) + pending_sk
     score_cap = int(rules()["hunt"].get("max_score_listings", 80))
-    if score_cap > 0 and len(usable) > score_cap:
-        funnel["score_capped"] = len(usable) - score_cap
-        emit(f"scoring cap {score_cap} of {funnel['usable']} usable")
-        usable = usable[:score_cap]
 
     if identifier is None and settings.ai_review_enabled:
         identifier = AIIdentityClient(settings)
@@ -269,11 +265,41 @@ def score_listings(
     deals: list[Deal] = []
     rescues: Counter[str] = Counter()
     min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+    brands = {str(name).casefold() for name in rules()["identity"].get("generic_brands", [])}
+    peeker = getattr(sold, "cached_typical", None)
+    work = 0
     try:
-        for index, listing in enumerate(usable, start=1):
-            if index == 1 or index % 50 == 0 or index == len(usable):
-                set_phase(f"scoring {index}/{len(usable)}")
-                emit(f"scoring {index}/{len(usable)}")
+        for index, listing in enumerate(queue, start=1):
+            if index == 1 or index % 50 == 0 or index == len(queue):
+                set_phase(f"scoring {index}/{len(queue)}")
+                emit(f"scoring {index}/{len(queue)} (valued {work})")
+
+            item = identify(listing)
+            words = set(re.findall(r"[a-z0-9]+", listing_text(listing).casefold()))
+            if item.kind == "clothing" and not (words & brands):
+                funnel["identity_weak"] += 1
+                continue
+            if item.confidence >= min_conf and item.search_query:
+                lookup_key = with_specs(
+                    item.search_query,
+                    item.specs if isinstance(item.specs, ItemSpecs) else None,
+                ).casefold().strip()
+                cached = peeker(
+                    listing,
+                    query=lookup_key,
+                    specs=item.specs if isinstance(item.specs, ItemSpecs) else None,
+                    subject=identity_subject(item),
+                ) if callable(peeker) else None
+                if cached is not None and listing.price.amount >= cached.median:
+                    funnel["above_typical"] += 1
+                    continue
+
+            if score_cap > 0 and work >= score_cap:
+                funnel["score_capped"] = len(queue) - index + 1
+                emit(f"scoring cap {score_cap} valued; {funnel['score_capped']} left")
+                break
+            work += 1
+
             enricher = enrichers.get(listing.marketplace)
             if not listing.manual_import and enricher is not None and (len(listing.description.strip()) < 40 or (
                 listing.marketplace.value in SITES and listing.ships_to_slovakia is not True
@@ -336,9 +362,6 @@ def score_listings(
             )
             typical = comp.median
             if listing.price.amount >= typical:
-                # Asking at or above usual is not a candidate. Computing
-                # net profit of -30 € on a 20 € cap vs 7 € usual is not
-                # "ocenenie".
                 funnel["above_typical"] += 1
                 continue
             shipping = _shipping_eur(listing, settings)
@@ -483,8 +506,6 @@ def _round_robin_listings(listings: list[Listing]) -> list[Listing]:
     groups: dict[Marketplace, list[Listing]] = defaultdict(list)
     for listing in listings:
         groups[listing.marketplace].append(listing)
-    for batch in groups.values():
-        batch.sort(key=lambda item: item.price.amount)
     return _round_robin_groups(groups)
 
 

@@ -222,6 +222,50 @@ class SoldCompClient:
             found.append(item)
         self._asking_catalog = found
 
+    def _comp_query(
+        self,
+        listing: Listing,
+        *,
+        query: str | None = None,
+        specs: ItemSpecs | None = None,
+        subject: str | None = None,
+    ) -> tuple[str, ItemSpecs, str, str] | None:
+        full_text = listing_text(listing)
+        subject = (subject or "").strip() or listing.title
+        query = (query or "").strip() or sold_query(subject) or sold_query(full_text)
+        if not query:
+            return None
+        specs = specs if specs is not None else extract_specs(full_text)
+        return with_specs(query, specs), specs, full_text, subject
+
+    def cached_typical(
+        self,
+        listing: Listing,
+        *,
+        query: str | None = None,
+        specs: ItemSpecs | None = None,
+        subject: str | None = None,
+    ) -> SoldComp | None:
+        """Reuse a fresh SQLite price-book row without a live search.
+
+        The hunt peeks here before spending a valuation slot so already-known
+        overpriced ads (ask ≥ usual) do not consume the cap.
+        """
+        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject)
+        if parsed is None:
+            return None
+        query, _specs, _full_text, _subject = parsed
+        min_n = int(rules()["hunt"]["min_sold_sample"])
+        cached = self._db_summary(query) or self._db_summary(f"ask:{query}")
+        if cached and self._is_fresh(cached.fetched_at) and cached.n >= min_n:
+            return SoldComp(
+                median=cached.median,
+                sample=cached.n,
+                label=_comp_label(cached.n, cached.source),
+                reliable_for_buy=True,
+            )
+        return None
+
     def median_sold(
         self,
         listing: Listing,
@@ -231,14 +275,11 @@ class SoldCompClient:
         subject: str | None = None,
     ) -> SoldComp | None:
         """Conservative resale value from the SQLite price book."""
-        full_text = listing_text(listing)
-        subject = (subject or "").strip() or listing.title
-        query = (query or "").strip() or sold_query(subject) or sold_query(full_text)
-        if not query:
+        parsed = self._comp_query(listing, query=query, specs=specs, subject=subject)
+        if parsed is None:
             return None
+        query, specs, full_text, subject = parsed
         min_n = int(rules()["hunt"]["min_sold_sample"])
-        specs = specs if specs is not None else extract_specs(full_text)
-        query = with_specs(query, specs)
         kind = classify_kind(full_text)
         self_key = _url_key(listing.url)
 

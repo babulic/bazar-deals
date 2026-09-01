@@ -68,6 +68,32 @@ def test_cache_hit_skips_network(tmp_path: Path) -> None:
     bazos.assert_not_called()
 
 
+def test_cached_typical_reads_sqlite_without_network_or_notes(tmp_path: Path) -> None:
+    db = tmp_path / "bazar-comps.sqlite"
+    listing = _listing()
+    peers = _peers()
+    writer = SoldCompClient(_settings(db))
+    with (
+        patch.object(writer, "_bazos_search", return_value=peers),
+        patch.object(writer, "_aukro_search", return_value=[]),
+        patch.object(writer, "_vinted_search", return_value=[]),
+    ):
+        stored = writer.median_sold(listing)
+    assert stored is not None
+
+    reader = SoldCompClient(_settings(db))
+    with (
+        patch.object(reader, "_bazos_search", side_effect=AssertionError("network")),
+        patch.object(reader, "_aukro_search", side_effect=AssertionError("network")),
+        patch.object(reader, "_vinted_search", side_effect=AssertionError("network")),
+    ):
+        peeked = reader.cached_typical(listing)
+    assert peeked is not None
+    assert peeked.median == stored.median
+    assert peeked.sample == stored.sample
+    assert reader.notes == []
+
+
 def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     db = tmp_path / "bazar-comps.sqlite"
     peers = _peers()

@@ -321,6 +321,117 @@ def test_overpriced_listing_is_not_scored() -> None:
     assert run.source_stats[Marketplace.VINTED]["scored"] == 0
 
 
+def test_cached_overpriced_does_not_consume_score_cap(monkeypatch) -> None:
+    from copy import deepcopy
+
+    import bazar_deals.pipeline as pipeline
+
+    configured = deepcopy(pipeline.rules())
+    configured["hunt"]["max_score_listings"] = 1
+    monkeypatch.setattr(pipeline, "rules", lambda: configured)
+
+    class _Sold:
+        live: list[str] = []
+
+        def cached_typical(self, listing, **kwargs):
+            if listing.external_id == "over":
+                return SoldComp(
+                    median=Decimal("7.28"),
+                    sample=17,
+                    label="cached P25×0.75 (n=17)",
+                    reliable_for_buy=True,
+                )
+            return None
+
+        def median_sold(self, listing, **kwargs):
+            self.live.append(listing.external_id)
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    sold = _Sold()
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="over",
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url="https://mobil.bazos.sk/inzerat/over/",
+            price=Money(amount=Decimal("20"), currency="EUR"),
+        ),
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="under",
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url="https://mobil.bazos.sk/inzerat/under/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        ),
+    ]
+    run = score_listings(listings, Settings(), sold)
+    assert sold.live == ["under"]
+    assert run.funnel["above_typical"] == 1
+    assert run.funnel["scored"] == 1
+    assert run.funnel["score_capped"] == 0
+    assert [deal.item.listing.external_id for deal in run.deals] == ["under"]
+
+
+def test_unbranded_clothing_does_not_consume_score_cap(monkeypatch) -> None:
+    from copy import deepcopy
+
+    import bazar_deals.pipeline as pipeline
+
+    configured = deepcopy(pipeline.rules())
+    configured["hunt"]["max_score_listings"] = 1
+    monkeypatch.setattr(pipeline, "rules", lambda: configured)
+
+    class _Sold:
+        live: list[str] = []
+
+        def median_sold(self, listing, **kwargs):
+            self.live.append(listing.external_id)
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    sold = _Sold()
+    listings = [
+        Listing(
+            marketplace=Marketplace.VINTED,
+            external_id="cap",
+            title="wlvs siltovka",
+            description="Dámska šiltovka, nová, s visačkou.",
+            url="https://www.vinted.sk/items/cap-wlvs-siltovka",
+            price=Money(amount=Decimal("20"), currency="EUR"),
+        ),
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="phone",
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url="https://mobil.bazos.sk/inzerat/phone/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        ),
+    ]
+    run = score_listings(listings, Settings(), sold)
+    assert "cap" not in sold.live
+    assert sold.live == ["phone"]
+    assert run.funnel["identity_weak"] == 1
+    assert run.funnel["scored"] == 1
+
+
 def test_long_description_skips_detail_http() -> None:
     class _Enricher:
         marketplace = Marketplace.BAZOS.value

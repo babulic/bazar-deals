@@ -134,14 +134,17 @@ _WILLHABEN_PHRASES = ("Suche", "Kaufe")
 _DELCAMPE_PHRASES = ("", "suche ", "wanted ")
 _FORUM64_PHRASES = ("Suche", "Gesucht")
 BUY_VERBS = ("kúpim", "koupím", "kaufe", "kupię", "veszek", "compro", "achète", "koop")
-_TARGETED_SITES = frozenset(
-    {
-        "willhaben.at",
-        "kleinanzeigen.de",
-        "delcampe.net",
-        "forum64.de",
-        *(host for _mid, host, _wtb in _EBAY_BOARDS),
-    }
+_POWER_NEEDLES = (
+    "zdroj",
+    "psu",
+    "netzteil",
+    "napajeci",
+    "napajec",
+    "napajanie",
+    "napajac",
+    "trafo",
+    "transformer",
+    "power supply",
 )
 
 
@@ -167,6 +170,7 @@ class BuyerDigest:
     near_misses: list[DemandMatch] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     fetched: Counter[str] = field(default_factory=Counter)
+    boards: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -221,8 +225,8 @@ def searched_sites() -> list[str]:
     sites.append("willhaben.at")
     sites.append("delcampe.net")
     sites.append("forum64.de")
+    sites.append("sbazar.cz")
     sites.extend(host for _mid, host, _wtb in _EBAY_BOARDS)
-    sites.extend(SITES.values())
     return sites
 
 
@@ -289,15 +293,32 @@ def _german_locality(item: InventoryItem) -> str:
     return ""
 
 
+def _is_power_supply(item: InventoryItem) -> bool:
+    blob = _fold(" ".join([item.id, item.title, *item.keywords, *item.part_numbers]))
+    return any(needle in blob for needle in _POWER_NEEDLES)
+
+
+def _title_has_power(title: str) -> bool:
+    folded = _fold(title)
+    return any(needle in folded for needle in _POWER_NEEDLES)
+
+
 def match_want(title: str, item: InventoryItem) -> float:
     """Score a want-ad against one inventory item. Part numbers beat fuzzy titles."""
     score = max(score_match(title, item), similarity(title, item.title), closeness(title, item.title))
     folded = _fold(title)
     title_tokens = tokens(title)
     support = _support_tokens(item)
+    power_item = _is_power_supply(item)
+    if power_item and not _title_has_power(title):
+        # A PSU SKU lists 1541/C64 as the machine it fits. A floppy or computer
+        # ad with that number is not a buyer for the brick.
+        score = min(score, 0.49)
     for part in item.part_numbers:
         token = _fold(part)
         if len(token) < 4 or not _part_in_title(token, title_tokens):
+            continue
+        if power_item and not _title_has_power(title):
             continue
         if token.isdigit() and not _numeric_part_fits(token, title_tokens, support):
             continue
@@ -420,11 +441,19 @@ def find_buyers(
         for phrase in _AUKRO_PHRASES:
             batch, note = _search_aukro(phrase, settings, client=client)
             ingest(batch, note, "aukro")
+        for query in queries:
+            batch, note = _search_aukro(f"koupím {query}", settings, client=client)
+            ingest(batch, note, "aukro")
 
         for site, phrases in _VINTED_SITES:
             for phrase in phrases:
                 batch, note = _search_vinted(phrase, site, settings, client=client)
                 ingest(batch, note, site)
+            if site in {"vinted.sk", "vinted.cz"} and phrases:
+                verb = phrases[0]
+                for query in queries:
+                    batch, note = _search_vinted(f"{verb} {query}", site, settings, client=client)
+                    ingest(batch, note, site)
 
         blocked = False
         for phrase in _KA_PHRASES:
@@ -540,7 +569,6 @@ def find_buyers(
                 ingest(wants, f"{site}: fetched {len(wants)} rows", site)
 
     matches: list[DemandMatch] = []
-    near_misses: list[DemandMatch] = []
     seen_pair: set[str] = set()
     for ad in ads.values():
         hit = best_item(ad.title, items)
@@ -554,13 +582,11 @@ def find_buyers(
         row = DemandMatch(want=ad, item=item, score=score)
         if is_want_to_buy(ad.title):
             matches.append(row)
-        elif ad.site in _TARGETED_SITES:
-            near_misses.append(row)
 
     matches.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
-    near_misses.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
     digest.matches = matches
-    digest.near_misses = near_misses
+    digest.near_misses = []
+    digest.boards = list(stats.keys())
     digest.notes = [_format_site_stat(site, stat) for site, stat in stats.items()] + special_notes
     return digest
 
@@ -570,7 +596,7 @@ def format_buyer_digest(digest: BuyerDigest, *, mention: str = "") -> str:
     notes = "\n".join(f"- {note}" for note in digest.notes) or "- (no sources fetched)"
     skipped = _format_near_misses(digest.near_misses)
     if not digest.matches:
-        boards = ", ".join(searched_sites())
+        boards = ", ".join(digest.boards) if digest.boards else "(žiadne)"
         return (
             f"{ping}**0 kupcov** na tvoj tovar. Digest je prázdny, kým sa nenájde "
             f"inzerát typu kúpim/koupím/kaufe/kupię/veszek/compro/achète/koop "
