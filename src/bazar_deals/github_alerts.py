@@ -89,37 +89,110 @@ def _status_notes(run: HuntRun) -> str:
     return "\n".join(f"- {note}" for note in notes) or "- (no sources fetched)"
 
 
+def _funnel_n(run: HuntRun, key: str) -> int:
+    return int(run.funnel.get(key, 0) or 0)
+
+
+def _format_progress(run: HuntRun, *, min_profit) -> str:
+    """Slovak drop-off, only non-zero counts, with units so the numbers add up."""
+    n = lambda key: _funnel_n(run, key)
+    hunt = rules()["hunt"]
+    score_cap = int(hunt.get("max_score_listings", 80))
+    min_buy = hunt.get("min_buy_eur", 20)
+    max_buy = hunt.get("max_buy_eur", 110)
+    usable = n("usable")
+    capped = n("score_capped")
+    tried = max(0, usable - capped) if usable else 0
+    lines: list[str] = []
+
+    if usable:
+        if capped:
+            lines.append(
+                f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €). "
+                f"Ocenenie má limit {score_cap} za hunt, takže sa skúšalo {tried} "
+                f"a {capped} ostalo mimo — hodinovka nestihne otvárať tisíce stránok."
+            )
+        else:
+            lines.append(
+                f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €)."
+            )
+
+    scored_bits: list[str] = []
+    if n("buy"):
+        scored_bits.append(f"{n('buy')} BUY áno")
+    if n("below_net_profit"):
+        count = n("below_net_profit")
+        word = "ocenený" if count == 1 else "ocenených"
+        scored_bits.append(f"{count} {word} pod prahom {min_profit} €")
+    elif n("scored") and not n("buy"):
+        scored_bits.append(f"{n('scored')} ocenených")
+    if n("no_sold_comps"):
+        scored_bits.append(
+            f"{n('no_sold_comps')} inzerátov bez 5 porovnateľných cien (nie sú stratové)"
+        )
+    if n("identity_weak"):
+        scored_bits.append(f"{n('identity_weak')} bez spoľahlivej identity")
+    if n("insufficient_detail"):
+        scored_bits.append(f"{n('insufficient_detail')} s príliš krátkym textom")
+    if n("asking_only_comps"):
+        scored_bits.append(f"{n('asking_only_comps')} len s predbežným cenníkom")
+    if n("identity_ai_rescued"):
+        scored_bits.append(f"{n('identity_ai_rescued')} s identitou doplnenou AI")
+    if n("ai_rejected"):
+        scored_bits.append(f"{n('ai_rejected')} AI zamietlo")
+    if n("ai_unavailable"):
+        scored_bits.append(f"{n('ai_unavailable')} bez AI review")
+    if scored_bits:
+        prefix = f"z tých {tried}: " if capped and tried else ""
+        lines.append(f"- {prefix}{', '.join(scored_bits)}.")
+
+    if n("sold_lookup_cap"):
+        lines.append(
+            f"- cenník vynechal {n('sold_lookup_cap')} produktov (limit live query, "
+            "to nie je počet inzerátov). Bez ceny to nie je strata."
+        )
+    if n("detail_failed"):
+        lines.append(
+            f"- {n('detail_failed')} stránok inzerátu sa nenačítalo. "
+            "Tento počet sa prekrýva s riadkom vyššie, nesčíta sa to na limit."
+        )
+
+    pre = []
+    for key, label in (
+        ("under_min", f"pod {min_buy} €"),
+        ("over_cap", f"nad {max_buy} €"),
+        ("no_sk_delivery", "bez doručenia na SK"),
+        ("not_buy_now", "nie kúpiť hneď"),
+        ("invalid_price", "neplatná cena"),
+        ("bulky", "rozmerné"),
+        ("heavy", "ťažké"),
+        ("damaged", "poškodené"),
+        ("skip_keyword", "zakázané slovo"),
+        ("detail_damaged", "poškodené po detaile"),
+        ("detail_bulky", "rozmerné po detaile"),
+        ("detail_heavy", "ťažké po detaile"),
+        ("detail_skip_keyword", "zakázané slovo po detaile"),
+    ):
+        if n(key):
+            pre.append(f"{n(key)} {label}")
+    if pre:
+        lines.append("- pred použiteľnými / počas detailu ešte vypadlo: " + ", ".join(pre) + ".")
+
+    return "\n".join(lines) or "- (žiadny priebeh)"
+
+
 def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> str:
     notes = _status_notes(run)
     health = []
     for market, stats in run.source_stats.items():
         health.append(
-            f"- {market.value}: fetched {stats.get('fetched', 0)}, "
-            f"usable {stats.get('usable', 0)}, scored {stats.get('scored', 0)}, "
-            f"buy {stats.get('buy', 0)}"
+            f"- {market.value}: stiahnuté {stats.get('fetched', 0)}, "
+            f"použiteľné {stats.get('usable', 0)}, ocenené {stats.get('scored', 0)}, "
+            f"BUY {stats.get('buy', 0)}"
         )
     if not health:
-        health.append("- no marketplace reached scoring")
-    funnel_bits = [
-        f"usable={run.funnel.get('usable', 0)}",
-        f"score_capped={run.funnel.get('score_capped', 0)}",
-        f"under_min={run.funnel.get('under_min', 0)}",
-        f"bulky={run.funnel.get('bulky', 0)}",
-        f"skip_keyword={run.funnel.get('skip_keyword', 0)}",
-        f"heavy={run.funnel.get('heavy', 0)}",
-        f"identity_weak={run.funnel.get('identity_weak', 0)}",
-        f"detail_failed={run.funnel.get('detail_failed', 0)}",
-        f"scored={run.funnel.get('scored', 0)}",
-        f"buy={run.funnel.get('buy', 0)}",
-        f"no_sold_comps={run.funnel.get('no_sold_comps', 0)}",
-        f"sold_lookup_cap={run.funnel.get('sold_lookup_cap', 0)}",
-        f"asking_only_comps={run.funnel.get('asking_only_comps', 0)}",
-        f"below_net_profit={run.funnel.get('below_net_profit', 0)}",
-        f"identity_ai_rescued={run.funnel.get('identity_ai_rescued', 0)}",
-        f"ai_rejected={run.funnel.get('ai_rejected', 0)}",
-        f"ai_unavailable={run.funnel.get('ai_unavailable', 0)}",
-    ]
-    scored = int(run.funnel.get("scored", 0) or 0)
+        health.append("- žiadny marketplace neskóroval")
+    scored = _funnel_n(run, "scored")
     miss_n = len(run.price_book_misses)
     if buy_count:
         headline = (
@@ -142,7 +215,7 @@ def _format_status(run: HuntRun, *, min_profit, buy_count: int, shown: int) -> s
     return (
         f"{headline}\n\n"
         f"Zdroje:\n{notes}\n\n"
-        f"Funnel: {' '.join(funnel_bits)}\n\n"
+        f"Priebeh:\n{_format_progress(run, min_profit=min_profit)}\n\n"
         f"Marketplace:\n" + "\n".join(health)
     )
 

@@ -120,7 +120,10 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "**BUY:" not in body
     assert "ebay: skipped" not in body
     assert "eBay" not in body
-    assert "no_sold_comps=8" in body
+    assert "no_sold_comps=8" not in body
+    assert "8 inzerátov bez 5 porovnateľných cien" in body
+    assert "Funnel:" not in body
+    assert "Priebeh:" in body
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body
     assert "zisk sa nerátal" not in body
@@ -166,11 +169,14 @@ def test_unscored_hunt_does_not_claim_losing_cards() -> None:
     assert "žiadne ziskové karty" not in body
     assert "usable inzeráty nie sú ocenené" in body
     assert "Stratové položky sa neposielajú" not in body
-    assert "identity_weak=1" in body
-    assert "asking_only_comps=0" in body
-    assert "detail_failed=0" in body
-    assert "sold_lookup_cap=154" in body
-    assert "below_net_profit=0" in body
+    assert "identity_weak=1" not in body
+    assert "1 bez spoľahlivej identity" in body
+    assert "asking_only_comps=0" not in body
+    assert "detail_failed=0" not in body
+    assert "sold_lookup_cap=154" not in body
+    assert "154 produktov" in body
+    assert "below_net_profit=0" not in body
+    assert "Funnel:" not in body
     assert "DataDome" in body
     assert "**BUY:" not in body
     assert "eBay OAuth" not in body
@@ -214,6 +220,61 @@ def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
     assert "facebook: fetched 0" not in body
     assert "allegro_pl: fetched 0" not in body
     assert "olx: fetched 0" not in body
+
+
+def test_hunt_progress_explains_cap_and_query_units() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(
+            usable=2236,
+            score_capped=2156,
+            under_min=320,
+            bulky=4,
+            skip_keyword=0,
+            heavy=5,
+            identity_weak=0,
+            detail_failed=24,
+            scored=1,
+            buy=0,
+            no_sold_comps=59,
+            sold_lookup_cap=39,
+            asking_only_comps=0,
+            below_net_profit=1,
+            identity_ai_rescued=0,
+            ai_rejected=0,
+            ai_unavailable=0,
+        ),
+        source_stats={Marketplace.BAZOS: Counter(fetched=2000, usable=1800, scored=1, buy=0)},
+        fetch_notes=["bazos: fetched 2000"],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "Funnel:" not in body
+    assert "score_capped=2156" not in body
+    assert "sold_lookup_cap=39" not in body
+    assert "no_sold_comps=59" not in body
+    assert "skip_keyword=0" not in body
+    assert "identity_weak=0" not in body
+    assert "asking_only_comps=0" not in body
+    assert "ai_rejected=0" not in body
+    assert "2236 použiteľných inzerátov" in body
+    assert "limit 80" in body
+    assert "skúšalo 80" in body
+    assert "2156 ostalo mimo" in body
+    assert "1 ocenený pod prahom 30 €" in body
+    assert "59 inzerátov bez 5 porovnateľných cien" in body
+    assert "39 produktov" in body
+    assert "to nie je počet inzerátov" in body
+    assert "24 stránok inzerátu sa nenačítalo" in body
+    assert "nesčíta sa to na limit" in body
+    assert "320 pod 20 €" in body
+    assert "4 rozmerné" in body
+    assert "5 ťažké" in body
+    assert "bazos: stiahnuté 2000" in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:

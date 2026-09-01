@@ -222,14 +222,12 @@ that were found. The assignee is mentioned only when at least one BUY card
 is present. If `scored=0`, the comment says profit was never computed
 (missing price-book sample), not that every usable ad is a loss.
 
-**Funnel** is the drop-off counter printed as `filter: usable=… scored=… buy=…`.
-It is not a status headline. Each key is how many ads left that step:
-fetched → usable (buy-now, 20–110 €, not bulky/damaged) → scored (had a
-price-book value) → buy (expected net profit ≥ 30 €). `no_sold_comps` means
-the ad was never valued. `below_net_profit` means it was valued and missed
-the 30 € floor. At most `max_score_listings` (80) usable ads get a detail
-fetch and a price; the rest are `score_capped`. The hourly hunt cannot open
-2000 Vinted pages.
+GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
+Zero counters are omitted. `score_capped` is explained as the 80-ad scoring
+limit (the hourly job cannot open thousands of detail pages). `sold_lookup_cap`
+is **products** skipped by the live price-book budget, not extra ads — it must
+not be added to `no_sold_comps`. `detail_failed` can overlap later buckets.
+The compact `filter: usable=… scored=… buy=…` dump stays in the job log.
 
 Hunt GitHub Actions is split into **Fetch Bazos / Fetch Aukro / Fetch Vinted /
 Score and comment**. The yellow step is the one still running. Progress also
