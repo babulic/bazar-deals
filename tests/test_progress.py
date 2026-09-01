@@ -32,3 +32,4 @@ def test_listings_in_scores_cached_json(tmp_path: Path, capsys) -> None:
     text = capsys.readouterr().out
     assert "filter:" in text
     assert "No deals" in text
+    assert "Lacnejšie ako obvyklá" not in text
