@@ -11,6 +11,8 @@ _HASH_SIZE = 8
 _MAX_BYTES = 2_000_000
 # 8×8 aHash; same object is typically under 10, phone vs strap is far above 20.
 _SAME_HAMMING = 14
+# Grey / white / black photos are not a colour signal.
+_GREY_CHROMA = 28.0
 
 
 def average_hash(data: bytes, size: int = _HASH_SIZE) -> int | None:
@@ -67,6 +69,115 @@ def photos_same_object(
             if hamming_distance(left, right) <= _SAME_HAMMING:
                 return True
     return False
+
+
+def rgb_color_family(rgb: tuple[float, float, float]) -> str | None:
+    """Map an average RGB triple to a coarse colour family, or None if grey."""
+    red, green, blue = rgb
+    chroma = max(red, green, blue) - min(red, green, blue)
+    if chroma < _GREY_CHROMA:
+        return None
+    if green >= red + 12 and green >= blue + 12:
+        return "green"
+    if blue >= red + 15 and blue >= green + 10:
+        return "blue"
+    if red >= green and red >= blue:
+        if green >= 90 and blue >= 80 and abs(green - blue) < 55:
+            return "pink"
+        if green >= 100 and blue < 80 and red - blue >= 40:
+            return "yellow"
+        if green >= 60 and blue < green * 0.75:
+            return "red"
+        return "red"
+    if green >= blue and red >= 80:
+        return "yellow"
+    return None
+
+
+def hex_color_family(value: str) -> str | None:
+    """Parse `#rrggbb` / `#rgb` marketplace swatches (Vinted dominant_color)."""
+    text = (value or "").strip().lstrip("#")
+    if len(text) == 3:
+        text = "".join(char * 2 for char in text)
+    if len(text) != 6:
+        return None
+    try:
+        red = int(text[0:2], 16)
+        green = int(text[2:4], 16)
+        blue = int(text[4:6], 16)
+    except ValueError:
+        return None
+    return rgb_color_family((float(red), float(green), float(blue)))
+
+
+def mean_rgb(data: bytes) -> tuple[float, float, float] | None:
+    try:
+        from PIL import Image
+    except ImportError:
+        return None
+    try:
+        image = Image.open(io.BytesIO(data)).convert("RGB")
+        image = image.resize((16, 16), Image.Resampling.BOX)
+    except Exception:
+        return None
+    flatten = getattr(image, "get_flattened_data", image.getdata)
+    raw = list(flatten())
+    if not raw:
+        return None
+    if isinstance(raw[0], int):
+        if len(raw) % 3:
+            return None
+        pixels = list(zip(raw[0::3], raw[1::3], raw[2::3], strict=False))
+    else:
+        pixels = raw
+    count = len(pixels)
+    red = sum(pixel[0] for pixel in pixels) / count
+    green = sum(pixel[1] for pixel in pixels) / count
+    blue = sum(pixel[2] for pixel in pixels) / count
+    return (red, green, blue)
+
+
+def photos_color_conflict(
+    stock_urls: list[str],
+    want_urls: list[str],
+    *,
+    fetch: Callable[[str], bytes | None] | None = None,
+    stock_colors: set[str] | None = None,
+    want_swatches: list[str] | None = None,
+) -> bool | None:
+    """True when stock and want photos (or swatches) name different colours.
+
+    None when neither side has a usable colour signal. False when colours agree
+    or only one side is known.
+    """
+    stock_families = set(stock_colors or ())
+    want_families = {family for family in (hex_color_family(item) for item in want_swatches or []) if family}
+    if not stock_families and not stock_urls:
+        return None
+    if not want_families and not want_urls:
+        return None
+    getter = fetch or _download
+    if not stock_families:
+        for url in stock_urls[:4]:
+            if not _public_image_url(url):
+                continue
+            rgb = mean_rgb(_read(url, getter))
+            family = rgb_color_family(rgb) if rgb else None
+            if family:
+                stock_families.add(family)
+    if not want_families:
+        for url in want_urls[:4]:
+            if not _public_image_url(url):
+                continue
+            rgb = mean_rgb(_read(url, getter))
+            family = rgb_color_family(rgb) if rgb else None
+            if family:
+                want_families.add(family)
+    if not stock_families or not want_families:
+        return None
+    if stock_families & want_families:
+        return False
+    return True
 
 
 def _read(url: str, getter: Callable[[str], bytes | None]) -> bytes:

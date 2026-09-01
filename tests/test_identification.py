@@ -14,6 +14,7 @@ from bazar_deals.identity import (
     identify,
     identity_subject,
     listing_text,
+    advertisement_text,
     similar_titles,
 )
 from bazar_deals.pipeline import hunt
@@ -56,6 +57,15 @@ def test_listing_text_reads_past_the_title() -> None:
     assert "128 GB" in text
     assert "Midnight" in text
     assert "Mobily" in text
+
+
+def test_advertisement_text_matches_listing_text() -> None:
+    item = listing(
+        title="Apple iPhone 13",
+        description="Kapacita 128 GB, batéria 89%.",
+        raw={"shortDescription": "Midnight"},
+    )
+    assert advertisement_text(item.title, item.description, item.raw) == listing_text(item)
 
 
 def test_listing_text_reads_nested_ebay_item_specifics() -> None:

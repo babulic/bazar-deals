@@ -199,6 +199,7 @@ def vinted_listing_from_node(node: dict) -> Listing | None:
         or node.get("sizeTitle")
         or ""
     )
+    image_urls, dominant_colors = _vinted_photo_meta(node)
     return Listing(
         marketplace=Marketplace.VINTED,
         external_id=item_id,
@@ -213,8 +214,39 @@ def vinted_listing_from_node(node: dict) -> Listing | None:
             "content_source": node.get("content_source") or node.get("contentSource"),
             "brand": brand or None,
             "size": size or None,
+            "images": image_urls,
+            "dominant_colors": dominant_colors,
         },
     )
+
+
+def _vinted_photo_meta(node: dict) -> tuple[list[str], list[str]]:
+    """Public catalog thumbnails and Vinted's own dominant-colour swatches."""
+    urls: list[str] = []
+    colors: list[str] = []
+    photos: list[object] = []
+    if isinstance(node.get("photos"), list):
+        photos.extend(node["photos"])
+    photo = node.get("photo")
+    if isinstance(photo, dict):
+        photos.insert(0, photo)
+    elif isinstance(photo, list):
+        photos.extend(photo)
+    for blob in photos:
+        if not isinstance(blob, dict):
+            continue
+        for key in ("full_size_url", "fullSizeUrl", "url"):
+            value = blob.get(key)
+            if isinstance(value, str) and value.startswith("https://") and value not in urls:
+                urls.append(value)
+                break
+        for key in ("dominant_color", "dominantColor"):
+            value = blob.get(key)
+            if isinstance(value, str) and value.startswith("#") and value not in colors:
+                colors.append(value)
+        if len(urls) >= 4:
+            break
+    return urls[:4], colors
 
 
 def _vinted_item_url(raw_url: str) -> str:

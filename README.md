@@ -16,7 +16,7 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. The GHA `research` job is only a backup when the hunt job dies before that loop (`looped` empty). Sell still has a separate 0-match retry. Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
+**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. After 0 kupci **or a retryable fetch error** (eBay HTTP 429) the sell process does the same in-process. The GHA `research` job is only a backup when the job dies before that loop (`looped` empty). Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters. A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
@@ -275,7 +275,12 @@ board, not just "I'm looking for":
 
 "I'm looking for" (`suche`, `szukam`, `keresek`, `cherche`, `cerco`, `zoek`)
 is still searched as a second pass. Only ads whose **title is the buyer's own
-dopyt** are counted as kupci. Targeted searches (willhaben, Kleinanzeigen, eBay)
+dopyt** are counted as kupci. Matching itself uses the **whole advertisement**:
+title, description, brand/size/colour fields, photo URLs, and marketplace
+swatches (Vinted `dominant_color`). A species hit is not enough: a pink
+`bransoletka` / bracelet WTB does not match a green tumbled jadeite sold for
+making jewelry, a pendant does not match a bracelet, and a jewelry brand/SKU
+the stock does not have is a miss. Targeted searches (willhaben, Kleinanzeigen, eBay)
 that hit **your own stock titles which are actually for sale** still appear in
 the digest with links, labelled as not-a-demand, so you can click them.
 
@@ -288,15 +293,20 @@ the digest with links, labelled as not-a-demand, so you can click them.
 | willhaben.at | `Suche {part}` and `Kaufe {part}` |
 | delcampe.net | minerals category: species+locality, then `suche` / `wanted` |
 | forum64.de | C64 Kleinanzeigen search: `Suche` / `Gesucht` + part number |
-| ebay.de / .at / .fr / .it / .pl / .nl / .es / .be | `{kaufe\|kupię\|veszek\|compro\|achète\|koop} {part}` plus looking-for |
+| ebay.de / .at / .pl | `{kaufe\|kupię} {part}` plus looking-for. First HTTP 429 stops **all** remaining eBay storefronts (one note, one in-process retry with backoff). |
 
 Allegro PL/SK is searched through the official listing API. Sbazar.cz, OLX.pl
 and Facebook Marketplace public results are also searched for buyer-authored
-want-to-buy titles. Facebook groups and private/login APIs remain out of scope. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
+want-to-buy titles. Facebook groups and private/login APIs remain out of scope.
+When the public Facebook or OLX page is a **login wall** (HTTP 403 / unreadable
+chrome), the digest records a single skip note and does **not** retry or scrape
+it. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
 says so instead of pretending the board was empty. **Zdroje** in the GitHub
 comment is one line per site (`queries · rows · want-ads`), not a dump of
 every search. Kleinanzeigen/willhaben/Delcampe/Forum64 stop after HTTP 403
-or Cloudflare instead of retrying every stock query.
+or Cloudflare instead of retrying every stock query. eBay WTB search is
+`ebay.de`, `ebay.at` and `ebay.pl` only — eight storefronts were what 429'd
+the Browse API.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
 hourly at minute 30 and on every push to `main`) posts a digest on a **Sell buyers** issue — not hunt

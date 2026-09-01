@@ -85,7 +85,7 @@ def strip_markup(text: str) -> str:
     return _ENTITY_RE.sub(" ", _URL_RE.sub(" ", without_tags))
 
 
-def listing_text(listing: Listing) -> str:
+def advertisement_text(title: str, description: str = "", raw: dict | None = None) -> str:
     """Every field that can say what the item is, not just the title.
 
     Sellers routinely leave the capacity, the production year or the part number
@@ -93,11 +93,11 @@ def listing_text(listing: Listing) -> str:
     keep the same facts in structured fields (eBay item specifics, Aukro
     category path, Vinted brand) which the headline never repeats.
     """
-    parts = [listing.title, listing.description]
-    raw = listing.raw if isinstance(listing.raw, dict) else {}
-    blobs = [raw]
+    parts = [title, description]
+    payload = raw if isinstance(raw, dict) else {}
+    blobs = [payload]
     for nest in _NESTED_RAW:
-        nested = raw.get(nest)
+        nested = payload.get(nest)
         if isinstance(nested, dict):
             blobs.append(nested)
     for blob in blobs:
@@ -106,6 +106,11 @@ def listing_text(listing: Listing) -> str:
                 parts.extend(_flatten(blob[key]))
         parts.extend(_aspect_text(blob))
     return strip_markup(" ".join(part for part in parts if part))
+
+
+def listing_text(listing: Listing) -> str:
+    """Every field that can say what the item is, not just the title."""
+    return advertisement_text(listing.title, listing.description, listing.raw)
 
 
 def _aspect_text(blob: dict) -> list[str]:
