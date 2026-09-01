@@ -5,7 +5,7 @@ import httpx
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import format_compact_deal, format_github_deal, format_price_book_miss
-from bazar_deals.pipeline import HuntRun, is_dry_price_book_miss
+from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
@@ -85,7 +85,7 @@ def _scored_watch(deals: list[Deal], shown: list[Deal]) -> list[Deal]:
 
 
 def _status_notes(run: HuntRun) -> str:
-    notes = [note for note in run.fetch_notes if not is_dry_price_book_miss(note)]
+    notes = [note for note in run.fetch_notes if not is_alert_noise(note)]
     return "\n".join(f"- {note}" for note in notes) or "- (no sources fetched)"
 
 

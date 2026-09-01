@@ -97,7 +97,7 @@ class Settings(BaseSettings):
     keepa_api_key: str = ""
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
-    comps_live_queries: int = Field(default=16, ge=0, le=80)
+    comps_live_queries: int = Field(default=int(_HUNT.get("max_sold_lookups", 80)), ge=0, le=80)
 
     @field_validator("eur_czk", "eur_pln", mode="before")
     @classmethod

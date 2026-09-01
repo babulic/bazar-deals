@@ -22,6 +22,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "max_no_comp_alerts" not in data["hunt"]
     assert data["hunt"]["min_sold_sample"] == 5
     assert data["hunt"]["max_sold_lookups"] == 80
+    assert Settings().comps_live_queries == 80
     assert data["hunt"]["max_score_listings"] == 80
     assert Settings().copilot_model == "auto"
     assert "phones" in data["domain"]["item_kinds"]

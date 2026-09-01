@@ -118,7 +118,8 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
     assert "**BUY:" not in body
-    assert "ebay: skipped (valuation uses Bazos/Aukro/Vinted price book, not eBay)" in body
+    assert "ebay: skipped" not in body
+    assert "eBay" not in body
     assert "no_sold_comps=8" in body
     assert "bazos: fetched 12" in body
     assert "žiadne ziskové karty" in body
@@ -172,6 +173,47 @@ def test_unscored_hunt_does_not_claim_losing_cards() -> None:
     assert "below_net_profit=0" in body
     assert "DataDome" in body
     assert "**BUY:" not in body
+    assert "eBay OAuth" not in body
+    assert "LOGIN_REQUIRED" not in body
+    assert "ACCESS_NOT_GRANTED" not in body
+
+
+def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
+    from collections import Counter
+
+    from bazar_deals.domain import Marketplace
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=10, scored=1, buy=0),
+        source_stats={Marketplace.BAZOS: Counter(fetched=10, usable=10, scored=1, buy=0)},
+        fetch_notes=[
+            "bazos: fetched 10",
+            "sbazar: NEEDS_DELIVERY_CONFIRMATION: 329 offers require detail or manual evidence",
+            "facebook: fetched 0",
+            "facebook: LOGIN_REQUIRED: manual import only; browser login is not unattended API access",
+            "allegro_pl: fetched 0",
+            "allegro_pl: ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available",
+            "allegro_sk: fetched 0",
+            "allegro_sk: ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available",
+            "olx: fetched 0",
+            "olx: BLOCKED: manual import only; standard OLX API does not search other sellers",
+            "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
+            "price book: live query budget exhausted (16); remaining products are unvalued",
+        ],
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=30)
+    assert "bazos: fetched 10" in body
+    assert "NEEDS_DELIVERY_CONFIRMATION" not in body
+    assert "LOGIN_REQUIRED" not in body
+    assert "ACCESS_NOT_GRANTED" not in body
+    assert "manual import only" not in body
+    assert "wlvs siltovka" not in body
+    assert "live query budget exhausted" not in body
+    assert "facebook: fetched 0" not in body
+    assert "allegro_pl: fetched 0" not in body
+    assert "olx: fetched 0" not in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:

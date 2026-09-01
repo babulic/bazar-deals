@@ -144,15 +144,18 @@ def hunt_sources(
                 elapsed = int(time.monotonic() - started)
                 note = f"{source.marketplace}: fetched {len(batch)}"
                 emit(f"{note} in {elapsed}s")
-                fetch_notes.append(note)
+                if not is_alert_noise(note):
+                    fetch_notes.append(note)
                 listings.extend(batch)
                 for source_note in getattr(source, "notes", []):
                     emit(source_note)
-                    fetch_notes.append(source_note)
+                    if source_note and not is_alert_noise(source_note):
+                        fetch_notes.append(source_note)
             except (RuntimeError, httpx.HTTPError) as exc:
                 note = f"{source.marketplace}: fetched 0 ({exc})"
                 emit(note)
-                fetch_notes.append(note)
+                if not is_alert_noise(note):
+                    fetch_notes.append(note)
         if not score:
             return HuntRun(
                 deals=[],
@@ -174,7 +177,7 @@ def hunt_sources(
         extra = [
             note
             for note in getattr(sold_client, "notes", [])
-            if note and note not in fetch_notes and not is_dry_price_book_miss(note)
+            if note and note not in fetch_notes and not is_alert_noise(note)
         ]
         run.fetch_notes = fetch_notes + extra
         run.listings = listings
@@ -241,8 +244,16 @@ def score_listings(
 
     # Do not let a large/cheap Bazos batch consume the global price-book budget.
     # Every active marketplace gets one turn per round, with Vinted/Aukro
-    # deliberately placed before Bazos in each round.
-    usable = _round_robin_listings(usable)
+    # deliberately placed before Bazos in each round. Unconfirmed SK delivery
+    # (sbazar catalog rows) goes last so it cannot fill the 80-ad score cap.
+    ready: list[Listing] = []
+    pending_sk: list[Listing] = []
+    for listing in usable:
+        if listing.marketplace.value in SITES and listing.ships_to_slovakia is not True:
+            pending_sk.append(listing)
+        else:
+            ready.append(listing)
+    usable = _round_robin_listings(ready) + pending_sk
     score_cap = int(rules()["hunt"].get("max_score_listings", 80))
     if score_cap > 0 and len(usable) > score_cap:
         funnel["score_capped"] = len(usable) - score_cap
@@ -504,6 +515,25 @@ def _shipping_eur(listing: Listing, settings: Settings) -> Decimal:
 
 def is_dry_price_book_miss(note: str) -> bool:
     return (note or "").startswith("price book: insufficient comparable ads")
+
+
+def is_alert_noise(note: str) -> bool:
+    """Operator diagnostics that must not appear on the Deal alerts issue."""
+    text = note or ""
+    if is_dry_price_book_miss(text) or text.startswith("price book:"):
+        return True
+    if text.startswith(("facebook:", "allegro_pl:", "allegro_sk:", "olx:", "ebay:")):
+        return True
+    markers = (
+        "LOGIN_REQUIRED",
+        "ACCESS_NOT_GRANTED",
+        "NEEDS_DELIVERY_CONFIRMATION",
+        ": READY:",
+        "manual import only",
+        "BLOCKED: manual import",
+        "live query budget exhausted",
+    )
+    return any(marker in text for marker in markers)
 
 
 def _format_funnel(funnel: Counter[str]) -> str:

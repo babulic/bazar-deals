@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from bazar_deals.adapters.central_europe import (
-    CentralEuropeClient, SITES, delivery_to_sk, parse_public_listings,
+    CentralEuropeClient, HUNT_SITES, SITES, delivery_to_sk, parse_public_listings,
 )
 from bazar_deals.cli import _dump_listings, _load_listings, _sources
 from bazar_deals.config import Settings
@@ -118,7 +118,8 @@ def test_missing_allegro_credentials_and_blocked_public_pages_report_unavailable
             source = CentralEuropeClient("facebook", Settings(), client=client)
             run = hunt_sources([source], settings=Settings(), sold=object(), score=False)
             assert not run.listings
-            assert any("unavailable" in note or "login" in note for note in run.fetch_notes)
+            assert any("LOGIN_REQUIRED" in note for note in source.notes)
+            assert not any("facebook:" in note for note in run.fetch_notes)
 
 
 def test_pln_needs_explicit_conversion_and_unknown_currency_is_not_eur():
@@ -174,7 +175,13 @@ def test_unverified_new_marketplaces_do_not_seed_price_book(tmp_path):
 
 
 def test_all_sources_are_registered_and_offline_stays_offline():
-    assert set(SITES) <= {s.marketplace for s in _sources("all", Settings(), fixture=None)}
+    assert set(HUNT_SITES) <= {s.marketplace for s in _sources("all", Settings(), fixture=None)}
+    assert {s.marketplace for s in _sources("all", Settings(), fixture=None)} == {
+        "bazos",
+        "aukro",
+        "vinted",
+        "sbazar",
+    }
     assert set(SITES.values()) <= set(searched_sites())
     assert [s.marketplace for s in _sources("all", Settings(), fixture="unused")] == ["bazos"]
 
