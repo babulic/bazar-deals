@@ -187,6 +187,7 @@ def test_all_sources_are_registered_and_offline_stays_offline():
         "ebay",
         "sbazar",
         "facebook",
+        "olx",
     }
     assert "sbazar.cz" in searched_sites()
     assert "facebook.com" in searched_sites()

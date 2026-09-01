@@ -95,7 +95,15 @@ def format_github_deal(deal: Deal) -> str:
         rows.append(("model", item.model))
     if item.vertical is not None:
         rows.append(("vertikála", item.vertical.value))
-    rows.append(("marketplace", listing.marketplace.value))
+    if listing.marketplace.value == "ebay":
+        from urllib.parse import urlparse
+
+        host = (urlparse(url).hostname or "").casefold()
+        if host.startswith("www."):
+            host = host[4:]
+        rows.append(("marketplace", host or "ebay"))
+    else:
+        rows.append(("marketplace", listing.marketplace.value))
     rows.append(("id", listing.external_id))
     rows.append(("nákupná cena", _eur(costs.buy_price)))
     if typical > 0:

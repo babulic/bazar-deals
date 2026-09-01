@@ -96,9 +96,15 @@ jobs:
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
+      - name: Fetch OLX
+        continue-on-error: true
+        run: python -u -m bazar_deals hunt --source olx --fetch-only --listings-out .cache/hunt-olx.json
+        env:
+          PYTHONUNBUFFERED: "1"
+          COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Score and comment
         id: score
-        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --notify
+        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}

@@ -125,3 +125,34 @@ def test_fetch_new_keeps_hits_when_a_later_category_is_400(monkeypatch):
     client._token = "test-token"
     found = client.fetch_new()
     assert [item.external_id for item in found] == ["hit-1"]
+
+
+def test_fetch_new_keeps_ebay_at_and_searches_de_and_at(monkeypatch):
+    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_target_queries", lambda: ("iphone",))
+    monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ())
+    seen: list[str] = []
+
+    def get(url, **kwargs):
+        marketplace_id = kwargs["headers"]["X-EBAY-C-MARKETPLACE-ID"]
+        seen.append(marketplace_id)
+        host = "ebay.at" if marketplace_id == "EBAY_AT" else "ebay.de"
+        item = {
+            "itemId": f"hit-{marketplace_id}",
+            "title": "Apple iPhone 13 128GB",
+            "itemWebUrl": f"https://www.{host}/itm/hit",
+            "price": {"value": "55", "currency": "EUR"},
+            "buyingOptions": ["FIXED_PRICE"],
+            "condition": "USED",
+        }
+        return httpx.Response(200, json={"itemSummaries": [item]}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get)
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+    client._token = "test-token"
+    found = client.fetch_new()
+    assert "EBAY_DE" in seen and "EBAY_AT" in seen
+    hosts = sorted(str(item.url) for item in found)
+    assert any("ebay.de" in url for url in hosts)
+    assert any("ebay.at" in url for url in hosts)
+    assert any("ebay.de: fetched 1" in note for note in client.notes)
+    assert any("ebay.at: fetched 1" in note for note in client.notes)

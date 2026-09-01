@@ -41,6 +41,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"
     assert data["hunt"]["comps_ttl_days"] == 7
     assert "3213" in data["ebay"]["small_categories"]
+    assert data["ebay"]["hunt_marketplace_ids"] == ["EBAY_DE", "EBAY_AT"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
     assert "du" in data["catalog"]["small_bazos_rubs"]
     assert "sp" in data["catalog"]["small_bazos_rubs"]

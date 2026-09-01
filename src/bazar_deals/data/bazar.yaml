@@ -1676,6 +1676,9 @@ selling:
 
 ebay:
   marketplace_id: EBAY_DE
+  # Hourly hunt searches both German and Austrian storefronts. Browse still
+  # requires deliveryCountry:SK; ebay.at URLs used to be dropped after a DE-only filter.
+  hunt_marketplace_ids: [EBAY_DE, EBAY_AT]
   token_url: https://api.ebay.com/identity/v1/oauth2/token
   search_url: https://api.ebay.com/buy/browse/v1/item_summary/search
   oauth_scope: https://api.ebay.com/oauth/api_scope

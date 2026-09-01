@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
 from decimal import Decimal
+from urllib.parse import urlparse
 
 import httpx
 
@@ -15,10 +17,38 @@ _TOKEN_URL = _EBAY["token_url"]
 _SEARCH_URL = _EBAY["search_url"]
 CONDITION_MAP = {key: Condition(value) for key, value in _EBAY["condition_map"].items()}
 _SMALL_CATEGORIES = tuple(_EBAY["small_categories"])
+_HUNT_MARKETPLACES = tuple(
+    str(item) for item in (_EBAY.get("hunt_marketplace_ids") or [_EBAY["marketplace_id"]])
+)
+_HUNT_HOSTS = ("ebay.de", "ebay.at")
+
+
+def hunt_ebay_marketplace_ids() -> tuple[str, ...]:
+    return _HUNT_MARKETPLACES or ("EBAY_DE",)
+
+
+def is_hunt_ebay_url(url: object) -> bool:
+    """True for the German and Austrian storefronts the hourly hunt is allowed to buy from."""
+    host = (urlparse(str(url)).hostname or "").casefold()
+    return any(host == item or host.endswith("." + item) for item in _HUNT_HOSTS)
+
+
+def ebay_listing_host(url: object) -> str:
+    host = (urlparse(str(url)).hostname or "").casefold()
+    if host.startswith("www."):
+        host = host[4:]
+    return host
+
+
+def marketplace_id_for_url(url: object) -> str:
+    host = ebay_listing_host(url)
+    if host.endswith("ebay.at"):
+        return "EBAY_AT"
+    return "EBAY_DE"
 
 
 class EbayBrowseClient(ListingSource):
-    """Newest buy-now ebay.de listings that can be delivered to Slovakia."""
+    """Newest buy-now ebay.de and ebay.at listings that can be delivered to Slovakia."""
 
     marketplace = Marketplace.EBAY.value
 
@@ -30,6 +60,7 @@ class EbayBrowseClient(ListingSource):
         self.settings = settings or Settings()
         self._client = client
         self._token: str | None = None
+        self.notes: list[str] = []
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if not self.settings.ebay_client_id or not self.settings.ebay_client_secret:
@@ -39,44 +70,53 @@ class EbayBrowseClient(ListingSource):
         listings: list[Listing] = []
         seen: set[str] = set()
         last_exc: BaseException | None = None
-        for query in hunt_target_queries():
-            try:
-                data = self.search_query(query, limit=30)
-            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-                last_exc = exc
-                continue
-            for item in data.get("itemSummaries", []):
-                listing = self._to_listing(item)
-                if listing.external_id in seen:
-                    continue
-                seen.add(listing.external_id)
-                listings.append(listing)
-        if not hunt_research_only():
-            for category in _SMALL_CATEGORIES:
+        self.notes = []
+        for marketplace_id in hunt_ebay_marketplace_ids():
+            for query in hunt_target_queries():
                 try:
-                    data = self.search(category, limit=30)
+                    data = self.search_query(query, limit=30, marketplace_id=marketplace_id)
                 except (httpx.HTTPError, RuntimeError, ValueError) as exc:
                     last_exc = exc
                     continue
-                for item in data.get("itemSummaries", []):
-                    listing = self._to_listing(item)
-                    if listing.external_id in seen:
+                self._ingest(data, listings, seen, marketplace_id)
+            if not hunt_research_only():
+                for category in _SMALL_CATEGORIES:
+                    try:
+                        data = self.search(category, limit=30, marketplace_id=marketplace_id)
+                    except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                        last_exc = exc
                         continue
-                    seen.add(listing.external_id)
-                    listings.append(listing)
+                    self._ingest(data, listings, seen, marketplace_id)
         found = [
             item
             for item in listings
             if item.buy_now
             and item.condition is not Condition.FOR_PARTS
             and item.ships_to_slovakia is True
-            and "ebay.de" in str(item.url)
+            and is_hunt_ebay_url(item.url)
             and item.price.amount >= self.settings.min_buy_eur
             and item.price.amount <= self.settings.max_buy_eur
         ]
+        hosts = Counter(ebay_listing_host(item.url) for item in found)
+        for host in _HUNT_HOSTS:
+            self.notes.append(f"{host}: fetched {hosts.get(host, 0)}")
         if not found and last_exc is not None:
             raise last_exc
         return found
+
+    def _ingest(
+        self,
+        data: dict,
+        listings: list[Listing],
+        seen: set[str],
+        marketplace_id: str,
+    ) -> None:
+        for item in data.get("itemSummaries", []):
+            listing = self._to_listing(item, marketplace_id=marketplace_id)
+            if listing.external_id in seen:
+                continue
+            seen.add(listing.external_id)
+            listings.append(listing)
 
     def enrich_listing(self, listing: Listing) -> Listing:
         href = str(listing.raw.get("itemHref") or "").strip()
@@ -84,10 +124,9 @@ class EbayBrowseClient(ListingSource):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
-        headers = {
-            "Authorization": f"Bearer {self._access_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
-        }
+        headers = self._browse_headers(
+            str(listing.raw.get("ebay_marketplace") or marketplace_id_for_url(listing.url))
+        )
         try:
             response = httpx.get(href, headers=headers, timeout=20.0)
             response.raise_for_status()
@@ -112,15 +151,20 @@ class EbayBrowseClient(ListingSource):
             }
         )
 
-    def search(self, category_id: str, *, limit: int = 50) -> dict:
+    def _browse_headers(self, marketplace_id: str | None = None) -> dict[str, str]:
         headers = {
             "Authorization": f"Bearer {self._access_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
+            "X-EBAY-C-MARKETPLACE-ID": marketplace_id or self.settings.ebay_marketplace,
         }
         if self.settings.ebay_campaign_id:
             headers["X-EBAY-C-ENDUSERCTX"] = (
                 f"affiliateCampaignId={self.settings.ebay_campaign_id}"
             )
+        return headers
+
+    def search(
+        self, category_id: str, *, limit: int = 50, marketplace_id: str | None = None
+    ) -> dict:
         params = {
             "category_ids": category_id,
             "sort": "newlyListed",
@@ -130,15 +174,23 @@ class EbayBrowseClient(ListingSource):
                 max_price=self.settings.max_buy_eur,
             ),
         }
-        response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
+        response = httpx.get(
+            _SEARCH_URL,
+            headers=self._browse_headers(marketplace_id),
+            params=params,
+            timeout=20.0,
+        )
         response.raise_for_status()
         return response.json()
 
-    def search_query(self, query: str, *, limit: int = 50, purchase_budget: bool = True) -> dict:
-        headers = {
-            "Authorization": f"Bearer {self._access_token()}",
-            "X-EBAY-C-MARKETPLACE-ID": self.settings.ebay_marketplace,
-        }
+    def search_query(
+        self,
+        query: str,
+        *,
+        limit: int = 50,
+        purchase_budget: bool = True,
+        marketplace_id: str | None = None,
+    ) -> dict:
         hi = self.settings.max_buy_eur * 3
         params = {
             "q": query,
@@ -149,7 +201,12 @@ class EbayBrowseClient(ListingSource):
                 max_price=hi if purchase_budget else None,
             ),
         }
-        response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
+        response = httpx.get(
+            _SEARCH_URL,
+            headers=self._browse_headers(marketplace_id),
+            params=params,
+            timeout=20.0,
+        )
         response.raise_for_status()
         return response.json()
 
@@ -183,11 +240,14 @@ class EbayBrowseClient(ListingSource):
             raise RuntimeError(f"eBay OAuth response missing access_token ({exc})") from exc
         return self._token
 
-    def _to_listing(self, item: dict) -> Listing:
+    def _to_listing(self, item: dict, *, marketplace_id: str | None = None) -> Listing:
         price = item.get("price") or {}
         condition_id = (item.get("conditionId") or item.get("condition") or "").upper()
         affiliate = item.get("itemAffiliateWebUrl") or None
         shipping = _shipping_cost(item)
+        raw = dict(item)
+        if marketplace_id:
+            raw["ebay_marketplace"] = marketplace_id
         return Listing(
             marketplace=Marketplace.EBAY,
             external_id=item.get("itemId", ""),
@@ -204,7 +264,7 @@ class EbayBrowseClient(ListingSource):
             buy_now=is_ebay_buy_now(item),
             ships_to_slovakia=True,
             shipping_cost=shipping,
-            raw=item,
+            raw=raw,
         )
 
 

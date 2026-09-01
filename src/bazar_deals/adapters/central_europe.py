@@ -7,7 +7,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
-from urllib.parse import quote, urlencode, urlparse
+from urllib.parse import quote, urlencode, urljoin, urlparse
 
 import httpx
 
@@ -25,9 +25,10 @@ SITES = {
     "allegro_sk": "allegro.sk",
     "olx": "olx.pl",
 }
-# Hourly hunt fetches sbazar (SK delivery on detail) and tries Facebook
-# Marketplace public HTML. Login walls stay fail-closed; they are not scraped.
-HUNT_SITES = ("sbazar", "facebook")
+# Hourly hunt fetches sbazar (SK delivery on detail), public OLX.pl HTML/JSON-LD,
+# and Facebook Marketplace public HTML. Login walls stay fail-closed; they are
+# not scraped. OLX's own API still cannot search other sellers.
+HUNT_SITES = ("sbazar", "facebook", "olx")
 
 
 _WANT = re.compile(r"(?i)^\W*(?:kúpim|kupim|koupím|koupim|kupię|kupie|szukam|hľadám|hladam|hledám|hledam|wanted|wtb|looking for)\b")
@@ -147,6 +148,47 @@ def _empty_sbazar_search(body: str) -> bool:
     return False
 
 
+def _empty_olx_search(body: str) -> bool:
+    """A readable OLX search page with zero offers is not a login wall."""
+    text = body or ""
+    folded = text.casefold()
+    if re.search(r"nie znaleziono og\w*osze|brak wynik", folded):
+        return True
+    data = _PublicData()
+    try:
+        data.feed(text)
+    except Exception:
+        return False
+    for root in data.products:
+        for node in _walk(root):
+            if node.get("@type") != "ItemList":
+                continue
+            total = node.get("numberOfItems")
+            if total in (0, "0"):
+                return True
+            elements = node.get("itemListElement")
+            if elements == []:
+                return True
+    return False
+
+
+def _ld_images(node: dict) -> list[str]:
+    found: list[str] = []
+    image = node.get("image")
+    blobs: list[object] = image if isinstance(image, list) else [image]
+    for blob in blobs:
+        url = ""
+        if isinstance(blob, str):
+            url = blob
+        elif isinstance(blob, dict):
+            url = str(blob.get("url") or blob.get("contentUrl") or "")
+        if url.startswith("https://") and url not in found:
+            found.append(url)
+        if len(found) == 4:
+            break
+    return found
+
+
 def parse_public_listings(body: str, source: str) -> list[Listing]:
     data = _PublicData()
     data.feed(body)
@@ -213,13 +255,17 @@ def parse_public_listings(body: str, source: str) -> list[Listing]:
                 item_id = item_id.split("-", 1)[0]
             elif source.startswith("allegro_"):
                 item_id = item_id.rsplit("-", 1)[-1]
+            images = _ld_images(node)
             listing = Listing(
                 marketplace=Marketplace(source), external_id=item_id, title=node["name"],
                 description=description, url=url, price=price,
                 # Only current, in-stock fixed offers can reach BUY.
                 buy_now=str(offer.get("availability", "")).rsplit("/", 1)[-1] == "InStock",
                 ships_to_slovakia=eligible, shipping_cost=shipping,
-                raw={"delivery_evidence": "offer shippingDetails SK" if shipping else description if eligible else ""},
+                raw={
+                    "delivery_evidence": "offer shippingDetails SK" if shipping else description if eligible else "",
+                    "images": images,
+                },
             )
             found.setdefault(item_id, listing)
     return _exclude_demands(list(found.values()))
@@ -234,16 +280,33 @@ class CentralEuropeClient(ListingSource):
         self._auth = AllegroAuth(settings, client)
 
     def manual_mode(self) -> str | None:
-        if self.marketplace == "olx":
-            return "BLOCKED: manual import only; standard OLX API does not search other sellers"
+        # OLX's official API cannot search other sellers. Public HTML/JSON-LD can,
+        # and is attempted like Facebook: login walls and empty chrome fail closed.
         if self.marketplace.startswith("allegro_") and not self._auth.configured:
             return "ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available"
         return None
+
+    def _follow_olx_redirect(self, response, url: str, requester, kwargs: dict):
+        hops = 0
+        while response.is_redirect and hops < 4:
+            location = response.headers.get("Location") or ""
+            nxt = urljoin(url, location)
+            path = (urlparse(nxt).path or "").casefold()
+            if not _safe_url(nxt, "olx") or any(
+                marker in path for marker in ("/login", "/account", "/oauth")
+            ):
+                raise RuntimeError("LOGIN_REQUIRED: redirect/login required; manual verification needed")
+            url = nxt
+            response = requester(url, timeout=12, follow_redirects=False, **kwargs)
+            hops += 1
+        return response, url
 
     def _get(self, url: str, **kwargs):
         # Never follow arbitrary listing redirects into another host/private address.
         requester = self.client.get if self.client else httpx.get
         response = requester(url, timeout=12, follow_redirects=False, **kwargs)
+        if self.marketplace == "olx":
+            response, url = self._follow_olx_redirect(response, url, requester, kwargs)
         if (response.status_code == 404 and self.marketplace == "sbazar"
                 and url.startswith("https://www.sbazar.cz/hledej/")
                 and _empty_sbazar_search(response.text)):
@@ -269,6 +332,9 @@ class CentralEuropeClient(ListingSource):
         if not listings:
             if self.marketplace == "sbazar" and _empty_sbazar_search(response.text):
                 self.notes.append(f"sbazar: READY: no matches for {query}")
+                return []
+            if self.marketplace == "olx" and _empty_olx_search(response.text):
+                self.notes.append(f"olx: READY: no matches for {query}")
                 return []
             raise RuntimeError(f"BLOCKED: no readable public listing data; check manually: {url}")
         return [item.model_copy(update={"search_query": query}) for item in listings]

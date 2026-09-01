@@ -37,6 +37,9 @@ class InventoryItem(BaseModel):
     watchers: dict[str, int] = Field(default_factory=dict)
     views: dict[str, int] = Field(default_factory=dict)
     ship_eur: Decimal | None = None
+    # Public listing photos from collect/refresh, used to confirm a want-ad
+    # is the same object and not a similarly titled phone or other watch.
+    image_urls: list[str] = Field(default_factory=list)
 
     def total_watchers(self) -> int:
         return sum(self.watchers.values())
