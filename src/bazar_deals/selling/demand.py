@@ -169,6 +169,14 @@ class BuyerDigest:
     fetched: Counter[str] = field(default_factory=Counter)
 
 
+@dataclass
+class _SiteStat:
+    queries: int = 0
+    rows: int = 0
+    wants: int = 0
+    blocked: str = ""
+
+
 def searched_buy_phrases() -> list[str]:
     """All 'I will buy' search words actually sent to classifieds."""
     found: list[str] = []
@@ -250,7 +258,11 @@ def queries_for(item: InventoryItem) -> list[str]:
         if de_name and de_name.casefold() != place.casefold():
             found.append(f"{head} {de_name}".strip())
     if not found:
-        words = [word for word in re.findall(r"[A-Za-z0-9\-]+", item.title) if len(word) >= 4]
+        words = [
+            word
+            for word in re.findall(r"[^\W_]+", item.title, flags=re.UNICODE)
+            if len(word) >= 4 and _fold(word) not in _GENERIC_TITLE_WORDS
+        ]
         if words:
             found.append(" ".join(words[:3]))
     unique: list[str] = []
@@ -366,9 +378,11 @@ def find_buyers(
     items = list(inventory.items)
     queries = _unique_queries(items)
     ads: dict[str, WantAd] = {}
+    stats: dict[str, _SiteStat] = {}
+    special_notes: list[str] = []
 
     def ingest(batch: list[WantAd], note: str, bucket: str) -> None:
-        digest.notes.append(note)
+        _tally(stats, bucket, batch, note)
         digest.fetched[bucket] += len(batch)
         for ad in batch:
             ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
@@ -378,7 +392,7 @@ def find_buyers(
             continue
         checked = datetime.fromisoformat(listing.raw["checked_at"])
         if not timedelta(0) <= datetime.now(timezone.utc) - checked <= timedelta(hours=24):
-            digest.notes.append(f"{listing.external_id}: stale manual demand; skipped")
+            special_notes.append(f"{listing.external_id}: stale manual demand; skipped")
             continue
         try:
             price = listing.price.to_eur(settings.eur_czk, eur_pln=settings.eur_pln)
@@ -412,15 +426,27 @@ def find_buyers(
                 batch, note = _search_vinted(phrase, site, settings, client=client)
                 ingest(batch, note, site)
 
+        blocked = False
         for phrase in _KA_PHRASES:
             for query in queries:
                 batch, note = _search_kleinanzeigen(query, settings, client=client, wtb=phrase)
                 ingest(batch, note, "kleinanzeigen.de")
+                if _is_hard_block(note):
+                    blocked = True
+                    break
+            if blocked:
+                break
 
+        blocked = False
         for phrase in _WILLHABEN_PHRASES:
             for query in queries:
                 batch, note = _search_willhaben(f"{phrase} {query}", settings, client=client)
                 ingest(batch, note, "willhaben.at")
+                if _is_hard_block(note):
+                    blocked = True
+                    break
+            if blocked:
+                break
 
         blocked = False
         for query in _mineral_search_queries(items):
@@ -447,7 +473,7 @@ def find_buyers(
                 break
 
         if not settings.ebay_client_id or not settings.ebay_client_secret:
-            digest.notes.append(
+            special_notes.append(
                 "ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 "
                 "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"
             )
@@ -456,7 +482,7 @@ def find_buyers(
             try:
                 browse._access_token()
             except (RuntimeError, httpx.HTTPError) as exc:
-                digest.notes.append(
+                special_notes.append(
                     f"ebay.de/.at/.fr/.it/.pl/.nl/.es/.be: fetched 0 ({exc})"
                 )
             else:
@@ -473,7 +499,7 @@ def find_buyers(
                                 client=client,
                             )
                             if note:
-                                digest.notes.append(note)
+                                special_notes.append(note)
                                 blocked = True
                                 break
                             site_count += len(batch)
@@ -483,12 +509,12 @@ def find_buyers(
                             break
                     if not blocked:
                         digest.fetched[site] += site_count
-                        digest.notes.append(f"{site}: fetched {site_count} rows")
+                        special_notes.append(f"{site}: fetched {site_count} rows")
 
         for source, site in SITES.items():
             searcher = CentralEuropeClient(source, settings, client=client)
             if reason := searcher.manual_mode():
-                digest.notes.append(f"{site}: {reason}; manual search: {search_url(source, 'kúpim')}")
+                special_notes.append(f"{site}: {reason}; manual search: {search_url(source, 'kúpim')}")
                 continue
             phrase = "koupím" if source == "sbazar" else "kupię" if source in {"olx", "allegro_pl"} else "kúpim"
             for query in queries[:int(rules()["central_europe"]["max_queries"])]:
@@ -496,7 +522,9 @@ def find_buyers(
                 try:
                     batch = searcher.search(full_query)
                 except (RuntimeError, httpx.HTTPError, ValueError) as exc:
-                    digest.notes.append(f"{site}: unavailable ({exc}); manual search: {search_url(source, full_query)}")
+                    special_notes.append(
+                        f"{_http_note(site, exc)}; manual search: {search_url(source, full_query)}"
+                    )
                     break
                 wants = []
                 for listing in batch:
@@ -534,6 +562,7 @@ def find_buyers(
     near_misses.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
     digest.matches = matches
     digest.near_misses = near_misses
+    digest.notes = [_format_site_stat(site, stat) for site, stat in stats.items()] + special_notes
     return digest
 
 
@@ -719,7 +748,7 @@ def _search_bazos(
             response = _get(url, settings, client=client, params=params)
             response.raise_for_status()
         except httpx.HTTPError as exc:
-            return ads, f"bazos.{site}: fetched {len(ads)} ({exc})"
+            return ads, _http_note(f"bazos.{site}", exc)
         for match in _BAZOS_BLOCK_RE.finditer(response.text):
             href = match.group("url")
             if href.startswith("/"):
@@ -764,7 +793,7 @@ def _search_aukro(
             response.raise_for_status()
             payload = response.json()
         except (httpx.HTTPError, ValueError) as exc:
-            return ads, f"aukro: fetched {len(ads)} ({exc})"
+            return ads, _http_note("aukro", exc)
         for node in payload.get("content") or []:
             if node.get("adultContent"):
                 continue
@@ -809,7 +838,7 @@ def _search_vinted(
         response = _get(url, settings, client=client)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        return [], f"{site}: fetched 0 ({exc})"
+        return [], _http_note(site, exc)
     ads = []
     for listing in parse_vinted_items(response.text):
         href = str(listing.url)
@@ -843,7 +872,7 @@ def _search_kleinanzeigen(
         response = _get(url, settings, client=client)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        return [], f"kleinanzeigen.de: fetched 0 ({exc})"
+        return [], _http_note("kleinanzeigen.de", exc)
     ads: list[WantAd] = []
     for match in _KA_ITEM_RE.finditer(response.text):
         href = match.group("href")
@@ -883,7 +912,7 @@ def _search_willhaben(
         response = _get(url, settings, client=client)
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        return [], f"willhaben.at: fetched 0 ({exc})"
+        return [], _http_note("willhaben.at", exc)
     ads: list[WantAd] = []
     blob = re.search(
         r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
@@ -892,7 +921,7 @@ def _search_willhaben(
     )
     if not blob:
         _pause(settings, client)
-        return [], f"willhaben.at: fetched 0 (no listings payload) for {query!r}"
+        return [], "willhaben.at: fetched 0 (no listings payload)"
     try:
         payload = json.loads(blob.group(1))
         rows = (
@@ -904,7 +933,7 @@ def _search_willhaben(
             or []
         )
     except ValueError as exc:
-        return [], f"willhaben.at: fetched 0 ({exc})"
+        return [], _http_note("willhaben.at", exc)
     if isinstance(rows, dict):
         rows = [rows]
     for node in rows:
@@ -961,7 +990,7 @@ def _search_delcampe(
             return [], "delcampe.net: fetched 0 (Cloudflare blocked datacenter requests)"
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        return [], f"delcampe.net: fetched 0 ({exc})"
+        return [], _http_note("delcampe.net", exc)
     ads: list[WantAd] = []
     for match in _DELCAMPE_LINK_RE.finditer(response.text):
         href = match.group("href")
@@ -1015,7 +1044,7 @@ def _search_forum64(
             return [], "forum64.de: fetched 0 (Cloudflare blocked datacenter requests)"
         response.raise_for_status()
     except httpx.HTTPError as exc:
-        return [], f"forum64.de: fetched 0 ({exc})"
+        return [], _http_note("forum64.de", exc)
     ads: list[WantAd] = []
     seen: set[str] = set()
     for match in _FORUM64_THREAD_RE.finditer(response.text):
@@ -1059,8 +1088,56 @@ def _cloudflare_blocked(response: httpx.Response) -> bool:
     )
 
 
+def _tally(stats: dict[str, _SiteStat], site: str, batch: list[WantAd], note: str) -> None:
+    stat = stats.setdefault(site, _SiteStat())
+    stat.queries += 1
+    stat.rows += len(batch)
+    stat.wants += sum(1 for ad in batch if is_want_to_buy(ad.title))
+    if not stat.blocked and _is_hard_block(note):
+        stat.blocked = _block_reason(note)
+
+
+def _format_site_stat(site: str, stat: _SiteStat) -> str:
+    parts = [f"{site}: {stat.queries} queries", f"{stat.rows} rows", f"{stat.wants} want-ads"]
+    if stat.blocked:
+        parts.append(f"stopped after {stat.blocked}")
+    return " · ".join(parts)
+
+
+def _http_note(site: str, exc: BaseException) -> str:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    if status:
+        return f"{site}: HTTP {status}"
+    text = " ".join(str(exc).split())
+    if len(text) > 80:
+        text = text[:77] + "..."
+    return f"{site}: {text or 'request failed'}"
+
+
+def _block_reason(note: str) -> str:
+    if "Cloudflare" in note:
+        return "Cloudflare"
+    match = re.search(r"HTTP (\d{3})", note)
+    if match:
+        return f"HTTP {match.group(1)}"
+    if "403" in note or "Forbidden" in note:
+        return "HTTP 403"
+    if "429" in note:
+        return "HTTP 429"
+    return "blocked"
+
+
 def _is_hard_block(note: str) -> bool:
-    return "Cloudflare" in note
+    folded = (note or "").casefold()
+    return (
+        "cloudflare" in folded
+        or "http 403" in folded
+        or "http 429" in folded
+        or "http 503" in folded
+        or " 403" in note
+        or "forbidden" in folded
+    )
 
 
 def _search_ebay(
@@ -1086,7 +1163,7 @@ def _search_ebay(
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-        return [], f"{site}: fetched 0 ({exc})"
+        return [], _http_note(site, exc)
     ads: list[WantAd] = []
     for node in payload.get("itemSummaries") or []:
         title = str(node.get("title") or "").strip()

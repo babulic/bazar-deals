@@ -280,7 +280,10 @@ the digest with links, labelled as not-a-demand, so you can click them.
 Allegro PL/SK is searched through the official listing API. Sbazar.cz, OLX.pl
 and Facebook Marketplace public results are also searched for buyer-authored
 want-to-buy titles. Facebook groups and private/login APIs remain out of scope. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
-says so instead of pretending the board was empty.
+says so instead of pretending the board was empty. **Zdroje** in the GitHub
+comment is one line per site (`queries · rows · want-ads`), not a dump of
+every search. Kleinanzeigen/willhaben/Delcampe/Forum64 stop after HTTP 403
+or Cloudflare instead of retrying every stock query.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
 hourly at minute 30 and on every push to `main`) posts a digest on a **Sell buyers** issue — not hunt
