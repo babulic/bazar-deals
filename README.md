@@ -9,14 +9,14 @@ Hourly hunt purchase sources:
 - `bazos.sk` and `bazos.cz` RSS
 - `sbazar.cz` (detail fetch confirms SK delivery; unconfirmed ads go last so they cannot fill the scoring cap)
 - `ebay.de` and `ebay.at` Browse API, only buy-now ads that `deliveryCountry:SK` confirms
-- `olx.pl` public HTML/JSON-LD when the search page actually returns listings (login walls stay fail-closed; the official OLX API is not used to search other sellers)
-- Facebook Marketplace public HTML when the page actually returns listings (login walls stay fail-closed; they are not bypassed)
+- `olx.pl` public HTML/JSON-LD when the search page actually returns listings; if the page is a WAF/login wall, already-public `/oferta/` URLs from DuckDuckGo's HTML index are used instead (the official OLX API is not used to search other sellers)
+- Facebook Marketplace public HTML when the page actually returns listings; if the page is a login wall, already-public `/marketplace/item/{id}` URLs from DuckDuckGo's HTML index are used instead (login pages, cookies and Graph are not scraped)
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. After 0 kupci **or a retryable fetch error** (eBay HTTP 429) the sell process does the same in-process. The GHA `research` job is only a backup when the job dies before that loop (`looped` empty). Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters. A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
+**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) the sell process does the same in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. The GHA `research` job is only a backup when the job dies before that loop (`looped` empty). Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters. A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
@@ -36,8 +36,7 @@ media/clothing/accessories. Marketplace **search** uses `fetch_queries`
 footwear, perfume, books and trading cards are **not searched**. Vinted/Aukro
 newest dumps are electronics-only (and skipped when `fetch_queries` is set).
 Bazos RSS is computers/phones/elektro/foto/hudba/ostatné/dom — not oblečenie.
-eBay skips the category newest-dump once SKU search returned hits, and stops
-on a 429 instead of emptying the whole fetch.
+eBay skips the category newest-dump once SKU search returned hits, and retries a Browse 429 with `Retry-After` before stopping the rest of that storefront.
 
 ## Decision rule
 
@@ -293,20 +292,22 @@ the digest with links, labelled as not-a-demand, so you can click them.
 | willhaben.at | `Suche {part}` and `Kaufe {part}` |
 | delcampe.net | minerals category: species+locality, then `suche` / `wanted` |
 | forum64.de | C64 Kleinanzeigen search: `Suche` / `Gesucht` + part number |
-| ebay.de / .at / .pl | `{kaufe\|kupię} {part}` plus looking-for. First HTTP 429 stops **all** remaining eBay storefronts (one note, one in-process retry with backoff). |
+| ebay.de / .at / .pl | `{kaufe\|kupię} {part}` plus looking-for. HTTP 429 retries with `Retry-After` until the call succeeds or the retry budget is gone; only then remaining eBay searches stop (one note). |
 
 Allegro PL/SK is searched through the official listing API. Sbazar.cz, OLX.pl
 and Facebook Marketplace public results are also searched for buyer-authored
 want-to-buy titles. Facebook groups and private/login APIs remain out of scope.
 When the public Facebook or OLX page is a **login wall** (HTTP 403 / unreadable
-chrome), the digest records a single skip note and does **not** retry or scrape
-it. Forum64 is behind Cloudflare; when GitHub Actions is blocked, the digest
-says so instead of pretending the board was empty. **Zdroje** in the GitHub
-comment is one line per site (`queries · rows · want-ads`), not a dump of
-every search. Kleinanzeigen/willhaben/Delcampe/Forum64 stop after HTTP 403
-or Cloudflare instead of retrying every stock query. eBay WTB search is
+chrome), the same search is repeated against DuckDuckGo's public HTML index of
+already-public item URLs (`/marketplace/item/{id}` and OLX `/oferta/`). That is
+not a login bypass. If the index is empty too, the digest records a single skip
+note and does **not** scrape the wall. Forum64 is behind Cloudflare; when GitHub
+Actions is blocked, the digest says so instead of pretending the board was empty.
+**Zdroje** in the GitHub comment is one line per site (`queries · rows · want-ads`),
+not a dump of every search. Kleinanzeigen/willhaben/Delcampe/Forum64 stop after
+HTTP 403 or Cloudflare instead of retrying every stock query. eBay WTB search is
 `ebay.de`, `ebay.at` and `ebay.pl` only — eight storefronts were what 429'd
-the Browse API.
+the Browse API. A 429 is retried; it is not treated as eight independent skips.
 
 When a dopyt matches an inventory item, GitHub Actions (`.github/workflows/sell.yml`,
 hourly at minute 30 and on every push to `main`) posts a digest on a **Sell buyers** issue — not hunt
@@ -408,13 +409,17 @@ availability and shipping after fetching a shortlisted detail page.
   CAPTCHA bypass is used. The lowest displayed postage is not assumed to be SK
   postage; the conservative shipping reserve remains when the actual cost is
   unknown. The same offer on both domains counts once in the price-book sample.
-- **OLX/Facebook:** scheduled runs fetch public HTML. OLX.pl uses Product/Offer
+- **OLX/Facebook:** scheduled runs fetch public HTML first. OLX.pl uses Product/Offer
   JSON-LD on the public search page (the official API still cannot search other
-  sellers). Login, off-site redirects, HTTP 403/429 or unreadable chrome fail
-  closed and are not scraped. Facebook login walls stay silent on the Deal
-  alerts issue; a successful OLX fetch (`olx: fetched N`) is shown. These
+  sellers). Login, off-site redirects, HTTP 403/429 or unreadable chrome are **not**
+  scraped. When that happens, already-public Facebook `/marketplace/item/{id}` and
+  OLX `/oferta/` URLs from DuckDuckGo's HTML index are ingested (title + snippet;
+  no price/SK delivery, so they cannot authorize BUY). If the index is empty too,
+  the source fails closed. Facebook login walls stay silent on the Deal alerts
+  issue unless a fetch actually returned ads (`facebook: fetched N`). These
   sources are **not guaranteed** — a 2026-08-31 check saw OLX HTTP 403 and a
-  Facebook login redirect. Public structured data is still scored when present.
+  Facebook login redirect from this network. Public structured data is still
+  scored when present.
 - **CZK and PLN:** online scoring, buyer search and inventory refresh load both
   rates from one dated ECB snapshot automatically. `EUR_CZK` / `EUR_PLN` are
   optional manual overrides, not required configuration. GitHub Actions caches

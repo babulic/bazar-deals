@@ -13,6 +13,12 @@ import httpx
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.allegro_auth import AllegroAuth, USER_AGENT
+from bazar_deals.adapters.indexed_search import (
+    BROWSER_UA,
+    indexed_query,
+    listings_from_index,
+    search_ddg,
+)
 from bazar_deals.catalog import hunt_expand, hunt_fetch_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
@@ -26,8 +32,10 @@ SITES = {
     "olx": "olx.pl",
 }
 # Hourly hunt fetches sbazar (SK delivery on detail), public OLX.pl HTML/JSON-LD,
-# and Facebook Marketplace public HTML. Login walls stay fail-closed; they are
-# not scraped. OLX's own API still cannot search other sellers.
+# and Facebook Marketplace public HTML. When that HTML is a WAF/login wall, a
+# public DuckDuckGo index of already-public item URLs is used instead. Login
+# pages themselves are not scraped. OLX's own API still cannot search other
+# sellers.
 HUNT_SITES = ("sbazar", "facebook", "olx")
 
 
@@ -278,10 +286,11 @@ class CentralEuropeClient(ListingSource):
         self.client = client
         self.notes: list[str] = []
         self._auth = AllegroAuth(settings, client)
+        self._public_html_blocked = False
 
     def manual_mode(self) -> str | None:
-        # OLX's official API cannot search other sellers. Public HTML/JSON-LD can,
-        # and is attempted like Facebook: login walls and empty chrome fail closed.
+        # OLX's official API cannot search other sellers. Public HTML/JSON-LD is
+        # tried first; a WAF/login wall falls back to the public search index.
         if self.marketplace.startswith("allegro_") and not self._auth.configured:
             return "ACCESS_NOT_GRANTED: authorized offers/listing access required; ALLEGRO_ACCESS_TOKEN alone does not grant permission; manual import available"
         return None
@@ -327,17 +336,63 @@ class CentralEuropeClient(ListingSource):
         if self.marketplace.startswith("allegro_"):
             return self._allegro(query)
         url = search_url(self.marketplace, query)
-        response = self._get(url, headers={"User-Agent": self.settings.bazos_user_agent})
-        listings = parse_public_listings(response.text, self.marketplace)
-        if not listings:
-            if self.marketplace == "sbazar" and _empty_sbazar_search(response.text):
-                self.notes.append(f"sbazar: READY: no matches for {query}")
-                return []
-            if self.marketplace == "olx" and _empty_olx_search(response.text):
-                self.notes.append(f"olx: READY: no matches for {query}")
-                return []
-            raise RuntimeError(f"BLOCKED: no readable public listing data; check manually: {url}")
-        return [item.model_copy(update={"search_query": query}) for item in listings]
+        headers = {
+            "User-Agent": BROWSER_UA if self.marketplace in {"facebook", "olx"} else self.settings.bazos_user_agent,
+            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pl-PL,sk-SK,cs-CZ,en;q=0.8",
+        }
+        blocked: BaseException | None = None
+        listings: list[Listing] = []
+        if not self._public_html_blocked:
+            try:
+                response = self._get(url, headers=headers)
+                listings = parse_public_listings(response.text, self.marketplace)
+                if listings:
+                    return [item.model_copy(update={"search_query": query}) for item in listings]
+                if self.marketplace == "sbazar" and _empty_sbazar_search(response.text):
+                    self.notes.append(f"sbazar: READY: no matches for {query}")
+                    return []
+                if self.marketplace == "olx" and _empty_olx_search(response.text):
+                    self.notes.append(f"olx: READY: no matches for {query}")
+                    return []
+                blocked = RuntimeError(f"BLOCKED: no readable public listing data; check manually: {url}")
+                if self.marketplace in {"facebook", "olx"}:
+                    self._public_html_blocked = True
+            except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                blocked = exc
+                if self.marketplace in {"facebook", "olx"}:
+                    self._public_html_blocked = True
+        if self.marketplace in {"facebook", "olx"}:
+            indexed = self._indexed_ads(query)
+            if indexed:
+                if not any("via search index" in note for note in self.notes):
+                    self.notes.append(
+                        f"{self.marketplace}: READY: public ads via search index"
+                    )
+                return indexed
+            if self._public_html_blocked and blocked is None:
+                blocked = RuntimeError(
+                    f"BLOCKED: no readable public listing data; check manually: {url}"
+                )
+        if blocked is not None:
+            raise blocked
+        raise RuntimeError(f"BLOCKED: no readable public listing data; check manually: {url}")
+
+    def _indexed_ads(self, query: str) -> list[Listing]:
+        """Public DuckDuckGo HTML index — not a Facebook/OLX login bypass."""
+        region = "pl-pl" if self.marketplace == "olx" else "sk-sk"
+        try:
+            hits = search_ddg(
+                indexed_query(self.marketplace, query),
+                region=region,
+                client=self.client,
+            )
+        except (httpx.HTTPError, ValueError):
+            return []
+        return [
+            item.model_copy(update={"search_query": query})
+            for item in listings_from_index(self.marketplace, query, hits)
+        ]
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
         if reason := self.manual_mode():

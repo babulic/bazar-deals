@@ -120,7 +120,7 @@ def test_should_sell_research_loop_on_zero_buyers_or_ebay_429() -> None:
     )
     assert should_sell_research_loop(
         buyers=1,
-        notes=["ebay: HTTP 429 — remaining storefronts skipped after ebay.de"],
+        notes=["ebay: HTTP 429 after retries — remaining eBay searches stopped"],
         already_research=False,
         offline=False,
     )

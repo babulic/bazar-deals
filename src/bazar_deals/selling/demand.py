@@ -127,12 +127,14 @@ _VINTED_SITES = (
     ("vinted.es", ("compro", "busco")),
 )
 # DE/AT match the hunt storefronts; PL is the nearest WTB board for SK stock.
-# Eight storefronts × stock queries is what 429s the Browse API.
+# Browse 429s when every storefront × every verb × every SKU is fired at once.
 _EBAY_BOARDS = (
     ("EBAY_DE", "ebay.de", ("kaufe", "suche")),
     ("EBAY_AT", "ebay.at", ("kaufe", "suche")),
     ("EBAY_PL", "ebay.pl", ("kupię", "szukam")),
 )
+_EBAY_RETRY_BUDGET = 6
+_EBAY_QUERY_CAP = 6
 _KA_PHRASES = ("suche", "kaufe")
 _WILLHABEN_PHRASES = ("Suche", "Kaufe")
 _DELCAMPE_PHRASES = ("", "suche ", "wanted ")
@@ -926,54 +928,51 @@ def find_buyers(
                     f"ebay.de/.at/.pl: fetched 0 ({exc})"
                 )
             else:
-                ebay_blocked = False
+                ebay_queries = queries[: _EBAY_QUERY_CAP * (2 if research else 1)]
+                retry_budget = _EBAY_RETRY_BUDGET
+                ebay_stopped = False
                 for marketplace_id, site, phrases in _EBAY_BOARDS:
-                    if ebay_blocked:
+                    if ebay_stopped:
                         break
                     site_count = 0
-                    blocked = False
-                    for wtb in phrases:
-                        for query in queries:
-                            batch, note = _search_ebay(
-                                f"{wtb} {query}",
-                                marketplace_id,
-                                site,
-                                browse,
-                                client=client,
-                            )
-                            if note and _is_http_429(note):
-                                _throttle_pause(settings, client)
-                                batch, note = _search_ebay(
+                    board_error = ""
+                    verbs = phrases if research else phrases[:1]
+                    for wtb in verbs:
+                        if ebay_stopped or board_error:
+                            break
+                        for query in ebay_queries:
+                            batch: list[WantAd] = []
+                            note = ""
+                            while True:
+                                batch, note, retry_after = _search_ebay(
                                     f"{wtb} {query}",
                                     marketplace_id,
                                     site,
                                     browse,
                                     client=client,
                                 )
-                                if not note:
-                                    site_count += len(batch)
-                                    for ad in batch:
-                                        ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
-                                    _pause(settings, client)
-                                    continue
-                            if note:
-                                if _is_http_429(note):
+                                if not _is_http_429(note):
+                                    break
+                                if retry_budget <= 0:
                                     special_notes.append(
-                                        f"ebay: HTTP 429 — remaining storefronts skipped after {site}"
+                                        "ebay: HTTP 429 after retries — remaining eBay searches stopped"
                                     )
-                                    ebay_blocked = True
-                                else:
-                                    special_notes.append(note)
-                                blocked = True
+                                    ebay_stopped = True
+                                    break
+                                retry_budget -= 1
+                                _throttle_pause(settings, client, seconds=retry_after)
+                            if ebay_stopped:
+                                break
+                            if note:
+                                board_error = note
+                                special_notes.append(note)
                                 break
                             site_count += len(batch)
                             for ad in batch:
                                 ads.setdefault(f"{ad.site}:{ad.external_id}", ad)
-                        if blocked:
-                            break
-                    if ebay_blocked:
+                    if ebay_stopped:
                         break
-                    if not blocked:
+                    if not board_error:
                         digest.fetched[site] += site_count
                         special_notes.append(f"{site}: fetched {site_count} rows")
 
@@ -995,6 +994,10 @@ def find_buyers(
                         f"{_http_note(site, exc)}; manual search: {search_url(source, full_query)}"
                     )
                     break
+                for note in searcher.notes:
+                    if note not in special_notes:
+                        special_notes.append(note)
+                searcher.notes.clear()
                 wants = []
                 for listing in batch:
                     try:
@@ -1653,7 +1656,7 @@ def _search_ebay(
     browse: EbayBrowseClient,
     *,
     client: httpx.Client | None,
-) -> tuple[list[WantAd], str]:
+) -> tuple[list[WantAd], str, float | None]:
     try:
         headers = {
             "Authorization": f"Bearer {browse._access_token()}",
@@ -1669,7 +1672,7 @@ def _search_ebay(
         response.raise_for_status()
         payload = response.json()
     except (httpx.HTTPError, RuntimeError, ValueError) as exc:
-        return [], _http_note(site, exc)
+        return [], _http_note(site, exc), _retry_after_seconds(exc)
     ads: list[WantAd] = []
     for node in payload.get("itemSummaries") or []:
         title = str(node.get("title") or "").strip()
@@ -1702,7 +1705,21 @@ def _search_ebay(
                         ),
                     )
         )
-    return ads, ""
+    return ads, "", None
+
+
+def _retry_after_seconds(exc: BaseException) -> float | None:
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    if status != 429:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    header = str(headers.get("Retry-After") or headers.get("retry-after") or "")
+    try:
+        wait = float(header)
+    except ValueError:
+        wait = 4.0
+    return max(1.0, min(wait, 45.0))
 
 
 def _listing_image_urls(listing: Listing) -> list[str]:
@@ -1728,7 +1745,7 @@ def _want_raw(raw: object) -> dict:
 
 
 def _login_wall_note(source: str, site: str, exc: BaseException) -> str:
-    """Facebook/OLX public pages that require login are skipped, not retried."""
+    """Last resort when public HTML and the search index both return no ads."""
     if source == "facebook":
         return "facebook: skipped (public marketplace is a login wall)"
     if source == "olx":
@@ -1787,11 +1804,14 @@ def _pause(settings: Settings, client: httpx.Client | None) -> None:
     time.sleep(min(0.4, settings.bazos_request_gap_seconds))
 
 
-def _throttle_pause(settings: Settings, client: httpx.Client | None) -> None:
+def _throttle_pause(
+    settings: Settings, client: httpx.Client | None, *, seconds: float | None = None
+) -> None:
     """Backoff before retrying a 429. Tests pass a client and skip the wait."""
-    if client is not None:
+    if client is not None or settings.bazos_request_gap_seconds <= 0:
         return
-    time.sleep(max(2.0, min(8.0, settings.bazos_request_gap_seconds * 4)))
+    wait = 4.0 if seconds is None else float(seconds)
+    time.sleep(max(1.0, min(wait, 45.0)))
 
 
 def _get(

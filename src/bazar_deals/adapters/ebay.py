@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from collections import Counter
 from decimal import Decimal
 from urllib.parse import urlparse
@@ -21,6 +22,7 @@ _HUNT_MARKETPLACES = tuple(
     str(item) for item in (_EBAY.get("hunt_marketplace_ids") or [_EBAY["marketplace_id"]])
 )
 _HUNT_HOSTS = ("ebay.de", "ebay.at")
+_EBAY_RETRY_BUDGET = 6
 
 
 def hunt_ebay_marketplace_ids() -> tuple[str, ...]:
@@ -84,7 +86,8 @@ class EbayBrowseClient(ListingSource):
                     if exc.response is not None and exc.response.status_code == 429:
                         throttled = True
                         self.notes.append(
-                            f"{marketplace_id}: 429 Too Many Requests, skipped remaining searches"
+                            f"{marketplace_id}: 429 Too Many Requests after retries — "
+                            "remaining searches on this storefront stopped"
                         )
                     continue
                 except (httpx.HTTPError, RuntimeError, ValueError) as exc:
@@ -101,7 +104,8 @@ class EbayBrowseClient(ListingSource):
                         last_exc = exc
                         if exc.response is not None and exc.response.status_code == 429:
                             self.notes.append(
-                                f"{marketplace_id}: 429 Too Many Requests, skipped remaining searches"
+                                f"{marketplace_id}: 429 Too Many Requests after retries — "
+                                "remaining searches on this storefront stopped"
                             )
                             break
                         continue
@@ -196,14 +200,7 @@ class EbayBrowseClient(ListingSource):
                 max_price=self.settings.max_buy_eur,
             ),
         }
-        response = httpx.get(
-            _SEARCH_URL,
-            headers=self._browse_headers(marketplace_id),
-            params=params,
-            timeout=20.0,
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._browse_get(params, marketplace_id)
 
     def search_query(
         self,
@@ -223,14 +220,29 @@ class EbayBrowseClient(ListingSource):
                 max_price=hi if purchase_budget else None,
             ),
         }
-        response = httpx.get(
-            _SEARCH_URL,
-            headers=self._browse_headers(marketplace_id),
-            params=params,
-            timeout=20.0,
-        )
-        response.raise_for_status()
-        return response.json()
+        return self._browse_get(params, marketplace_id)
+
+    def _browse_get(self, params: dict, marketplace_id: str | None) -> dict:
+        retries = _EBAY_RETRY_BUDGET
+        headers = self._browse_headers(marketplace_id)
+        while True:
+            if self._client is not None:
+                response = self._client.get(_SEARCH_URL, headers=headers, params=params)
+            else:
+                response = httpx.get(
+                    _SEARCH_URL, headers=headers, params=params, timeout=20.0
+                )
+            if response.status_code == 429 and retries > 0:
+                retries -= 1
+                self._retry_wait(_retry_after_seconds(response))
+                continue
+            response.raise_for_status()
+            return response.json()
+
+    def _retry_wait(self, seconds: float) -> None:
+        if self._client is not None or self.settings.bazos_request_gap_seconds <= 0:
+            return
+        time.sleep(max(1.0, min(seconds, 45.0)))
 
     def _access_token(self) -> str:
         if not self.settings.ebay_retention_enabled:
@@ -288,6 +300,15 @@ class EbayBrowseClient(ListingSource):
             shipping_cost=shipping,
             raw=raw,
         )
+
+
+def _retry_after_seconds(response: httpx.Response) -> float:
+    header = str(response.headers.get("Retry-After") or response.headers.get("retry-after") or "")
+    try:
+        wait = float(header)
+    except ValueError:
+        wait = 4.0
+    return max(1.0, min(wait, 45.0))
 
 
 def browse_filter(*, min_price=None, max_price=None) -> str:
