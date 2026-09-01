@@ -31,6 +31,7 @@ from bazar_deals.identity import (
 from bazar_deals.rules import rules
 from bazar_deals.working import is_damaged_text
 
+_LIVE_SEARCH_SECONDS = 20
 _PRICE_BOOK_VERSION = "product-role-v2:"
 
 _SCHEMA = """
@@ -179,7 +180,6 @@ class SoldCompClient:
         self._live_sold_used = 0
         self.live_sold_skipped = 0
         self._live_sold_budget = self.settings.comps_live_queries
-        self._vinted = None
         self._fixture_html = fixture_html
         if fixture_path is not None:
             self._fixture_html = fixture_path.read_text(encoding="utf-8")
@@ -462,23 +462,29 @@ class SoldCompClient:
         return hits
 
     def _live_market_search(self, query: str) -> list[Listing]:
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        # Do not `with ThreadPoolExecutor`: shutdown(wait=True) waits out hung
+        # HTTP workers even after wait(..., timeout=20). That stalled scoring
+        # on the first listing for ~20 minutes in GHA.
+        pool = ThreadPoolExecutor(max_workers=4)
+        try:
             futs = [
                 pool.submit(self._bazos_search, query),
                 pool.submit(self._aukro_search, query),
                 pool.submit(self._vinted_search, query),
                 pool.submit(self._ebay_search, query),
             ]
-            done, pending = wait(futs, timeout=20)
+            done, pending = wait(futs, timeout=_LIVE_SEARCH_SECONDS)
             for fut in pending:
                 fut.cancel()
             rows: list[Listing] = []
             for fut in done:
                 try:
-                    rows.extend(fut.result())
+                    rows.extend(fut.result(timeout=0))
                 except Exception:
                     continue
             return rows
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
     def _bazos_search(self, query: str) -> list[Listing]:
         hits: list[Listing] = []
@@ -503,20 +509,22 @@ class SoldCompClient:
     def _vinted_search(self, query: str) -> list[Listing]:
         from bazar_deals.adapters.vinted import VintedHuntClient, _BROWSER_UA
 
-        if self._vinted is None:
-            session = httpx.Client(
-                headers={
-                    "User-Agent": _BROWSER_UA,
-                    "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
-                },
-                timeout=12.0,
-                follow_redirects=True,
-            )
-            self._vinted = VintedHuntClient(self.settings, client=session)
+        # Own client per call: a shared httpx.Client across the live-search
+        # thread pool can deadlock and ignore the 20s wait timeout.
+        session = httpx.Client(
+            headers={
+                "User-Agent": _BROWSER_UA,
+                "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
+            },
+            timeout=12.0,
+            follow_redirects=True,
+        )
         try:
-            return self._vinted.search(query)
+            return VintedHuntClient(self.settings, client=session).search(query)
         except (httpx.HTTPError, RuntimeError, ValueError):
             return []
+        finally:
+            session.close()
 
     def _ebay_search(self, query: str) -> list[Listing]:
         """Active buy-now ads on ebay.de that ship to SK, for the asking price book."""

@@ -39,7 +39,24 @@ def test_stock_comparison_keeps_sk_filter_without_purchase_price_cap(monkeypatch
     client.search_query("MOS 6510", purchase_budget=False)
     client.search_query("MOS 6510")
     assert "deliveryCountry:SK" in filters[0] and "price:" not in filters[0]
+    assert "priceCurrency" not in filters[0]
     assert "deliveryCountry:SK" in filters[1] and "price:" in filters[1]
+    assert "priceCurrency:EUR" in filters[1]
+    assert "conditions:" not in filters[0] and "conditions:" not in filters[1]
+
+
+def test_browse_filter_requires_currency_with_price() -> None:
+    from bazar_deals.adapters.ebay import browse_filter
+
+    capped = browse_filter(min_price=20, max_price=110)
+    assert "price:[20..110]" in capped
+    assert "priceCurrency:EUR" in capped
+    assert "buyingOptions:{FIXED_PRICE}" in capped
+    assert "deliveryCountry:SK" in capped
+    assert "conditions:" not in capped
+    open_filter = browse_filter()
+    assert "price:" not in open_filter
+    assert "priceCurrency" not in open_filter
 
 
 def test_probe_keeps_marketplace_response_out_of_files_and_output(tmp_path, monkeypatch, capsys):
@@ -82,3 +99,29 @@ def test_probe_failures_are_sanitized_and_do_not_follow_redirects(stage, status,
     assert len(calls) == (1 if stage == "oauth" else 2)
     output = capsys.readouterr()
     assert "FAIL" in output.out and "canary" not in output.out + output.err
+
+
+def test_fetch_new_keeps_hits_when_a_later_category_is_400(monkeypatch):
+    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_target_queries", lambda: ())
+    monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("11450", "3213"))
+
+    def get(url, **kwargs):
+        params = kwargs["params"]
+        request = httpx.Request("GET", url)
+        if params.get("category_ids") == "3213":
+            return httpx.Response(400, request=request, text="Invalid price filter")
+        item = {
+            "itemId": "hit-1",
+            "title": "Apple iPhone 13 128GB",
+            "itemWebUrl": "https://www.ebay.de/itm/hit-1",
+            "price": {"value": "55", "currency": "EUR"},
+            "buyingOptions": ["FIXED_PRICE"],
+            "condition": "USED",
+        }
+        return httpx.Response(200, json={"itemSummaries": [item]}, request=request)
+
+    monkeypatch.setattr(httpx, "get", get)
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+    client._token = "test-token"
+    found = client.fetch_new()
+    assert [item.external_id for item in found] == ["hit-1"]

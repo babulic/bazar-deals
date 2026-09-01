@@ -453,13 +453,20 @@ def _apply_ai_gate(
                 )
             continue
         reviewed += 1
-        try:
-            review = reviewer.review(deal)
-        except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+        review = None
+        last_exc: BaseException | None = None
+        for _attempt in range(2):
+            try:
+                review = reviewer.review(deal)
+                last_exc = None
+                break
+            except (RuntimeError, ValueError, httpx.HTTPError) as exc:
+                last_exc = exc
+        if review is None:
             funnel["ai_unavailable"] += 1
             if settings.ai_review_required:
                 replacements[key] = deal.model_copy(
-                    update={"action": Action.SKIP, "reason": f"AI review unavailable: {exc}"}
+                    update={"action": Action.SKIP, "reason": f"AI review unavailable: {last_exc}"}
                 )
             continue
         funnel["ai_reviewed"] += 1

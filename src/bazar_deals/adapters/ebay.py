@@ -38,10 +38,12 @@ class EbayBrowseClient(ListingSource):
             )
         listings: list[Listing] = []
         seen: set[str] = set()
+        last_exc: BaseException | None = None
         for query in hunt_target_queries():
             try:
                 data = self.search_query(query, limit=30)
-            except (httpx.HTTPError, RuntimeError, ValueError):
+            except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                last_exc = exc
                 continue
             for item in data.get("itemSummaries", []):
                 listing = self._to_listing(item)
@@ -51,14 +53,18 @@ class EbayBrowseClient(ListingSource):
                 listings.append(listing)
         if not hunt_research_only():
             for category in _SMALL_CATEGORIES:
-                data = self.search(category, limit=30)
+                try:
+                    data = self.search(category, limit=30)
+                except (httpx.HTTPError, RuntimeError, ValueError) as exc:
+                    last_exc = exc
+                    continue
                 for item in data.get("itemSummaries", []):
                     listing = self._to_listing(item)
                     if listing.external_id in seen:
                         continue
                     seen.add(listing.external_id)
                     listings.append(listing)
-        return [
+        found = [
             item
             for item in listings
             if item.buy_now
@@ -68,6 +74,9 @@ class EbayBrowseClient(ListingSource):
             and item.price.amount >= self.settings.min_buy_eur
             and item.price.amount <= self.settings.max_buy_eur
         ]
+        if not found and last_exc is not None:
+            raise last_exc
+        return found
 
     def enrich_listing(self, listing: Listing) -> Listing:
         href = str(listing.raw.get("itemHref") or "").strip()
@@ -116,11 +125,9 @@ class EbayBrowseClient(ListingSource):
             "category_ids": category_id,
             "sort": "newlyListed",
             "limit": str(limit),
-            "filter": (
-                "buyingOptions:{FIXED_PRICE},"
-                "conditions:{NEW|USED},"
-                "deliveryCountry:SK,"
-                f"price:[{self.settings.min_buy_eur}..{self.settings.max_buy_eur}]"
+            "filter": browse_filter(
+                min_price=self.settings.min_buy_eur,
+                max_price=self.settings.max_buy_eur,
             ),
         }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
@@ -137,11 +144,9 @@ class EbayBrowseClient(ListingSource):
             "q": query,
             "sort": "newlyListed",
             "limit": str(limit),
-            "filter": (
-                "buyingOptions:{FIXED_PRICE},"
-                "conditions:{NEW|USED},"
-                "deliveryCountry:SK"
-                + (f",price:[{self.settings.min_buy_eur}..{hi}]" if purchase_budget else "")
+            "filter": browse_filter(
+                min_price=self.settings.min_buy_eur if purchase_budget else None,
+                max_price=hi if purchase_budget else None,
             ),
         }
         response = httpx.get(_SEARCH_URL, headers=headers, params=params, timeout=20.0)
@@ -201,6 +206,22 @@ class EbayBrowseClient(ListingSource):
             shipping_cost=shipping,
             raw=item,
         )
+
+
+def browse_filter(*, min_price=None, max_price=None) -> str:
+    """Browse API search filter that eBay accepts for SK delivery.
+
+    `price:[lo..hi]` without `priceCurrency` is a 400. `conditions:{NEW|USED}`
+    is not a valid Browse filter (use `conditionIds` if you need it) and a
+    single bad category used to abort the whole eBay hunt.
+    """
+    parts = ["buyingOptions:{FIXED_PRICE}", "deliveryCountry:SK"]
+    if min_price is not None and max_price is not None:
+        lo = int(min_price)
+        hi = int(max_price)
+        parts.append(f"price:[{lo}..{hi}]")
+        parts.append("priceCurrency:EUR")
+    return ",".join(parts)
 
 
 def _oauth_reject_message(response: httpx.Response) -> str:

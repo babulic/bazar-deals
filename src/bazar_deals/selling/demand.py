@@ -256,9 +256,13 @@ def queries_for(item: InventoryItem, *, research: bool = False) -> list[str]:
         if len(token) >= 4:
             found.append(token)
     if item.species:
-        place = (item.locality or item.origin).split(",")[-1].strip()
         head = item.species[0]
-        found.append(f"{head} {place}".strip() if place else head)
+        # Species alone first. "kúpim ametyst Brandberg" is too specific and
+        # missed real "Kúpim ametyst" ads on the 0-kupec hunts.
+        found.append(head)
+        place = (item.locality or item.origin).split(",")[-1].strip()
+        if place:
+            found.append(f"{head} {place}".strip())
         de_name = _german_locality(item)
         if de_name and de_name.casefold() != place.casefold():
             found.append(f"{head} {de_name}".strip())
@@ -275,7 +279,9 @@ def queries_for(item: InventoryItem, *, research: bool = False) -> list[str]:
             if len(word) >= 4 and _fold(word) not in _GENERIC_TITLE_WORDS
         ]
         if words:
-            found.append(" ".join(words[:3]))
+            found.append(words[0])
+            if len(words) > 1:
+                found.append(" ".join(words[:3]))
     unique: list[str] = []
     seen: set[str] = set()
     cap = 4 if research else 2
@@ -439,17 +445,22 @@ def find_buyers(
 
     if not offline:
         for site, phrases in _BAZOS_PHRASES.items():
+            blocked = False
+            # Verb+stock first so a 429 does not spend the budget on generic
+            # "kúpim" dumps that never match minerals/chips.
+            for query in _stock_first_searches(phrases[:2], queries):
+                batch, note = _search_bazos(query, site, settings, client=client)
+                ingest(batch, note, f"bazos.{site}")
+                if _is_hard_block(note):
+                    blocked = True
+                    break
+            if blocked:
+                continue
             for phrase in phrases:
                 batch, note = _search_bazos(phrase, site, settings, client=client)
                 ingest(batch, note, f"bazos.{site}")
-            # The newest 40 generic "kúpim" ads cannot cover a specific stock.
-            # Search each distinct stock query too; classification below still
-            # requires an actual want-to-buy title, never a seller's offer.
-            for query in queries:
-                # Verb + SKU finds real kúpim ads. Bare "6510" is almost all sellers.
-                for phrase in phrases[:2]:
-                    batch, note = _search_bazos(f"{phrase} {query}", site, settings, client=client)
-                    ingest(batch, note, f"bazos.{site}")
+                if _is_hard_block(note):
+                    break
 
         if research:
             extra = {
@@ -461,25 +472,38 @@ def find_buyers(
                     batch, note = _search_bazos(phrase, site, settings, client=client)
                     ingest(batch, note, f"bazos.{site}")
 
-        for phrase in _AUKRO_PHRASES:
-            batch, note = _search_aukro(phrase, settings, client=client)
+        aukro_verbs = ("koupím", "kúpim")
+        blocked = False
+        for query in _stock_first_searches(aukro_verbs, queries):
+            batch, note = _search_aukro(query, settings, client=client)
             ingest(batch, note, "aukro")
-        aukro_verbs = ("koupím", "kúpim") if research else ("koupím",)
-        for verb in aukro_verbs:
-            for query in queries:
-                batch, note = _search_aukro(f"{verb} {query}", settings, client=client)
+            if _is_hard_block(note):
+                blocked = True
+                break
+        if not blocked:
+            for phrase in _AUKRO_PHRASES:
+                batch, note = _search_aukro(phrase, settings, client=client)
                 ingest(batch, note, "aukro")
+                if _is_hard_block(note):
+                    break
 
         query_hosts = {host for host, _phrases in _VINTED_SITES} if research else {"vinted.sk", "vinted.cz"}
         for site, phrases in _VINTED_SITES:
+            blocked = False
+            if site in query_hosts and phrases:
+                for query in _stock_first_searches((phrases[0],), queries):
+                    batch, note = _search_vinted(query, site, settings, client=client)
+                    ingest(batch, note, site)
+                    if _is_hard_block(note):
+                        blocked = True
+                        break
+            if blocked:
+                continue
             for phrase in phrases:
                 batch, note = _search_vinted(phrase, site, settings, client=client)
                 ingest(batch, note, site)
-            if site in query_hosts and phrases:
-                verb = phrases[0]
-                for query in queries:
-                    batch, note = _search_vinted(f"{verb} {query}", site, settings, client=client)
-                    ingest(batch, note, site)
+                if _is_hard_block(note):
+                    break
 
         blocked = False
         for phrase in _KA_PHRASES:
@@ -684,6 +708,21 @@ def _format_match(row: DemandMatch) -> str:
         f"- **tvoje inzeráty:** {listed}\n"
         f"- zhoda: {row.score:.2f}"
     )
+
+
+def _stock_first_searches(phrases: tuple[str, ...] | list[str], queries: list[str]) -> list[str]:
+    """`kúpim ametyst` before a generic `kúpim` dump that 429s the board."""
+    found: list[str] = []
+    seen: set[str] = set()
+    for query in queries:
+        for phrase in phrases:
+            text = f"{phrase} {query}".strip()
+            key = _fold(text)
+            if not text or key in seen:
+                continue
+            seen.add(key)
+            found.append(text)
+    return found
 
 
 def _unique_queries(items: list[InventoryItem], *, research: bool = False) -> list[str]:

@@ -60,9 +60,9 @@ jobs:
 
   research:
     needs: sell-buyers
-    if: needs.sell-buyers.result == 'success' && needs.sell-buyers.outputs.buyers == '0'
+    if: ${{ always() && needs.sell-buyers.result == 'success' && (needs.sell-buyers.outputs.buyers == '0' || needs.sell-buyers.outputs.buyers == '') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -12,9 +12,11 @@ permissions:
   issues: write
   copilot-requests: write
 
+# Hourly cron used to cancel in-progress hunts before the 0-BUY research
+# retry could finish. Queue the next hour instead of dropping the retry.
 concurrency:
   group: hunt-alerts
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   hunt:
@@ -133,7 +135,7 @@ jobs:
     needs: hunt
     if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

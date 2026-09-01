@@ -99,7 +99,8 @@ def test_want_to_buy_requires_the_buyers_own_ad() -> None:
 def test_queries_prefer_part_numbers_and_locality() -> None:
     assert "6510" in queries_for(chip())
     queries = queries_for(crystal())
-    assert any("ametyst" in query.casefold() for query in queries)
+    assert queries[0].casefold() == "ametyst"
+    assert any("brandberg" in query.casefold() for query in queries)
 
 
 def test_title_fallback_keeps_slovak_letters() -> None:
@@ -109,12 +110,23 @@ def test_title_fallback_keeps_slovak_letters() -> None:
         title="SafePal hardvérová kryptomenová peňaženka",
         listed={"bazos": Decimal("40")},
     )
-    query = queries_for(item)[0]
-    assert "SafePal" in query
-    assert "hardvérová" in query
-    assert "kryptomenová" in query
-    assert "hardv " not in query + " "
-    assert "kryptomenov " not in query + " "
+    queries = queries_for(item)
+    assert queries[0] == "SafePal"
+    blob = " ".join(queries)
+    assert "hardvérová" in blob
+    assert "kryptomenová" in blob
+    assert "hardv " not in blob + " "
+    assert "kryptomenov " not in blob + " "
+
+
+def test_stock_first_searches_put_sku_before_bare_verb() -> None:
+    from bazar_deals.selling.demand import _stock_first_searches
+
+    planned = _stock_first_searches(("kúpim", "hľadám"), ["ametyst", "6510"])
+    assert planned[0] == "kúpim ametyst"
+    assert planned[1] == "hľadám ametyst"
+    assert "kúpim 6510" in planned
+    assert "kúpim" not in planned
 
 
 def test_numeric_part_needs_product_context() -> None:
@@ -337,7 +349,10 @@ def _willhaben_page(
 
 
 def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
-    sk_html = _bazos_card("https://pc.bazos.sk/inzerat/11/mos/", "Kúpim MOS 6510", "18 €")
+    sk_html = (
+        _bazos_card("https://pc.bazos.sk/inzerat/11/mos/", "Kúpim MOS 6510", "18 €")
+        + _bazos_card("https://pc.bazos.sk/inzerat/12/ame/", "Kúpim ametyst", "40 €")
+    )
     cz_html = (
         _bazos_card("https://pc.bazos.cz/inzerat/22/mos/", "Koupím MOS 6510", "490 Kč")
         + _bazos_card("https://pc.bazos.cz/inzerat/23/mos/", "Prodám MOS 6510", "25 Kč")
@@ -389,7 +404,9 @@ def test_find_buyers_pairs_wtb_ads_and_drops_sell_ads() -> None:
     assert sites >= {"bazos.sk", "bazos.cz", "aukro.cz", "kleinanzeigen.de", "willhaben.at"}
     assert "Kúpim MOS 6510" in titles
     assert "Koupím MOS 6510" in titles
-    assert all(row.item.id == "cpu-6510" for row in digest.matches)
+    assert "Kúpim ametyst" in titles
+    assert {row.item.id for row in digest.matches} >= {"cpu-6510", "amethyst-namibia-74mm"}
+    assert all(row.item.id in {"cpu-6510", "amethyst-namibia-74mm"} for row in digest.matches)
     assert "Prodám MOS 6510" not in titles
     assert "Koupím prevodovku DSG" not in titles
     assert any(row.want.offer_eur == Decimal("18") for row in digest.matches)
@@ -467,7 +484,8 @@ def test_targeted_queries_cover_late_stock_and_interleave_segments():
     minerals = [crystal().model_copy(update={"id": f"mineral-{n}", "locality": f"locality-{n}"}) for n in range(20)]
     queries = _unique_queries([*minerals, chip()])
     assert "6510" in queries[:3]
-    assert all(f"ametyst locality-{n}" in queries for n in range(20))
+    assert "ametyst" in queries
+    assert any(query.startswith("ametyst locality-") for query in queries)
 
 
 def _quiet_handler(request: httpx.Request) -> httpx.Response:
@@ -655,3 +673,23 @@ def test_kleinanzeigen_403_stops_and_does_not_dump_queries() -> None:
     body = format_buyer_digest(digest)
     assert "for 'kaufe'" not in body
     assert "HTTP 403" in body
+
+
+def test_bazos_stops_after_429_on_the_first_stock_query() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "bazos.sk" in url:
+            calls.append(str(request.url.params.get("hledat") or ""))
+            return httpx.Response(429, text="slow down")
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[crystal()]), settings, client=client)
+
+    assert calls
+    assert calls[0].casefold().startswith("kúpim ametyst") or calls[0].startswith("kúpim ametyst")
+    assert len(calls) == 1
+    assert any("bazos.sk" in note and "429" in note for note in digest.notes)
