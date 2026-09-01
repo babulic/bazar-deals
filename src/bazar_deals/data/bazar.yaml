@@ -1309,14 +1309,10 @@ aukro:
 
 vinted:
   # Public catalog paths (`/catalog/<id>-<slug>`). Skip TV, garden, bikes, winter sports.
-  catalogs:
-    - 16-footwear
-    - 4-womens
-    - 5-mens
+    catalogs:
     - 19-bags_backpacks
     - 1187-accessories_jewellery
     - 146-cosmetics_and_beauty_products
-    - 1193-children_new
     - 3002-electronics_video_games
     - 3565-electronics_phones
     - 3564-electronics_computers
@@ -1331,6 +1327,7 @@ vinted:
     - 3036-entertainment_music
     - 3811-h_tools_diy
     - 3474-small_kitchen_appliances
+    - 16-footwear
 
 selling:
   # Own seller accounts, keyed by the identifier each collector needs.

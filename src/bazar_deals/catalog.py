@@ -74,6 +74,14 @@ def hunt_target_queries() -> tuple[str, ...]:
     return tuple(found)
 
 
+def matches_hunt_target(text: str) -> bool:
+    """True when the ad looks like a fast-moving SKU we actually hunt for."""
+    hay = (text or "").casefold()
+    if len(hay) < 3:
+        return False
+    return any(len(query) >= 3 and query.casefold() in hay for query in hunt_target_queries())
+
+
 # Match "6 kg" / "6,5kg" but not storage like "16GB".
 _WEIGHT_RE = re.compile(r"\b(\d+(?:[.,]\d+)?)\s*kg\b", re.IGNORECASE)
 # "1800 g" / "1800g" — not 16GB (digit+letter is one word).

@@ -53,7 +53,16 @@ class AukroHuntClient(ListingSource):
             return parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
 
         found: dict[str, Listing] = {}
+        targeted: dict[str, Listing] = {}
         gap = min(0.5, max(0.0, self.settings.bazos_request_gap_seconds))
+        if not self.fixture_path:
+            for query in hunt_target_queries():
+                time.sleep(gap)
+                try:
+                    for listing in self.search(query):
+                        targeted[listing.external_id] = listing
+                except (httpx.HTTPError, ValueError):
+                    continue
         if not hunt_research_only():
             categories = _SMALL_CATEGORIES or (None,)
             pages = _PAGES if _SMALL_CATEGORIES else 3
@@ -80,20 +89,14 @@ class AukroHuntClient(ListingSource):
                         if listing is not None:
                             found[listing.external_id] = listing
 
-        if not self.fixture_path:
-            for query in hunt_target_queries():
-                time.sleep(gap)
-                try:
-                    for listing in self.search(query):
-                        found[listing.external_id] = listing
-                except (httpx.HTTPError, ValueError):
-                    continue
-
-        return sorted(
-            found.values(),
-            key=lambda item: item.created_at or datetime.min,
-            reverse=True,
-        )
+        ordered = list(targeted.values())
+        seen = set(targeted)
+        for listing in found.values():
+            if listing.external_id in seen:
+                continue
+            seen.add(listing.external_id)
+            ordered.append(listing)
+        return ordered
 
     def search(self, query: str, *, size: int = 40) -> list[Listing]:
         """Current buy-now offers matching `query`, for the price book."""

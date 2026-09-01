@@ -348,6 +348,8 @@ def match_want(title: str, item: InventoryItem) -> float:
     german = _german_locality(item)
     if german:
         places.append(german)
+    if species_hits:
+        score = max(score, 0.62)
     if species_hits and any(_place_in_title(place, folded) for place in places):
         score = max(score, 0.85)
     return score
@@ -444,8 +446,10 @@ def find_buyers(
             # Search each distinct stock query too; classification below still
             # requires an actual want-to-buy title, never a seller's offer.
             for query in queries:
-                batch, note = _search_bazos(query, site, settings, client=client)
-                ingest(batch, note, f"bazos.{site}")
+                # Verb + SKU finds real kúpim ads. Bare "6510" is almost all sellers.
+                for phrase in phrases[:2]:
+                    batch, note = _search_bazos(f"{phrase} {query}", site, settings, client=client)
+                    ingest(batch, note, f"bazos.{site}")
 
         if research:
             extra = {

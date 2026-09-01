@@ -197,6 +197,7 @@ def test_part_number_want_ad_matches_own_chip() -> None:
 
 def test_mineral_want_ad_needs_species_and_place() -> None:
     assert match_want("Kúpim ametyst z Namíbie Brandberg", crystal()) >= 0.8
+    assert match_want("Kúpim ametyst", crystal()) >= 0.5
     assert best_item("Kúpim prevodovku DSG", [chip(), crystal()]) is None
 
 

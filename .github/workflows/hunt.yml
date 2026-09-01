@@ -19,7 +19,7 @@ concurrency:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 70
     outputs:
       buys: ${{ steps.score.outputs.buys }}
     steps:
@@ -131,7 +131,7 @@ jobs:
 
   research:
     needs: hunt
-    if: needs.hunt.result == 'success' && needs.hunt.outputs.buys == '0'
+    if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:

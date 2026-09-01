@@ -37,11 +37,7 @@ class EbayBrowseClient(ListingSource):
                 "eBay Browse API credentials are required: public HTML cannot reliably confirm delivery to Slovakia"
             )
         listings: list[Listing] = []
-        if not hunt_research_only():
-            for category in _SMALL_CATEGORIES:
-                data = self.search(category, limit=30)
-                listings.extend(self._to_listing(item) for item in data.get("itemSummaries", []))
-        seen = {item.external_id for item in listings}
+        seen: set[str] = set()
         for query in hunt_target_queries():
             try:
                 data = self.search_query(query, limit=30)
@@ -53,6 +49,15 @@ class EbayBrowseClient(ListingSource):
                     continue
                 seen.add(listing.external_id)
                 listings.append(listing)
+        if not hunt_research_only():
+            for category in _SMALL_CATEGORIES:
+                data = self.search(category, limit=30)
+                for item in data.get("itemSummaries", []):
+                    listing = self._to_listing(item)
+                    if listing.external_id in seen:
+                        continue
+                    seen.add(listing.external_id)
+                    listings.append(listing)
         return [
             item
             for item in listings

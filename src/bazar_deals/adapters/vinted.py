@@ -102,17 +102,6 @@ class VintedHuntClient(ListingSource):
         )
         try:
             self._warmup(client)
-            if not hunt_research_only():
-                for index, path in enumerate(paths):
-                    if index:
-                        time.sleep(gap)
-                    batch = self._fetch_catalog(client, path, lo=lo, hi=hi)
-                    for item in batch:
-                        key = item.external_id or str(item.url)
-                        if key in seen:
-                            continue
-                        seen.add(key)
-                        found.append(item)
             for query in hunt_target_queries():
                 time.sleep(gap)
                 try:
@@ -124,6 +113,17 @@ class VintedHuntClient(ListingSource):
                         found.append(item)
                 except (httpx.HTTPError, RuntimeError, ValueError):
                     continue
+            if not hunt_research_only():
+                for index, path in enumerate(paths):
+                    if index:
+                        time.sleep(gap)
+                    batch = self._fetch_catalog(client, path, lo=lo, hi=hi)
+                    for item in batch:
+                        key = item.external_id or str(item.url)
+                        if key in seen:
+                            continue
+                        seen.add(key)
+                        found.append(item)
         finally:
             if owned:
                 client.close()

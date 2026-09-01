@@ -49,6 +49,11 @@ class BazosRssClient(ListingSource):
             ]
 
         listings: list[Listing] = []
+        targeted: list[Listing] = []
+        if not self.fixture_path:
+            for query in hunt_target_queries():
+                targeted.extend(self.search(query))
+                time.sleep(self.settings.bazos_request_gap_seconds)
         if not hunt_research_only():
             if vertical:
                 params_list = VERTICAL_RSS.get(vertical, SMALL_BAZOS_RUBS)
@@ -66,19 +71,14 @@ class BazosRssClient(ListingSource):
                 for item in listings
                 if reject_physical(f"{item.title} {item.description}") is None
             ]
-        if not self.fixture_path:
-            for query in hunt_target_queries():
-                listings.extend(self.search(query))
-                time.sleep(self.settings.bazos_request_gap_seconds)
-            seen: set[str] = set()
-            unique: list[Listing] = []
-            for item in listings:
-                if item.external_id in seen:
-                    continue
-                seen.add(item.external_id)
-                unique.append(item)
-            listings = unique
-        return listings
+        seen: set[str] = set()
+        unique: list[Listing] = []
+        for item in targeted + listings:
+            if item.external_id in seen:
+                continue
+            seen.add(item.external_id)
+            unique.append(item)
+        return unique
 
     def search(self, query: str) -> list[Listing]:
         """Current RSS hits for one product query (hunt mix + price book)."""
