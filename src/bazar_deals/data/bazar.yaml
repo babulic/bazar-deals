@@ -44,8 +44,8 @@ hunt:
   # This cap is expensive work (detail HTTP + live comps), not cache hits.
   # Ads without 5 comps do not consume it.
   max_score_listings: 80
-  # Targeted product searches mixed into newest dumps so the 80-slot cap is
-  # not only Vinted clothing. Used for hunt fetch and eBay Browse queries.
+  # Names used to recognise a hunt-target ad (dump matching / scoring).
+  # Marketplace search uses fetch_queries, not these bare keywords.
   target_queries:
     - iphone
     - airpods
@@ -85,6 +85,36 @@ hunt:
     - shure
     - vltavín
     - galenit
+  # Actual marketplace search phrases (Bazos/Aukro/Vinted/eBay/sbazar).
+  # These have to be able to appear at 20–110 € and still clear 30 € net.
+  # Bare `commodore` / `c64` stay in target_queries for dump matching only.
+  fetch_queries:
+    - iphone se
+    - iphone 11
+    - iphone 12
+    - iphone 13
+    - airpods pro
+    - airpods
+    - nintendo switch lite
+    - switch oled
+    - steam deck
+    - gameboy
+    - commodore 1541
+    - 1541-ii
+    - commodore 64 computer
+    - c64c
+    - mos 6510
+    - apple watch
+    - pixel
+    - quest 3
+    - gopro
+    - canon eos
+    - tamron
+    - ametyst
+    - vltavín
+    - galenit
+    - galaxy s21
+    - kindle
   # Second-wave SKUs after a 0 BUY hunt. Not a newest-dump — query-only retry.
   expand_queries:
     - kindle
@@ -1760,8 +1790,10 @@ ebay:
     FOR_PARTS_OR_NOT_WORKING: for_parts
 
 # Bounded public searches; login/CAPTCHA is never bypassed.
+# 28 covers the fetch_queries pack (phones/1541/Switch) before yaml `all`
+# falls through to bare `commodore` / `c64` / `pokemon`.
 central_europe:
-  max_queries: 12
+  max_queries: 28
   queries:
     all: [iphone, airpods, nintendo switch, lego, canon, commodore, ametyst, macbook, c64, playstation, gopro, pokemon]
     retro: [commodore, amiga, nintendo, c64]

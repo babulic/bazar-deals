@@ -13,7 +13,7 @@ import httpx
 
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.allegro_auth import AllegroAuth, USER_AGENT
-from bazar_deals.catalog import hunt_expand, hunt_target_queries
+from bazar_deals.catalog import hunt_expand, hunt_fetch_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money, Vertical
 from bazar_deals.rules import rules
@@ -345,7 +345,7 @@ class CentralEuropeClient(ListingSource):
             return []
         config = rules()["central_europe"]
         base = list(config["queries"].get(vertical.value if vertical else "all", []))
-        extra = list(hunt_target_queries()) if not vertical else []
+        extra = list(hunt_fetch_queries()) if not vertical else []
         queries: list[str] = []
         seen: set[str] = set()
         for query in extra + base:
@@ -356,7 +356,7 @@ class CentralEuropeClient(ListingSource):
             queries.append(query)
         cap = int(config["max_queries"])
         if hunt_expand():
-            cap = max(cap, 20)
+            cap = max(cap, 40)
         found = {}
         for query in queries[:cap]:
             try:

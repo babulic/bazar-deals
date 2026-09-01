@@ -13,6 +13,11 @@ def enable_hunt_research() -> None:
     os.environ["BAZAR_HUNT_EXPAND"] = "1"
 
 
+def should_research_loop(*, buy_count: int, already_research: bool, offline: bool) -> bool:
+    """In-process retry after 0 BUY. `--research` is the retry; offline stays one-shot."""
+    return buy_count <= 0 and not already_research and not offline
+
+
 def write_github_output(**fields: object) -> None:
     """Append `key=value` lines for a GitHub Actions job output."""
     path = os.environ.get("GITHUB_OUTPUT", "").strip()

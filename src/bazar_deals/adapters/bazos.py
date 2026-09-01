@@ -15,7 +15,7 @@ from bazar_deals.catalog import (
     SMALL_BAZOS_RUBS,
     VERTICAL_RSS,
     hunt_research_only,
-    hunt_target_queries,
+    hunt_fetch_queries,
     reject_physical,
 )
 from bazar_deals.config import Settings
@@ -51,7 +51,7 @@ class BazosRssClient(ListingSource):
         listings: list[Listing] = []
         targeted: list[Listing] = []
         if not self.fixture_path:
-            for query in hunt_target_queries():
+            for query in hunt_fetch_queries():
                 targeted.extend(self.search(query))
                 time.sleep(self.settings.bazos_request_gap_seconds)
         if not hunt_research_only():

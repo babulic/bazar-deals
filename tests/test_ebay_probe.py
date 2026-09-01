@@ -102,7 +102,8 @@ def test_probe_failures_are_sanitized_and_do_not_follow_redirects(stage, status,
 
 
 def test_fetch_new_keeps_hits_when_a_later_category_is_400(monkeypatch):
-    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_target_queries", lambda: ())
+    monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
+    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_fetch_queries", lambda: ())
     monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("11450", "3213"))
 
     def get(url, **kwargs):
@@ -128,7 +129,7 @@ def test_fetch_new_keeps_hits_when_a_later_category_is_400(monkeypatch):
 
 
 def test_fetch_new_keeps_ebay_at_and_searches_de_and_at(monkeypatch):
-    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_target_queries", lambda: ("iphone",))
+    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_fetch_queries", lambda: ("iphone",))
     monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ())
     seen: list[str] = []
 
@@ -160,7 +161,7 @@ def test_fetch_new_keeps_ebay_at_and_searches_de_and_at(monkeypatch):
 
 def test_fetch_new_stops_remaining_searches_after_429(monkeypatch):
     monkeypatch.setattr(
-        "bazar_deals.adapters.ebay.hunt_target_queries",
+        "bazar_deals.adapters.ebay.hunt_fetch_queries",
         lambda: ("iphone", "switch", "lego"),
     )
     monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("11450",))
@@ -193,3 +194,33 @@ def test_fetch_new_stops_remaining_searches_after_429(monkeypatch):
     assert "switch" in seen
     assert found
     assert any("429" in note for note in client.notes)
+
+
+def test_fetch_new_skips_category_dump_when_sku_search_hits(monkeypatch):
+    monkeypatch.setattr("bazar_deals.adapters.ebay.hunt_fetch_queries", lambda: ("iphone se",))
+    monkeypatch.setattr("bazar_deals.adapters.ebay._SMALL_CATEGORIES", ("181376",))
+    seen: list[str] = []
+
+    def get(url, **kwargs):
+        params = kwargs["params"]
+        key = params.get("q") or params.get("category_ids")
+        seen.append(key)
+        marketplace_id = kwargs["headers"]["X-EBAY-C-MARKETPLACE-ID"]
+        host = "ebay.at" if marketplace_id == "EBAY_AT" else "ebay.de"
+        item = {
+            "itemId": f"hit-{marketplace_id}",
+            "title": "Apple iPhone SE 64GB",
+            "itemWebUrl": f"https://www.{host}/itm/hit",
+            "price": {"value": "55", "currency": "EUR"},
+            "buyingOptions": ["FIXED_PRICE"],
+            "condition": "USED",
+        }
+        return httpx.Response(200, json={"itemSummaries": [item]}, request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx, "get", get)
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+    client._token = "test-token"
+    found = client.fetch_new()
+    assert seen.count("iphone se") == 2
+    assert "181376" not in seen
+    assert found

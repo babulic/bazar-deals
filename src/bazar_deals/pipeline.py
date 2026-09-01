@@ -459,6 +459,7 @@ def score_listings(
         deals=deals,
         funnel=funnel,
         source_stats=source_stats,
+        listings=list(listings),
         price_book_misses=list(getattr(sold, "misses", []) or []),
     )
 

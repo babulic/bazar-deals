@@ -10,7 +10,7 @@ from urllib.parse import urlparse
 import httpx
 
 from bazar_deals.adapters.base import ListingSource
-from bazar_deals.catalog import hunt_research_only, hunt_target_queries
+from bazar_deals.catalog import hunt_research_only, hunt_fetch_queries
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Vertical
 from bazar_deals.htmlparse import parse_vinted_catalog_payload, parse_vinted_detail, parse_vinted_items
@@ -102,7 +102,8 @@ class VintedHuntClient(ListingSource):
         )
         try:
             self._warmup(client)
-            for query in hunt_target_queries():
+            sku_queries = hunt_fetch_queries()
+            for query in sku_queries:
                 time.sleep(gap)
                 try:
                     for item in self.search(query, limit=48):
@@ -113,7 +114,7 @@ class VintedHuntClient(ListingSource):
                         found.append(item)
                 except (httpx.HTTPError, RuntimeError, ValueError):
                     continue
-            if not hunt_research_only():
+            if not hunt_research_only() and not sku_queries:
                 for index, path in enumerate(paths):
                     if index:
                         time.sleep(gap)
