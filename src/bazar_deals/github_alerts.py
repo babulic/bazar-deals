@@ -301,9 +301,12 @@ class GitHubIssueAlerts:
         return 1
 
     def post_run(self, run: HuntRun) -> int:
-        """Post BUY cards and still-profitable near-misses. Skip an empty hunt."""
-        if not select_alert_deals(run.deals):
-            return 0
+        """Post the hunt report every finished run.
+
+        BUY cards and still-profitable near-misses are the cards. A 0 BUY hunt
+        still comments the Slovak status so issue #1 is never silent. The
+        assignee is pinged only when there is a BUY.
+        """
         self._require_auth()
         issue = self.ensure_issue()
         body = format_hunt_comment(

@@ -196,6 +196,11 @@ def score_listings(
     reviewer: AIReviewClient | None = None,
     identifier: AIIdentityClient | None = None,
 ) -> HuntRun:
+    deadline = (
+        time.monotonic() + float(settings.hunt_score_seconds)
+        if settings.hunt_score_seconds
+        else None
+    )
     cap = settings.max_buy_eur
     floor = settings.min_buy_eur
     enrichers = enrichers or {}
@@ -310,6 +315,14 @@ def score_listings(
     work = 0
     try:
         for index, listing in enumerate(queue, start=1):
+            if deadline is not None and time.monotonic() >= deadline:
+                leftover = len(queue) - index + 1
+                funnel["score_capped"] = leftover
+                emit(
+                    f"scoring time cap {settings.hunt_score_seconds}s; "
+                    f"{leftover} listing(s) left"
+                )
+                break
             if index == 1 or index % 50 == 0 or index == len(queue):
                 set_phase(f"scoring {index}/{len(queue)}")
                 emit(f"scoring {index}/{len(queue)} (valued {work})")
@@ -452,7 +465,7 @@ def score_listings(
 
     if settings.ai_review_enabled:
         reviewer = reviewer or AIReviewClient(settings)
-        deals = _apply_ai_gate(deals, settings, reviewer, funnel)
+        deals = _apply_ai_gate(deals, settings, reviewer, funnel, deadline=deadline)
 
     funnel["buy"] = sum(1 for deal in deals if deal.action is Action.BUY)
     for deal in deals:
@@ -507,6 +520,8 @@ def _apply_ai_gate(
     settings: Settings,
     reviewer: AIReviewClient,
     funnel: Counter[str],
+    *,
+    deadline: float | None = None,
 ) -> list[Deal]:
     buys = [deal for deal in deals if deal.action is Action.BUY]
     ordered_buys = _round_robin_deals(buys)
@@ -514,11 +529,17 @@ def _apply_ai_gate(
     reviewed = 0
     for deal in ordered_buys:
         key = (deal.item.listing.marketplace.value, deal.item.listing.external_id)
-        if reviewed >= max(0, int(settings.ai_max_reviews)):
+        timed_out = deadline is not None and time.monotonic() >= deadline
+        if timed_out or reviewed >= max(0, int(settings.ai_max_reviews)):
             funnel["ai_review_cap"] += 1
             if settings.ai_review_required:
+                reason = (
+                    "AI review time cap reached; fail closed"
+                    if timed_out
+                    else "AI review cap reached; fail closed"
+                )
                 replacements[key] = deal.model_copy(
-                    update={"action": Action.SKIP, "reason": "AI review cap reached; fail closed"}
+                    update={"action": Action.SKIP, "reason": reason}
                 )
             continue
         reviewed += 1
