@@ -244,7 +244,11 @@ class SoldCompClient:
         """
         if self._fixture_html is not None:
             return
-        from bazar_deals.catalog import is_high_yield_kind, matches_hunt_target
+        from bazar_deals.catalog import (
+            hunt_research_only,
+            is_high_yield_kind,
+            matches_hunt_target,
+        )
 
         min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
         groups: dict[str, list[Listing]] = {}
@@ -264,6 +268,24 @@ class SoldCompClient:
             groups.items(),
             key=lambda pair: min(item.price.amount for item in pair[1]),
         )
+        # Preparing every distinct product makes this phase quadratic: each
+        # median_sold call compares against the whole asking catalog. A broad
+        # research fetch recently produced 2,387 usable ads and exhausted the
+        # 70-minute Actions job before scoring one candidate. Prewarm only as
+        # many cheapest product groups as the scoring loop can actually value.
+        score_cap = self.settings.max_score_listings
+        if score_cap is None:
+            score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+            if hunt_research_only():
+                score_cap = max(score_cap, 120)
+        prepare_cap = max(1, int(score_cap))
+        skipped = max(0, len(ranked) - prepare_cap)
+        ranked = ranked[:prepare_cap]
+        if skipped:
+            self._note(
+                f"price book: prewarm capped at {prepare_cap} product(s); "
+                f"{skipped} lower-priority product(s) deferred to scoring"
+            )
         warmed = 0
         for query, members in ranked:
             cheapest = min(members, key=lambda item: item.price.amount)
