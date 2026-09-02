@@ -1,3 +1,7 @@
+{
+    default_sni 46.102.157.230
+}
+
 https://46.102.157.230 {
     tls {
         issuer acme {

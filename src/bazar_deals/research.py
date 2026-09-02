@@ -77,7 +77,7 @@ def hunt_research_hint(funnel: Counter[str] | dict[str, int]) -> str:
         return f"{weak} weak identities — prefer branded, identifiable fast-movers"
     if above:
         return f"{above} over usual price — hunt different SKUs, not cheaper-looking junk"
-    return "0 BUY — expand sites and assortment toward net profit >= 30 EUR"
+    return "0 BUY — expand sites and assortment toward net profit >= 20 EUR"
 
 
 def sell_research_hint(*, buyers: int, fetched: int) -> str:

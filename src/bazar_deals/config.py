@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     fx_cache: str = ".cache/ecb-fx.json"
     fx_max_age_days: int = Field(default=7, ge=0, le=30)
     fx_fee_rate: Decimal = Field(default=Decimal("0.02"), ge=0, lt=1)
-    min_net_profit_eur: Decimal = Decimal("30")
+    min_net_profit_eur: Decimal = Decimal("20")
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
     max_shipping_eur: Decimal = Decimal(str(_HUNT["max_shipping_eur"]))
@@ -98,6 +98,9 @@ class Settings(BaseSettings):
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
     comps_live_queries: int = Field(default=int(_HUNT.get("max_sold_lookups", 80)), ge=0, le=80)
+    # None keeps the catalog rule (and the wider local research pass). The
+    # scheduled workflow sets an explicit wall-clock-safe network-work cap.
+    max_score_listings: int | None = Field(default=None, ge=1, le=200)
 
     @field_validator("eur_czk", "eur_pln", mode="before")
     @classmethod
