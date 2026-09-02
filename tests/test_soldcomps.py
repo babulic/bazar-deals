@@ -4,7 +4,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing, Marketplace, Money
+from bazar_deals.domain import IdentifiedItem, Listing, Marketplace, Money
 from bazar_deals.soldcomps import SoldCompClient, _lower_quartile, _market_value
 
 ROOT = Path(__file__).parent / "fixtures"
@@ -37,6 +37,42 @@ def _peers(n: int = 6) -> list[Listing]:
         )
         for index in range(n)
     ]
+
+
+def test_prepare_price_book_is_bounded_by_scoring_cap(tmp_path: Path) -> None:
+    settings = Settings(comps_db=str(tmp_path / "bounded.sqlite"), max_score_listings=2)
+    client = SoldCompClient(settings)
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title=f"Target product {index}",
+            url=f"https://pc.bazos.sk/inzerat/target-{index}/",
+            price=Money(amount=Decimal(str(price)), currency="EUR"),
+        )
+        for index, price in enumerate((60, 30, 40, 20), start=1)
+    ]
+
+    def identified(listing: Listing) -> IdentifiedItem:
+        return IdentifiedItem(
+            listing=listing,
+            vertical=None,
+            canonical_name=listing.title,
+            search_query=f"product {listing.external_id}",
+            kind="hardware",
+            confidence=1,
+        )
+
+    with (
+        patch("bazar_deals.soldcomps.identify", side_effect=identified),
+        patch("bazar_deals.catalog.matches_hunt_target", return_value=True),
+        patch("bazar_deals.catalog.is_high_yield_kind", return_value=True),
+        patch.object(client, "median_sold", return_value=None) as median,
+    ):
+        client.prepare_price_book(listings)
+
+    assert [call.kwargs["query"] for call in median.call_args_list] == ["product 4", "product 2"]
+    assert any("prewarm capped at 2 product(s)" in note for note in client.notes)
 
 
 def test_cache_hit_skips_network(tmp_path: Path) -> None:
