@@ -125,7 +125,11 @@ jobs:
           NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
-          COMPS_LIVE_QUERIES: "80"
+          # A zero-BUY hunt scores twice. Eighty sequential product lookups made
+          # each pass hit the 70-minute job timeout, so no report was posted.
+          # Twenty-four keeps both passes inside the hourly window while the
+          # target-SKU ordering spends the budget on likely resalable items.
+          COMPS_LIVE_QUERIES: "24"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
@@ -200,7 +204,7 @@ jobs:
           NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
-          COMPS_LIVE_QUERIES: "80"
+          COMPS_LIVE_QUERIES: "24"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
