@@ -23,6 +23,8 @@ class InventoryItem(BaseModel):
     title: str
     species: list[str] = Field(default_factory=list)
     form: str = ""
+    # Stated colour of the specimen or finished piece, when the listing names one.
+    color: str = ""
     part_numbers: list[str] = Field(default_factory=list)
     # Low-value terms worth adding only where the channel has spare characters.
     keywords: list[str] = Field(default_factory=list)

@@ -244,6 +244,40 @@ def test_score_listings_caps_detail_work(monkeypatch) -> None:
     assert run.funnel["scored"] == 3
 
 
+def test_score_listings_caps_on_wall_clock(monkeypatch) -> None:
+    clock = {"t": 0.0}
+    monkeypatch.setattr("bazar_deals.pipeline.time.monotonic", lambda: clock["t"])
+
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            clock["t"] += 20
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    listings = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id=str(index),
+            title="Apple iPhone 13 128GB",
+            description="Plne funkčný telefón, batéria 91 %, bez poškodenia.",
+            url=f"https://mobil.bazos.sk/inzerat/time-{index}/",
+            price=Money(amount=Decimal("40"), currency="EUR"),
+        )
+        for index in range(6)
+    ]
+    run = score_listings(listings, Settings(hunt_score_seconds=30), _Sold())
+    assert run.funnel["usable"] == 6
+    assert run.funnel["scored"] == 2
+    assert run.funnel["score_capped"] == 4
+
+
 def test_unconfirmed_sbazar_does_not_fill_the_score_cap(monkeypatch) -> None:
     from copy import deepcopy
 

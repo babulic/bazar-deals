@@ -24,11 +24,13 @@ from bazar_deals.research import (
     hunt_research_hint,
     sell_research_hint,
     should_research_loop,
+    should_sell_research_loop,
     write_github_output,
     write_run_summary,
+    in_process_hunt_loop_allowed,
 )
 from bazar_deals.selling.collect import collect_all, refresh_inventory
-from bazar_deals.selling.demand import find_buyers, format_buyer_digest
+from bazar_deals.selling.demand import find_buyers, format_buyer_digest, merge_buyer_digests
 from bazar_deals.selling.inventory import known_segments, load_inventory, save_inventory
 from bazar_deals.selling.plan import build_plan
 from bazar_deals.selling.report import format_json, format_markdown
@@ -111,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--research",
         action="store_true",
-        help="This pass is the 0-BUY retry (expand SKUs, query-only). The hunt CLI also loops in-process; GHA uses this flag as backup.",
+        help="This pass is the 0-hit retry (expand SKUs/queries). Hunt and sell also loop in-process; GHA uses this flag as backup.",
     )
     args = parser.parse_args(argv)
     if args.research:
@@ -155,15 +157,42 @@ def main(argv: list[str] | None = None) -> int:
                 offline=args.offline,
                 research=args.research,
             )
+            looped = 0
+            if should_sell_research_loop(
+                buyers=len(digest.matches),
+                notes=digest.notes,
+                already_research=bool(args.research),
+                offline=bool(args.offline),
+            ):
+                emit("0 kupcov or throttled eBay — in-process sell research loop")
+                extra = find_buyers(
+                    inventory,
+                    settings,
+                    manual_listings=manual or None,
+                    offline=args.offline,
+                    research=True,
+                )
+                digest = merge_buyer_digests(digest, extra)
+                looped = 1
             digest.notes[:0] = fx_notes
             body = format_buyer_digest(digest, mention=settings.github_assignee)
             print(body)
             buyers = len(digest.matches)
             fetched = sum(digest.fetched.values()) if digest.fetched else 0
-            write_github_output(buyers=buyers, research=int(args.research))
+            write_github_output(
+                buyers=buyers,
+                research=int(bool(args.research) or looped),
+                looped=looped,
+            )
             write_run_summary(
                 Path(".cache/bazar-sell-run.json"),
-                {"command": "sell", "buyers": buyers, "fetched": fetched, "research": bool(args.research)},
+                {
+                    "command": "sell",
+                    "buyers": buyers,
+                    "fetched": fetched,
+                    "research": bool(args.research) or bool(looped),
+                    "looped": bool(looped),
+                },
             )
             if buyers == 0:
                 emit(sell_research_hint(buyers=0, fetched=fetched))
@@ -234,12 +263,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     run.fetch_notes[:0] = fx_notes
     buys = [deal for deal in run.deals if deal.action is Action.BUY]
+    # Post the first-pass report before any 0-BUY retry. The GHA hunt job is
+    # 70 minutes; scoring twice never reached --notify, so issue #1 stayed empty.
+    if args.notify:
+        try:
+            posted = GitHubIssueAlerts(settings).post_run(run)
+        except RuntimeError as exc:
+            print(exc)
+            return 2
+        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     looped = 0
     if should_research_loop(
         buy_count=len(buys),
         already_research=bool(args.research),
         offline=bool(args.offline),
-    ):
+    ) and in_process_hunt_loop_allowed():
         enable_hunt_research()
         emit("0 BUY — in-process research loop: expand SKUs, query-only fetch")
         extra = hunt_sources(
@@ -260,6 +298,19 @@ def main(argv: list[str] | None = None) -> int:
         run.fetch_notes = first_notes + ["research loop after 0 BUY"] + extra.fetch_notes + sold_notes
         buys = [deal for deal in run.deals if deal.action is Action.BUY]
         looped = 1
+        if args.notify:
+            try:
+                posted = GitHubIssueAlerts(settings).post_run(run)
+            except RuntimeError as exc:
+                print(exc)
+                return 2
+            print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
+    elif should_research_loop(
+        buy_count=len(buys),
+        already_research=bool(args.research),
+        offline=bool(args.offline),
+    ):
+        emit("0 BUY — GHA research job retries; first-pass report already posted")
     write_github_output(
         buys=len(buys),
         research=int(bool(args.research) or looped),
@@ -283,13 +334,6 @@ def main(argv: list[str] | None = None) -> int:
         emit(hunt_research_hint(run.funnel))
     if shown:
         print("\n\n".join(format_deal(deal) for deal in shown))
-    if args.notify:
-        try:
-            posted = GitHubIssueAlerts(settings).post_run(run)
-        except RuntimeError as exc:
-            print(exc)
-            return 2
-        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     return 0
 
 

@@ -137,6 +137,71 @@ def test_facebook_hunt_tries_public_html_and_fails_closed_on_login():
     assert any("LOGIN_REQUIRED" in note for note in client.notes)
 
 
+def _ddg_html(title: str, target: str, snippet: str = "") -> str:
+    from urllib.parse import quote
+
+    href = f"//duckduckgo.com/l/?uddg={quote(target, safe='')}&amp;rut=x"
+    return (
+        "<html>"
+        f'<a rel="nofollow" class="result__a" href="{href}">{title}</a>'
+        f'<a class="result__snippet" href="{href}">{snippet}</a>'
+        "</html>"
+    )
+
+
+def test_facebook_hunt_reads_public_item_urls_from_search_index():
+    def handler(request):
+        url = str(request.url)
+        if "duckduckgo.com" in url:
+            return httpx.Response(
+                200,
+                text=_ddg_html(
+                    "Apple iPhone SE 64GB",
+                    "https://www.facebook.com/marketplace/item/555001122/",
+                    "Predám iPhone SE",
+                ),
+            )
+        return httpx.Response(302, headers={"Location": "https://www.facebook.com/login"})
+
+    client = CentralEuropeClient(
+        "facebook",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    rows = client.search("iphone se")
+    assert rows
+    assert rows[0].external_id == "555001122"
+    assert str(rows[0].url) == "https://www.facebook.com/marketplace/item/555001122/"
+    assert rows[0].raw.get("indexed") is True
+    assert any("via search index" in note for note in client.notes)
+
+
+def test_olx_hunt_reads_public_oferta_urls_from_search_index():
+    def handler(request):
+        url = str(request.url)
+        if "duckduckgo.com" in url:
+            return httpx.Response(
+                200,
+                text=_ddg_html(
+                    "Nintendo Switch OLED",
+                    "https://www.olx.pl/d/oferta/nintendo-switch-oled-CID123.html",
+                    "Sprzedam konsole",
+                ),
+            )
+        return httpx.Response(403, text="ERROR: The request could")
+
+    client = CentralEuropeClient(
+        "olx",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    rows = client.search("nintendo switch")
+    assert rows
+    assert "nintendo-switch-oled-CID123" in rows[0].external_id
+    assert rows[0].raw.get("indexed") is True
+    assert any("via search index" in note for note in client.notes)
+
+
 def test_olx_hunt_reads_public_jsonld_and_fails_closed_on_login():
     from bazar_deals.adapters.central_europe import parse_public_listings
 
@@ -268,4 +333,6 @@ def test_regular_hunt_does_not_delete_comments():
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])
+    assert "looped != '1'" in str(sell['jobs']['research']['if'])
+    assert sell['jobs']['sell-buyers']['outputs']['looped']
     assert '--research' in str(sell['jobs']['research'])

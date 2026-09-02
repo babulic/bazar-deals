@@ -164,15 +164,17 @@ def test_searched_sites_cover_central_and_western_europe() -> None:
         "sbazar.cz",
         "ebay.de",
         "ebay.at",
-        "ebay.fr",
-        "ebay.it",
         "ebay.pl",
-        "ebay.nl",
     ):
         assert host in sites
     assert "facebook.com" in sites
     assert "olx.pl" in sites
     assert "allegro.pl" not in sites
+    assert "ebay.fr" not in sites
+    assert "ebay.it" not in sites
+    assert "ebay.nl" not in sites
+    assert "ebay.es" not in sites
+    assert "ebay.be" not in sites
 
 
 def test_buy_verbs_are_searched_in_pl_hu_it_fr_nl() -> None:
@@ -282,6 +284,50 @@ def test_cli_buyers_prints_digest(monkeypatch, capsys) -> None:
     out = capsys.readouterr().out
     assert "Koupím 6510" in out
     assert "neuvedené" in out
+
+
+def test_zero_buyers_runs_in_process_sell_research_loop(monkeypatch, capsys) -> None:
+    from bazar_deals.cli import main
+    from bazar_deals.selling import demand as demand_mod
+
+    calls: list[bool] = []
+
+    def fake_find(inventory, settings, client=None, **kwargs):
+        calls.append(bool(kwargs.get("research")))
+        return BuyerDigest(notes=["aukro: fetched 0"])
+
+    monkeypatch.setattr(demand_mod, "find_buyers", fake_find)
+    monkeypatch.setattr("bazar_deals.cli.find_buyers", fake_find)
+    monkeypatch.setattr(
+        "bazar_deals.cli.prepare_exchange_rates",
+        lambda settings, offline=False: (settings, []),
+    )
+    assert main(["sell", "--buyers"]) == 0
+    assert calls == [False, True]
+    assert "research loop after 0 buyers or throttled eBay" in capsys.readouterr().out
+
+
+def test_sell_research_flag_and_offline_do_not_recurse(monkeypatch) -> None:
+    from bazar_deals.cli import main
+    from bazar_deals.selling import demand as demand_mod
+
+    calls: list[str] = []
+
+    def fake_find(inventory, settings, client=None, **kwargs):
+        calls.append("research" if kwargs.get("research") else "first")
+        return BuyerDigest(notes=["aukro: fetched 0"])
+
+    monkeypatch.setattr(demand_mod, "find_buyers", fake_find)
+    monkeypatch.setattr("bazar_deals.cli.find_buyers", fake_find)
+    monkeypatch.setattr(
+        "bazar_deals.cli.prepare_exchange_rates",
+        lambda settings, offline=False: (settings, []),
+    )
+    assert main(["sell", "--buyers", "--research"]) == 0
+    assert calls == ["research"]
+    calls.clear()
+    assert main(["sell", "--buyers", "--offline"]) == 0
+    assert calls == ["first"]
 
 
 def test_sell_buyer_alerts_use_a_separate_issue() -> None:
@@ -501,6 +547,8 @@ def _quiet_handler(request: httpx.Request) -> httpx.Response:
     if "searchItemsCommon" in url:
         return httpx.Response(200, json={"content": []})
     if "willhaben.at" in url:
+        return httpx.Response(200, text="<html></html>")
+    if "duckduckgo.com" in url:
         return httpx.Response(200, text="<html></html>")
     if any(
         host in url
@@ -820,13 +868,268 @@ def test_photos_reject_a_phone_want_ad_even_if_titles_overlap() -> None:
         )
         is None
     )
-    assert (
-        best_item(
-            "Kúpim remienok Samsung Galaxy Watch 7",
-            [item],
-            want_images=["https://img.example/strap.png"],
-            fetch_image=blobs.get,
-        )
-        is not None
+    hit = best_item(
+        "Kúpim remienok Samsung Galaxy Watch 7",
+        [item],
+        want_images=["https://img.example/strap.png"],
+        fetch_image=blobs.get,
     )
+    assert hit is not None
+
+
+def jadeite() -> InventoryItem:
+    return InventoryItem(
+        id="jadeit-brus",
+        segment="minerals",
+        title="Prírodný Jadeit - vybrúsený a vyleštený, na výrobu šperkov",
+        species=["jadeit"],
+        form="brus",
+        color="zelený",
+        listed={"aukro": Decimal("10"), "vinted": Decimal("12")},
+    )
+
+
+def pendant() -> InventoryItem:
+    return InventoryItem(
+        id="apatit-privesok",
+        segment="minerals",
+        title="Prívesok z prírodného lešteného modrého apatitu",
+        species=["apatit"],
+        form="prívesok",
+        color="modrý",
+        listed={"vinted": Decimal("6")},
+    )
+
+
+def test_pink_bracelet_want_does_not_match_green_jadeite_specimen() -> None:
+    title = "Kupię bransoletke By dziubeka Btw2179 jadeit księży"
+    ad = WantAd(
+        marketplace="vinted",
+        site="vinted.pl",
+        external_id="2179",
+        title=title,
+        url="https://www.vinted.pl/items/2179",
+        description="Kolor różowy, bransoletka jadeit By dziubeka.",
+        raw={"brand": "By dziubeka", "dominant_colors": ["#e091b0"]},
+    )
+    assert is_want_to_buy(title)
+    assert match_want(title, jadeite()) < 0.5
+    assert match_want(ad, jadeite()) < 0.5
+    assert best_item(ad, [jadeite(), crystal(), pendant()]) is None
+    assert match_want("Kúpim ružový jadeit", jadeite()) < 0.5
+    assert match_want("Kúpim zelený jadeit na výrobu šperkov", jadeite()) >= 0.5
+
+
+def test_bracelet_want_does_not_match_apatite_pendant() -> None:
+    title = "Kupię bransoletkę z niebieskiego apatytu"
+    assert match_want(title, pendant()) < 0.5
+    assert best_item(title, [pendant(), jadeite()]) is None
+
+
+def test_mineral_species_want_still_matches_crystal_specimen() -> None:
+    assert match_want("Kúpim ametyst", crystal()) >= 0.5
+    hit = best_item("Kúpim ametyst z Namíbie Brandberg", [crystal(), jadeite()])
+    assert hit is not None
+    assert hit[0].id == "amethyst-namibia-74mm"
+
+
+def test_vinted_photo_swatch_rejects_pink_on_green_stock() -> None:
+    from io import BytesIO
+
+    from PIL import Image
+
+    from bazar_deals.selling.photos import hex_color_family, photos_color_conflict
+
+    def png(color: tuple[int, int, int]) -> bytes:
+        image = Image.new("RGB", (32, 32), color)
+        buf = BytesIO()
+        image.save(buf, format="PNG")
+        return buf.getvalue()
+
+    blobs = {
+        "https://img.example/green.png": png((40, 160, 50)),
+        "https://img.example/pink.png": png((220, 80, 140)),
+    }
+    item = jadeite().model_copy(update={"image_urls": ["https://img.example/green.png"]})
+    assert hex_color_family("#e091b0") == "pink"
+    assert hex_color_family("#2d8a3e") == "green"
+    assert (
+        photos_color_conflict(
+            item.image_urls,
+            ["https://img.example/pink.png"],
+            fetch=blobs.get,
+            stock_colors={"green"},
+        )
+        is True
+    )
+    ad = WantAd(
+        marketplace="vinted",
+        site="vinted.pl",
+        external_id="1",
+        title="Kupię jadeit",
+        url="https://www.vinted.pl/items/1",
+        image_urls=["https://img.example/pink.png"],
+        raw={"dominant_colors": ["#e091b0"]},
+    )
+    assert best_item(ad, [item], fetch_image=blobs.get) is None
+
+
+def test_ebay_429_retries_then_ingests_and_continues_other_storefronts() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "oauth2/token" in url:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        if "item_summary/search" in url:
+            market = request.headers.get("X-EBAY-C-MARKETPLACE-ID", "")
+            calls.append(market)
+            if market == "EBAY_DE" and calls.count("EBAY_DE") == 1:
+                return httpx.Response(
+                    429, text="Too Many Requests", headers={"Retry-After": "1"}
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "itemSummaries": [
+                        {
+                            "itemId": f"v1|{len(calls)}|0",
+                            "title": "Kaufe MOS 6510 C64",
+                            "itemWebUrl": "https://www.ebay.de/itm/6510",
+                            "shortDescription": "Suche MOS 6510",
+                            "price": {"value": "20", "currency": "EUR"},
+                        }
+                    ]
+                },
+            )
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert", ebay_retention_enabled=True)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    assert calls[0] == "EBAY_DE"
+    assert calls.count("EBAY_DE") >= 2
+    assert "EBAY_AT" in calls
+    assert "EBAY_PL" in calls
+    assert digest.fetched.get("ebay.de", 0) >= 1
+    assert not any("remaining storefronts skipped" in note for note in digest.notes)
+    assert not any("remaining eBay searches stopped" in note for note in digest.notes)
+
+
+def test_ebay_persistent_429_stops_after_retry_budget() -> None:
+    from bazar_deals.selling.demand import _EBAY_RETRY_BUDGET
+
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "oauth2/token" in url:
+            return httpx.Response(200, json={"access_token": "t", "expires_in": 7200})
+        if "item_summary/search" in url:
+            calls.append(request.headers.get("X-EBAY-C-MARKETPLACE-ID", ""))
+            return httpx.Response(429, text="Too Many Requests")
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="app-id", ebay_client_secret="cert", ebay_retention_enabled=True)
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    assert calls
+    assert calls[0] == "EBAY_DE"
+    assert len(calls) == _EBAY_RETRY_BUDGET + 1
+    assert "EBAY_AT" not in calls
+    assert "EBAY_PL" not in calls
+    throttle = [note for note in digest.notes if "429" in note]
+    assert len(throttle) == 1
+    assert "remaining eBay searches stopped" in throttle[0]
+    assert not any(note.startswith("ebay.at: HTTP 429") for note in digest.notes)
+    assert not any(note.startswith("ebay.fr: HTTP 429") for note in digest.notes)
+
+
+def test_facebook_and_olx_login_walls_are_skipped_not_retryable() -> None:
+    from bazar_deals.research import retryable_sell_errors
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "duckduckgo.com" in url:
+            return httpx.Response(200, text="<html></html>")
+        if "facebook.com" in url:
+            return httpx.Response(403, text="login required")
+        if "olx.pl" in url:
+            return httpx.Response(403, text="Forbidden")
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    facebook = [note for note in digest.notes if note.startswith("facebook:")]
+    olx = [note for note in digest.notes if note.startswith("olx.pl:")]
+    assert facebook == ["facebook: skipped (public marketplace is a login wall)"]
+    assert olx == ["olx.pl: skipped (public search is a login wall)"]
+    assert retryable_sell_errors(digest.notes) == []
+    body = format_buyer_digest(digest)
+    assert "login wall" in body
+    assert "facebook: HTTP 403" not in body
+    assert "olx.pl: HTTP 403" not in body
+    assert "public marketplace unavailable" not in body
+    assert "source unavailable (not an empty result)" not in body
+
+
+def _ddg_html(title: str, target: str, snippet: str = "") -> str:
+    from urllib.parse import quote
+
+    href = f"//duckduckgo.com/l/?uddg={quote(target, safe='')}&amp;rut=x"
+    return (
+        "<html>"
+        f'<a rel="nofollow" class="result__a" href="{href}">{title}</a>'
+        f'<a class="result__snippet" href="{href}">{snippet}</a>'
+        "</html>"
+    )
+
+
+def test_facebook_and_olx_login_walls_ingest_public_index_ads() -> None:
+    from bazar_deals.research import retryable_sell_errors
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        url = str(request.url)
+        if "duckduckgo.com" in url:
+            query = str(request.url.params.get("q") or "")
+            if "olx.pl" in query:
+                return httpx.Response(
+                    200,
+                    text=_ddg_html(
+                        "Kupię MOS 6510 C64",
+                        "https://www.olx.pl/d/oferta/kupie-mos-6510-CID123.html",
+                        "Szukam procesora MOS 6510",
+                    ),
+                )
+            return httpx.Response(
+                200,
+                text=_ddg_html(
+                    "Kúpim MOS 6510 C64",
+                    "https://www.facebook.com/marketplace/item/9876543210/",
+                    "Hľadám procesor 6510",
+                ),
+            )
+        if "facebook.com" in url:
+            return httpx.Response(403, text="login required")
+        if "olx.pl" in url:
+            return httpx.Response(403, text="Forbidden")
+        return _quiet_handler(request)
+
+    settings = Settings(ebay_client_id="", ebay_client_secret="")
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(Inventory(items=[chip()]), settings, client=client)
+
+    assert digest.fetched.get("facebook.com", 0) >= 1
+    assert digest.fetched.get("olx.pl", 0) >= 1
+    assert any("via search index" in note for note in digest.notes)
+    assert not any("login wall" in note for note in digest.notes)
+    assert retryable_sell_errors(digest.notes) == []
+    body = format_buyer_digest(digest)
+    assert "login wall" not in body
+    assert "facebook.com/marketplace/item/9876543210" in body or digest.fetched["facebook.com"] >= 1
+
 

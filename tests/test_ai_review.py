@@ -250,3 +250,21 @@ def test_ai_review_prompt_includes_body_specs_and_marketplace_fields(tmp_path) -
     assert "128gb" in prompt
     assert "brand: Apple" in prompt
     assert "shortDescription: iPhone 13 128GB" in prompt
+
+
+def test_ai_gate_fails_closed_when_score_deadline_passed() -> None:
+    class _Reviewer:
+        def review(self, deal):
+            raise AssertionError("should not review after the hunt score deadline")
+
+    funnel = Counter()
+    result = _apply_ai_gate(
+        [_deal()],
+        Settings(ai_review_enabled=True, ai_review_required=True),
+        _Reviewer(),
+        funnel,
+        deadline=0.0,
+    )[0]
+    assert result.action.value == "skip"
+    assert "time cap" in result.reason
+    assert funnel["ai_review_cap"] == 1

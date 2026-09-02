@@ -565,7 +565,7 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
     assert "<!-- listing:bazos:1542 -->" in posts[0]
 
 
-def test_post_run_skips_github_when_there_are_no_buys() -> None:
+def test_post_run_posts_zero_buy_status_without_mention() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -591,11 +591,15 @@ def test_post_run_skips_github_when_there_are_no_buys() -> None:
         github_token="t",
         github_repository="babulic/bazar-deals",
         github_alert_issue=1,
+        github_assignee="babulic",
     )
     run = HuntRun(deals=[], funnel=Counter(buy=0, usable=3), source_stats={}, fetch_notes=["vinted: fetched 0"])
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
-        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
-    assert posts == []
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
+    assert len(posts) == 1
+    assert not posts[0].startswith("@babulic")
+    assert "**0 BUY áno**" in posts[0]
+    assert "vinted: fetched 0" in posts[0]
 
 
 def test_post_run_posts_profitable_near_misses_without_mention() -> None:
