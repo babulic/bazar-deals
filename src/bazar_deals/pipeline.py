@@ -286,9 +286,17 @@ def score_listings(
         + _round_robin_listings(overpriced)
         + pending_sk
     )
-    score_cap = int(rules()["hunt"].get("max_score_listings", 80))
-    if hunt_research_only():
-        score_cap = max(score_cap, 120)
+    # Live detail pages are the other bounded network budget in addition to
+    # price-book queries. Keep it configurable so the scheduled two-pass hunt
+    # can finish and publish a report before the runner deadline. Target and
+    # cached BUY candidates are ordered first above, so a smaller cap retains
+    # the highest-yield work. Cached no-detail valuations do not consume it.
+    if settings.max_score_listings is None:
+        score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+        if hunt_research_only():
+            score_cap = max(score_cap, 120)
+    else:
+        score_cap = settings.max_score_listings
 
     if identifier is None and settings.ai_review_enabled:
         identifier = AIIdentityClient(settings)
