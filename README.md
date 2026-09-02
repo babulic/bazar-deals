@@ -16,18 +16,18 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. GitHub comments are posted only when there is at least one BUY or at least one sell-side `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. The GHA `research` job is only a backup when the hunt job dies before that loop (`looped` empty). Sell still has a separate 0-match retry. Profit gates stay the same (30 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
+**0 BUY or 0 sell is a miss, not a quiet success.** After a 0 BUY score the hunt process itself runs a **research loop** (expanded SKUs, query-only fetch, plus the first-pass listings) and posts **one** GitHub comment. The GHA `research` job is only a backup when the hunt job dies before that loop (`looped` empty). Sell still has a separate 0-match retry. Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
 Price-book gaps trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
 Live comps are searched **up to 3× max buy** (not only the 20–110 € hunt window).
-The hunt batch is a fallback when that live sample already clears a 30 € net BUY,
+The hunt batch is a fallback when that live sample already clears a 20 € net BUY,
 or when live search finds fewer than 5 similar ads. Mixing the bargain-bin batch
 into the live P25 is skipped, because P25×0.75 of 20–110 € ads is often too low
-for a 30 € floor. Scoring spends the 80-ad cap on detail HTTP and live lookups,
-not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 30 €)
+for a 20 € floor. Scoring spends its configured cap on detail HTTP and live lookups,
+not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 20 €)
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
 C64 cassette games, clothing, or watch straps. Live comps are skipped for
 media/clothing/accessories. Marketplace **search** uses `fetch_queries`
@@ -43,7 +43,7 @@ on a 429 instead of emptying the whole fetch.
 
 The old rule `listed price <= 50% of typical price` is no longer used for BUY decisions. It could produce false positives when the market value itself was overestimated.
 
-A listing becomes **BUY only when expected conservative net profit is at least 30 EUR**.
+A listing becomes **BUY only when expected conservative net profit is at least 20 EUR**.
 
 ```text
 newest buy-now listing
@@ -69,7 +69,7 @@ subtract:
   known condition/accessory haircut
   seller/valuation risk reserve
     ↓
-BUY only if expected net profit >= 30 EUR
+BUY only if expected net profit >= 20 EUR
 ```
 
 ## What is searched
@@ -122,7 +122,7 @@ normalized product queries**, not listings. Before scoring, the hunt live-search
 the cheapest hunt-target products (iPhone 13 128GB, not "canon") so the budget
 is not spent on whatever showed up first. Live hits (Bazos/Aukro/Vinted/eBay,
 prices up to 3× max buy) are the market sample. The current 20–110 € batch is
-only used when that live sample already clears a 30 € net BUY for the listing,
+only used when that live sample already clears a 20 € net BUY for the listing,
 or when live search finds fewer than 5 similar ads. Ten ads for the same iPhone
 13 128GB still cost one price-book write. `128 GB` and `128GB` match as the same
 storage token. Ads without 5 comps do not consume the 80-ad scoring cap.
@@ -135,7 +135,7 @@ reads the full text and returns a canonical name, a search query and the specs
 it can quote from the ad.
 
 This decides **what the item is, never what it is worth**. A rescued candidate
-goes through exactly the same price-book valuation, the same >=30 EUR
+goes through exactly the same price-book valuation, the same >=20 EUR
 net-profit floor and the same fail-closed AI price review as any other. Results
 are cached in the comps database, so one advertisement costs one Copilot call,
 and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
@@ -177,7 +177,7 @@ conservative quick-sale resale value
 = expected net profit
 ```
 
-Default BUY floor: **30 EUR**.
+Default BUY floor: **20 EUR**.
 
 ## Price book
 
@@ -200,7 +200,7 @@ Environment overrides used by GitHub Actions:
 
 | Env | Default | Meaning |
 |---|---:|---|
-| `MIN_NET_PROFIT_EUR` | `30` | Minimum expected clean profit for BUY |
+| `MIN_NET_PROFIT_EUR` | `20` | Minimum expected clean profit for BUY |
 | `MIN_BUY_EUR` | `20` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `110` | Maximum purchase price |
 | `MAX_SHIPPING_EUR` | `15` | Conservative inbound shipping when actual cost is unavailable |
@@ -222,7 +222,7 @@ The hourly GitHub Actions hunt always comments on the Deal alerts collector
 issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
 cards (at most 5) are ranked by expected net profit and include a clickable
 listing title, asking price, usual quick-sale price, and the difference vs
-usual. Scored ads **cheaper than usual** that still miss the 30 € floor are
+usual. Scored ads **cheaper than usual** that still miss the 20 € floor are
 listed next with the same facts. Overpriced ads (asking above usual, e.g. a
 20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
 could not be valued (`no_sold_comps`, fewer than 5 comparable prices) go

@@ -116,7 +116,7 @@ jobs:
           EUR_CZK: ${{ vars.EUR_CZK }}
           EUR_PLN: ${{ vars.EUR_PLN }}
           MIN_BUY_EUR: "20"
-          MIN_NET_PROFIT_EUR: "30"
+          MIN_NET_PROFIT_EUR: "20"
           MAX_SHIPPING_EUR: "15"
           CHEAP_BUY_EUR: "20"
           MAX_SHIPPING_CHEAP_EUR: "11"
@@ -196,7 +196,7 @@ jobs:
           EUR_CZK: ${{ vars.EUR_CZK }}
           EUR_PLN: ${{ vars.EUR_PLN }}
           MIN_BUY_EUR: "20"
-          MIN_NET_PROFIT_EUR: "30"
+          MIN_NET_PROFIT_EUR: "20"
           MAX_SHIPPING_EUR: "15"
           CHEAP_BUY_EUR: "20"
           MAX_SHIPPING_CHEAP_EUR: "11"

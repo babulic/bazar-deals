@@ -78,7 +78,7 @@ def hunt_target_queries() -> tuple[str, ...]:
 
 
 def hunt_fetch_queries() -> tuple[str, ...]:
-    """Marketplace search phrases that can still sit in 20–110 € and clear 30 € net.
+    """Marketplace search phrases that can still sit in 20–110 € and clear 20 € net.
 
     Newest-dumps are full of clothing. BUY needs targeted SKU searches
     (iPhone SE, 1541, Switch Lite), not `commodore` pulling cassette games.
@@ -122,7 +122,7 @@ def matches_hunt_target(text: str) -> bool:
     return False
 
 
-# Cassette games, straps, tees, bags and perfume never clear 30 € on honest comps.
+# Cassette games, straps, tees, bags and perfume never clear 20 € on honest comps.
 # Live price-book budget goes to kinds that still can.
 _LOW_YIELD_KINDS = frozenset({
     "media",
@@ -151,7 +151,7 @@ _DROP_KINDS = frozenset({
 
 
 def is_high_yield_kind(kind: str, text: str = "") -> bool:
-    """True when same-object comps of this kind can still make a 30 € BUY."""
+    """True when same-object comps of this kind can still make a 20 € BUY."""
     key = (kind or "").casefold()
     if key in _LOW_YIELD_KINDS:
         return False

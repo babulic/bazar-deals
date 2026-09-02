@@ -35,12 +35,12 @@ def test_unpriced_bazos_suffix_remains_zero() -> None:
     assert amount == 0
 
 
-def test_fixture_is_scored_but_not_buy_when_net_profit_is_under_30() -> None:
+def test_fixture_is_scored_but_not_buy_when_net_profit_is_under_20() -> None:
     deals = hunt(BazosRssClient(fixture_path=FIXTURE), sold=SoldCompClient(fixture_path=SOLD))
     cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
     assert cheap
     assert cheap[0].action is Action.SKIP
-    assert cheap[0].costs.net_profit < 30
+    assert cheap[0].costs.net_profit < 20
     assert cheap[0].item.canonical_name == "Commodore 1541-II disk drive"
 
 
