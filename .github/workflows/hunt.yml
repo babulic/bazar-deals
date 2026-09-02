@@ -139,7 +139,11 @@ jobs:
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
-          AI_MAX_REVIEWS: "4"
+          # The last completed hunt produced 5 pre-AI BUY candidates and the
+          # research retry produced 8, but a limit of four failed the rest
+          # closed without review. Runtime is now bounded separately, so let
+          # every candidate in the 12-listing scoring budget reach the AI gate.
+          AI_MAX_REVIEWS: "12"
           AI_MAX_IDENTIFICATIONS: "6"
           AI_TIMEOUT_SECONDS: "45"
           AI_REVIEW_TTL_DAYS: "14"
@@ -217,7 +221,7 @@ jobs:
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
-          AI_MAX_REVIEWS: "4"
+          AI_MAX_REVIEWS: "12"
           AI_MAX_IDENTIFICATIONS: "6"
           AI_TIMEOUT_SECONDS: "45"
           AI_REVIEW_TTL_DAYS: "14"
