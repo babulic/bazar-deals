@@ -27,6 +27,7 @@ from bazar_deals.research import (
     should_sell_research_loop,
     write_github_output,
     write_run_summary,
+    in_process_hunt_loop_allowed,
 )
 from bazar_deals.selling.collect import collect_all, refresh_inventory
 from bazar_deals.selling.demand import find_buyers, format_buyer_digest, merge_buyer_digests
@@ -262,12 +263,21 @@ def main(argv: list[str] | None = None) -> int:
             return 0
     run.fetch_notes[:0] = fx_notes
     buys = [deal for deal in run.deals if deal.action is Action.BUY]
+    # Post the first-pass report before any 0-BUY retry. The GHA hunt job is
+    # 70 minutes; scoring twice never reached --notify, so issue #1 stayed empty.
+    if args.notify:
+        try:
+            posted = GitHubIssueAlerts(settings).post_run(run)
+        except RuntimeError as exc:
+            print(exc)
+            return 2
+        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     looped = 0
     if should_research_loop(
         buy_count=len(buys),
         already_research=bool(args.research),
         offline=bool(args.offline),
-    ):
+    ) and in_process_hunt_loop_allowed():
         enable_hunt_research()
         emit("0 BUY — in-process research loop: expand SKUs, query-only fetch")
         extra = hunt_sources(
@@ -288,6 +298,19 @@ def main(argv: list[str] | None = None) -> int:
         run.fetch_notes = first_notes + ["research loop after 0 BUY"] + extra.fetch_notes + sold_notes
         buys = [deal for deal in run.deals if deal.action is Action.BUY]
         looped = 1
+        if args.notify:
+            try:
+                posted = GitHubIssueAlerts(settings).post_run(run)
+            except RuntimeError as exc:
+                print(exc)
+                return 2
+            print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
+    elif should_research_loop(
+        buy_count=len(buys),
+        already_research=bool(args.research),
+        offline=bool(args.offline),
+    ):
+        emit("0 BUY — GHA research job retries; first-pass report already posted")
     write_github_output(
         buys=len(buys),
         research=int(bool(args.research) or looped),
@@ -311,13 +334,6 @@ def main(argv: list[str] | None = None) -> int:
         emit(hunt_research_hint(run.funnel))
     if shown:
         print("\n\n".join(format_deal(deal) for deal in shown))
-    if args.notify:
-        try:
-            posted = GitHubIssueAlerts(settings).post_run(run)
-        except RuntimeError as exc:
-            print(exc)
-            return 2
-        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     return 0
 
 

@@ -18,6 +18,7 @@ from bazar_deals.domain import Listing, Marketplace, Money
 from bazar_deals.pipeline import HuntRun
 from bazar_deals.research import (
     hunt_research_hint,
+    in_process_hunt_loop_allowed,
     retryable_sell_errors,
     sell_research_hint,
     should_research_loop,
@@ -112,6 +113,13 @@ def test_should_research_loop_only_after_zero_buy_live_hunt() -> None:
     assert not should_research_loop(buy_count=1, already_research=False, offline=False)
     assert not should_research_loop(buy_count=0, already_research=True, offline=False)
     assert not should_research_loop(buy_count=0, already_research=False, offline=True)
+
+
+def test_github_actions_defers_in_process_hunt_loop(monkeypatch) -> None:
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
+    assert in_process_hunt_loop_allowed()
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    assert not in_process_hunt_loop_allowed()
 
 
 def test_should_sell_research_loop_on_zero_buyers_or_ebay_429() -> None:

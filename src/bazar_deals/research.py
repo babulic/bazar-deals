@@ -18,6 +18,11 @@ def should_research_loop(*, buy_count: int, already_research: bool, offline: boo
     return buy_count <= 0 and not already_research and not offline
 
 
+def in_process_hunt_loop_allowed() -> bool:
+    """GitHub Actions hunt is 70 minutes. A second score pass never reached --notify."""
+    return not os.environ.get("GITHUB_ACTIONS")
+
+
 def retryable_sell_errors(notes: list[str] | tuple[str, ...] = ()) -> list[str]:
     """429/throttle notes. Login walls after HTML+index miss are not a retry reason."""
     found: list[str] = []
