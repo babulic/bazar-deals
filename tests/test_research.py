@@ -214,10 +214,41 @@ def test_zero_buy_runs_in_process_research_loop(monkeypatch, tmp_path: Path) -> 
     )
     monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
     monkeypatch.delenv("BAZAR_HUNT_EXPAND", raising=False)
+    monkeypatch.delenv("GITHUB_ACTIONS", raising=False)
     assert main(["hunt", "--listings-in", str(cached)]) == 0
     assert calls[0] == ("score", 1)
     assert calls[1] == ("fetch",)
     assert calls[2] == ("score", 2)
+
+
+def test_github_actions_skips_in_process_zero_buy_loop(monkeypatch, tmp_path: Path) -> None:
+    cached = _cached_listing(tmp_path / "ads.json")
+    calls: list[tuple] = []
+
+    def fake_score(listings, *args, **kwargs):
+        calls.append(("score", len(listings)))
+        return HuntRun(
+            deals=[],
+            funnel=Counter(usable=len(listings)),
+            source_stats={},
+            listings=list(listings),
+        )
+
+    def fake_hunt_sources(*args, **kwargs):
+        calls.append(("fetch",))
+        return HuntRun(deals=[], funnel=Counter(), source_stats={}, listings=[], fetch_notes=[])
+
+    monkeypatch.setattr("bazar_deals.cli.score_listings", fake_score)
+    monkeypatch.setattr("bazar_deals.cli.hunt_sources", fake_hunt_sources)
+    monkeypatch.setattr(
+        "bazar_deals.cli.prepare_exchange_rates",
+        lambda settings, offline=False: (settings, []),
+    )
+    monkeypatch.setenv("GITHUB_ACTIONS", "true")
+    monkeypatch.delenv("BAZAR_HUNT_RESEARCH", raising=False)
+    monkeypatch.delenv("BAZAR_HUNT_EXPAND", raising=False)
+    assert main(["hunt", "--listings-in", str(cached)]) == 0
+    assert calls == [("score", 1)]
 
 
 def test_research_flag_does_not_recurse_the_zero_buy_loop(monkeypatch, tmp_path: Path) -> None:
