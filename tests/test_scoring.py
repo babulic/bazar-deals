@@ -18,11 +18,11 @@ def _listing(price: str = "38", *, description: str = "") -> Listing:
     )
 
 
-def test_buy_requires_at_least_30_eur_expected_net_profit() -> None:
+def test_buy_requires_at_least_20_eur_expected_net_profit() -> None:
     item = identify(_listing("38"), Vertical.RETRO)
     deal = score_deal(item, Decimal("120"), Decimal("8"))
     assert deal.action.value == "buy"
-    assert deal.costs.net_profit >= Decimal("30")
+    assert deal.costs.net_profit >= Decimal("20")
 
 
 def test_estimate_net_profit_matches_score_deal() -> None:
@@ -33,10 +33,11 @@ def test_estimate_net_profit_matches_score_deal() -> None:
     assert estimate_net_profit(item, Decimal("120"), shipping=Decimal("8")) == deal.costs.net_profit
 
 
-def test_skip_when_gross_spread_looks_good_but_net_is_under_30() -> None:
+def test_buy_between_20_and_30_uses_the_new_floor() -> None:
     item = identify(_listing("38"), Vertical.RETRO)
     deal = score_deal(item, Decimal("89"), Decimal("8"))
-    assert deal.action.value == "skip"
+    assert deal.action.value == "buy"
+    assert deal.costs.net_profit >= Decimal("20")
     assert deal.costs.net_profit < Decimal("30")
 
 

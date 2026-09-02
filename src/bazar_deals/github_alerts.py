@@ -26,10 +26,10 @@ def listing_key(deal: Deal) -> str:
 
 
 def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
-    """Top hunt cards: BUY first, then still-profitable ads under the 30 € floor.
+    """Top hunt cards: BUY first, then still-profitable ads under the 20 € floor.
 
     A listing is still-profitable when expected net profit is > 0. Losses and
-    overpriced ads stay out. The BUY action itself still requires the 30 € floor.
+    overpriced ads stay out. The BUY action itself still requires the 20 € floor.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     buys = [deal for deal in deals if deal.action is Action.BUY]
@@ -70,7 +70,7 @@ def format_hunt_comment(
     mention: str,
     min_profit,
 ) -> str:
-    """Hunt report: BUY cards, then still-profitable ads under the 30 € floor."""
+    """Hunt report: BUY cards, then still-profitable ads under the 20 € floor."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""

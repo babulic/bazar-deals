@@ -61,7 +61,7 @@ class Settings(BaseSettings):
     fx_cache: str = ".cache/ecb-fx.json"
     fx_max_age_days: int = Field(default=7, ge=0, le=30)
     fx_fee_rate: Decimal = Field(default=Decimal("0.02"), ge=0, lt=1)
-    min_net_profit_eur: Decimal = Decimal("30")
+    min_net_profit_eur: Decimal = Decimal("20")
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
     max_shipping_eur: Decimal = Decimal(str(_HUNT["max_shipping_eur"]))

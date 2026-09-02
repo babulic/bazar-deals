@@ -248,7 +248,7 @@ def score_listings(
 
     # Round-robin by marketplace, cheapest first within each board. Cached
     # overpriced ads do not consume the 80 valuation slots. Unconfirmed SK
-    # (sbazar catalog) stays last. BUY-candidate cache hits (net >= 30 €) go
+    # (sbazar catalog) stays last. BUY-candidate cache hits (net >= 20 €) go
     # first so the cap is not 69 live misses and four below-floor ads.
     ready: list[Listing] = []
     pending_sk: list[Listing] = []
@@ -595,7 +595,7 @@ def _buy_likelihood_bucket(
     settings: Settings,
     min_conf: float,
 ) -> int:
-    """0 = cached net >= 30 €, 4 = over usual price, else hunt-target vs rest."""
+    """0 = cached net >= 20 €, 4 = over usual price, else hunt-target vs rest."""
     item = identify(listing)
     cached = None
     if callable(peeker) and item.confidence >= min_conf and item.search_query:

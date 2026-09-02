@@ -76,7 +76,7 @@ hunt:
     - kindle
     - galaxy s21
   # Marketplace search: high-turnover SKUs that still sit in 20–110 € and can
-  # clear 30 € net. EU refurbished volume is iPhone 11/12/13, then AirPods,
+  # clear 20 € net. EU refurbished volume is iPhone 11/12/13, then AirPods,
   # Apple Watch, Switch Lite, Galaxy S21/S22. Clothing is never searched.
   # Bare `commodore` / `c64` stay in target_queries only.
   fetch_queries:
@@ -139,7 +139,7 @@ github:
   alert_issue: 0
   assignee: ""
   # Max cards in one hunt comment: BUY first, then still-profitable (net > 0)
-  # under the 30 € floor. Losses stay out.
+  # under the 20 € floor. Losses stay out.
   alert_top_n: 5
   sell_alert_issue_title: Sell buyers
   sell_alert_label: bazar-sell
