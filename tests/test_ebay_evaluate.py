@@ -46,3 +46,36 @@ def test_evaluation_requires_enabled_store_and_never_logs_listings(monkeypatch, 
     output = capsys.readouterr()
     assert "canary" not in output.out + output.err
     assert list(tmp_path.iterdir()) == []
+
+
+def test_rate_limit_keeps_previous_batch_and_does_not_retry(monkeypatch, tmp_path, capsys):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("EBAY_STORE_URL", "https://store.example")
+    monkeypatch.setenv("EBAY_STORE_TOKEN", "store-secret-canary")
+    monkeypatch.setenv("EBAY_CLIENT_ID", "app-canary")
+    monkeypatch.setenv("EBAY_CLIENT_SECRET", "secret-canary")
+    monkeypatch.setattr(module, "load_inventory", lambda: Inventory(items=[
+        InventoryItem(id="chip", title="MOS 6510", segment="retro", part_numbers=["6510"]) ]))
+    searches = []
+    def limited(*args, **kwargs):
+        searches.append(True)
+        request = httpx.Request("GET", "https://api.ebay.com/buy/browse/v1/item_summary/search")
+        response = httpx.Response(429, request=request)
+        raise httpx.HTTPStatusError("limited", request=request, response=response)
+    monkeypatch.setattr(module.EbayBrowseClient, "search_query", limited)
+    uploads = []
+    def handler(request):
+        if request.url.path == "/api/credentials":
+            return httpx.Response(204)
+        if request.url.path == "/api/status":
+            return httpx.Response(200, json={"epoch": 1, "enabled": True})
+        uploads.append(request.url.path)
+        return httpx.Response(200, json={"saved": 0})
+    original = httpx.Client
+    monkeypatch.setattr(module.httpx, "Client", lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs))
+
+    module.evaluate()
+
+    assert len(searches) == 1
+    assert uploads == []
+    assert "rate limited; previous private batch kept" in capsys.readouterr().out

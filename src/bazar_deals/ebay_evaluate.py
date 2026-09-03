@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import time
 from urllib.parse import urlparse
 
 import httpx
@@ -11,6 +12,17 @@ from bazar_deals.adapters.ebay import EbayBrowseClient, _SMALL_CATEGORIES
 from bazar_deals.config import Settings
 from bazar_deals.selling.demand import _glossary_name, _german_locality, best_item, is_want_to_buy, queries_for
 from bazar_deals.selling.inventory import load_inventory
+
+_STOCK_QUERIES_PER_RUN = 12
+_CATEGORIES_PER_RUN = 4
+
+
+def _rotating_slice(items, count, slot):
+    items = list(items)
+    if len(items) <= count:
+        return items
+    start = (slot * count) % len(items)
+    return [items[(start + offset) % len(items)] for offset in range(count)]
 
 
 def evaluate(*, configure_only=False):
@@ -32,9 +44,17 @@ def evaluate(*, configure_only=False):
         if not status["enabled"]:
             raise ValueError("retention has not been activated")
         # Regular CLI imports remain disabled. Only this private-store path is enabled.
-        browse = EbayBrowseClient(settings.model_copy(update={"ebay_retention_enabled": True}))
+        # A scheduled collector must not spend more calls retrying a depleted
+        # daily quota. Keep one request per query and preserve the previous
+        # batch when eBay reports 429 before any query succeeds.
+        browse = EbayBrowseClient(
+            settings.model_copy(update={"ebay_retention_enabled": True}),
+            retry_budget=0,
+        )
         inventory = load_inventory()
         records = {}
+        completed_searches = 0
+        throttled = False
 
         def ingest(payload, kind, query):
             for item in payload.get("itemSummaries", []):
@@ -61,6 +81,7 @@ def evaluate(*, configure_only=False):
                 records[(kind, item["itemId"], stock_id)] = record
 
         seen = set()
+        stock_queries = []
         for item in inventory.items:
             query = next(iter(queries_for(item)), "")
             if item.species:
@@ -70,16 +91,41 @@ def evaluate(*, configure_only=False):
             if not query or query.casefold() in seen:
                 continue
             seen.add(query.casefold())
+            stock_queries.append(query)
+
+        slot = int(time.time() // 3600)
+        for query in _rotating_slice(stock_queries, _STOCK_QUERIES_PER_RUN, slot):
             # Existing stock can sell below our purchase floor or above the hunt
             # cap. Applying that budget here would censor the market comparison.
-            ingest(browse.search_query(query, limit=20, purchase_budget=False), "stock_comparison", query)
-        for category in _SMALL_CATEGORIES[:8]:
-            ingest(browse.search(category, limit=20), "buy_candidate", str(category))
+            try:
+                ingest(browse.search_query(query, limit=20, purchase_budget=False), "stock_comparison", query)
+                completed_searches += 1
+            except httpx.HTTPStatusError as exc:
+                if exc.response.status_code != 429:
+                    raise
+                throttled = True
+                break
+        if not throttled:
+            categories = _rotating_slice(_SMALL_CATEGORIES, _CATEGORIES_PER_RUN, slot)
+            for category in categories:
+                try:
+                    ingest(browse.search(category, limit=20), "buy_candidate", str(category))
+                    completed_searches += 1
+                except httpx.HTTPStatusError as exc:
+                    if exc.response.status_code != 429:
+                        raise
+                    throttled = True
+                    break
+        if not completed_searches:
+            print("eBay evaluation: rate limited; previous private batch kept")
+            return
         # No local listing dumps, comps-cache writes, AI exports or GitHub comments.
         response = store.post(base + "/api/batches", headers=headers,
                               json={"epoch": status["epoch"], "records": list(records.values())})
         response.raise_for_status()
         print(f"eBay evaluation: stored {response.json()['saved']} records in the private deletable store")
+        if throttled:
+            print("eBay evaluation: stored partial results after rate limit")
         print("eBay evaluation: active listings are comparisons/candidates, not confirmed BUY or buyers")
 
 
