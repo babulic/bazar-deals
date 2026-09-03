@@ -303,10 +303,10 @@ def test_zero_buyers_runs_in_process_sell_research_loop(monkeypatch, capsys) -> 
     from bazar_deals.cli import main
     from bazar_deals.selling import demand as demand_mod
 
-    calls: list[bool] = []
+    calls: list[tuple[bool, bool]] = []
 
     def fake_find(inventory, settings, client=None, **kwargs):
-        calls.append(bool(kwargs.get("research")))
+        calls.append((bool(kwargs.get("research")), bool(kwargs.get("skip_ebay"))))
         return BuyerDigest(notes=["aukro: fetched 0"])
 
     monkeypatch.setattr(demand_mod, "find_buyers", fake_find)
@@ -316,7 +316,7 @@ def test_zero_buyers_runs_in_process_sell_research_loop(monkeypatch, capsys) -> 
         lambda settings, offline=False: (settings, []),
     )
     assert main(["sell", "--buyers"]) == 0
-    assert calls == [False, True]
+    assert calls == [(False, False), (True, True)]
     assert "research loop after 0 buyers or throttled eBay" in capsys.readouterr().out
 
 

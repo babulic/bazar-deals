@@ -133,7 +133,7 @@ _EBAY_BOARDS = (
     ("EBAY_AT", "ebay.at", ("kaufe", "suche")),
     ("EBAY_PL", "ebay.pl", ("kupię", "szukam")),
 )
-_EBAY_RETRY_BUDGET = 6
+_EBAY_RETRY_BUDGET = 1
 _EBAY_QUERY_CAP = 6
 _KA_PHRASES = ("suche", "kaufe")
 _WILLHABEN_PHRASES = ("Suche", "Kaufe")
@@ -812,6 +812,7 @@ def find_buyers(
     manual_listings: list[Listing] | None = None,
     offline: bool = False,
     research: bool = False,
+    skip_ebay: bool = False,
 ) -> BuyerDigest:
     """Search European want-to-buy ads and pair them with own stock."""
     settings = settings or Settings()
@@ -963,7 +964,9 @@ def find_buyers(
             if blocked:
                 break
 
-        if not settings.ebay_client_id or not settings.ebay_client_secret:
+        if skip_ebay:
+            pass  # The first pass already spent this hour's eBay buyer-search budget.
+        elif not settings.ebay_client_id or not settings.ebay_client_secret:
             special_notes.append(
                 "ebay.de/.at/.pl: fetched 0 "
                 "(set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET)"

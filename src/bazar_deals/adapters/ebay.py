@@ -22,7 +22,7 @@ _HUNT_MARKETPLACES = tuple(
     str(item) for item in (_EBAY.get("hunt_marketplace_ids") or [_EBAY["marketplace_id"]])
 )
 _HUNT_HOSTS = ("ebay.de", "ebay.at")
-_EBAY_RETRY_BUDGET = 6
+_EBAY_RETRY_BUDGET = 1
 
 
 def hunt_ebay_marketplace_ids() -> tuple[str, ...]:
@@ -76,7 +76,10 @@ class EbayBrowseClient(ListingSource):
         seen: set[str] = set()
         last_exc: BaseException | None = None
         self.notes = []
+        globally_throttled = False
         for marketplace_id in hunt_ebay_marketplace_ids():
+            if globally_throttled:
+                break
             throttled = False
             seen_before = len(seen)
             for query in hunt_fetch_queries():
@@ -88,9 +91,10 @@ class EbayBrowseClient(ListingSource):
                     last_exc = exc
                     if exc.response is not None and exc.response.status_code == 429:
                         throttled = True
+                        globally_throttled = True
                         self.notes.append(
-                            f"{marketplace_id}: 429 Too Many Requests after retries — "
-                            "remaining searches on this storefront stopped"
+                            "ebay: RATE_LIMITED: Browse API HTTP 429 after retries; "
+                            "all remaining eBay searches stopped until quota reset"
                         )
                     continue
                 except (httpx.HTTPError, RuntimeError, ValueError) as exc:
@@ -106,9 +110,10 @@ class EbayBrowseClient(ListingSource):
                     except httpx.HTTPStatusError as exc:
                         last_exc = exc
                         if exc.response is not None and exc.response.status_code == 429:
+                            globally_throttled = True
                             self.notes.append(
-                                f"{marketplace_id}: 429 Too Many Requests after retries — "
-                                "remaining searches on this storefront stopped"
+                                "ebay: RATE_LIMITED: Browse API HTTP 429 after retries; "
+                                "all remaining eBay searches stopped until quota reset"
                             )
                             break
                         continue

@@ -171,6 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                     manual_listings=manual or None,
                     offline=args.offline,
                     research=True,
+                    skip_ebay=True,
                 )
                 digest = merge_buyer_digests(digest, extra)
                 looped = 1

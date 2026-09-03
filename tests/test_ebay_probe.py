@@ -243,13 +243,14 @@ def test_fetch_new_stops_remaining_searches_after_429(monkeypatch):
     )
     client._token = "test-token"
     found = client.fetch_new()
-    assert seen.count("switch") == (_EBAY_RETRY_BUDGET + 1) * 2  # DE + AT
+    assert seen.count("switch") == _EBAY_RETRY_BUDGET + 1
     assert "lego" not in seen
     assert "11450" not in seen
     assert "iphone" in seen
     assert "switch" in seen
     assert found
     assert any("429" in note for note in client.notes)
+    assert any("all remaining eBay searches stopped" in note for note in client.notes)
 
 
 def test_fetch_new_skips_category_dump_when_sku_search_hits(monkeypatch):

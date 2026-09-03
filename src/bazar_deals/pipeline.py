@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
@@ -143,15 +144,17 @@ def hunt_sources(
                 elapsed = int(time.monotonic() - started)
                 note = f"{source.marketplace}: fetched {len(batch)}"
                 emit(f"{note} in {elapsed}s")
-                if not is_alert_noise(note):
+                source_notes = list(getattr(source, "notes", []))
+                empty_is_verified = not batch and any(": EMPTY:" in item for item in source_notes)
+                if not empty_is_verified and not is_alert_noise(note):
                     fetch_notes.append(note)
                 listings.extend(batch)
-                for source_note in getattr(source, "notes", []):
+                for source_note in source_notes:
                     emit(source_note)
                     if source_note and not is_alert_noise(source_note):
                         fetch_notes.append(source_note)
             except (RuntimeError, httpx.HTTPError) as exc:
-                note = f"{source.marketplace}: fetched 0 ({exc})"
+                note = _fetch_failure_note(source.marketplace, exc)
                 emit(note)
                 if not is_alert_noise(note):
                     fetch_notes.append(note)
@@ -676,6 +679,24 @@ def _shipping_eur(listing: Listing, settings: Settings) -> Decimal:
 
 def is_dry_price_book_miss(note: str) -> bool:
     return (note or "").startswith("price book: insufficient comparable ads")
+
+
+def _fetch_failure_note(marketplace: str, exc: BaseException) -> str:
+    """Short operator status; never leak an encoded request URL into alerts."""
+    response = getattr(exc, "response", None)
+    status = getattr(response, "status_code", None) if response is not None else None
+    if status == 429:
+        return (
+            f"{marketplace}: RATE_LIMITED: Browse API HTTP 429; "
+            "quota unavailable until eBay resets it"
+        )
+    if status:
+        return f"{marketplace}: HTTP {status}; source unavailable"
+    detail = " ".join(str(exc).split())
+    detail = re.sub(r"https?://\S+", "[request URL omitted]", detail)
+    if len(detail) > 240:
+        detail = detail[:237] + "..."
+    return f"{marketplace}: fetched 0 ({detail or 'request failed'})"
 
 
 def is_alert_noise(note: str) -> bool:

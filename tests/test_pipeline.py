@@ -853,6 +853,54 @@ def test_hunt_sources_appends_sold_comp_notes() -> None:
     assert not any(note.startswith("price book:") for note in run.fetch_notes)
 
 
+def test_hunt_source_reports_verified_empty_without_generic_fetched_zero() -> None:
+    from bazar_deals.adapters.base import ListingSource
+
+    class _EmptySbazar(ListingSource):
+        marketplace = Marketplace.SBAZAR.value
+        notes = ["sbazar: EMPTY: 28 queries checked successfully; no offers matched"]
+
+        def fetch_new(self, vertical=None):
+            return []
+
+    run = hunt_sources([_EmptySbazar()], settings=Settings(), sold=object(), score=False)
+
+    assert "sbazar: fetched 0" not in run.fetch_notes
+    assert run.fetch_notes == [
+        "sbazar: EMPTY: 28 queries checked successfully; no offers matched"
+    ]
+
+
+def test_hunt_source_shortens_ebay_rate_limit_without_request_url() -> None:
+    import httpx
+
+    from bazar_deals.adapters.base import ListingSource
+
+    request = httpx.Request(
+        "GET",
+        "https://api.ebay.com/buy/browse/v1/item_summary/search?q=iphone+se",
+    )
+    response = httpx.Response(429, request=request)
+
+    class _LimitedEbay(ListingSource):
+        marketplace = Marketplace.EBAY.value
+
+        def fetch_new(self, vertical=None):
+            raise httpx.HTTPStatusError(
+                "429 Too Many Requests",
+                request=request,
+                response=response,
+            )
+
+    run = hunt_sources([_LimitedEbay()], settings=Settings(), sold=object(), score=False)
+
+    assert run.fetch_notes == [
+        "ebay: RATE_LIMITED: Browse API HTTP 429; "
+        "quota unavailable until eBay resets it"
+    ]
+    assert "api.ebay.com" not in run.fetch_notes[0]
+
+
 def test_hunt_sources_drops_delivery_and_access_notes() -> None:
     from bazar_deals.adapters.base import ListingSource
     from bazar_deals.domain import Vertical

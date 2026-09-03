@@ -473,16 +473,20 @@ class CentralEuropeClient(ListingSource):
         if hunt_expand():
             cap = max(cap, 40)
         found = {}
+        completed_queries = 0
+        failed = False
         for query in queries[:cap]:
             try:
                 for listing in self.search(query):
                     found.setdefault(listing.external_id, listing)
+                completed_queries += 1
             except (RuntimeError, httpx.HTTPError, ValueError) as exc:
                 if found and self.used_public_index:
                     # A later query can miss the public index and fall back to
                     # the already-known login wall. The source is limited, not
                     # wholly skipped, because earlier queries returned offers.
                     break
+                failed = True
                 self.notes.append(f"{self.marketplace}: {exc}")
                 break  # Do not hammer a blocked or unauthenticated source.
             time.sleep(self.settings.bazos_request_gap_seconds)
@@ -495,6 +499,11 @@ class CentralEuropeClient(ListingSource):
             unknown = sum(item.ships_to_slovakia is not True for item in found.values())
             if unknown:
                 self.notes.append(f"{self.marketplace}: NEEDS_DELIVERY_CONFIRMATION: {unknown} offers require detail or manual evidence")
+        elif completed_queries and not failed:
+            self.notes.append(
+                f"{self.marketplace}: EMPTY: {completed_queries} queries checked successfully; "
+                "no offers matched"
+            )
         return _exclude_demands(list(found.values()))
 
     def enrich_listing(self, listing: Listing) -> Listing:
