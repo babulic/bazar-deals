@@ -634,6 +634,7 @@ def match_want(ad: str | WantAd, item: InventoryItem) -> float:
         score = min(score * 0.5, 0.49)
     title_tokens = tokens(blob)
     support = _support_tokens(item)
+    part_hit = False
     power_item = _is_power_supply(item)
     if power_item and not _title_has_power(blob):
         # A PSU SKU lists 1541/C64 as the machine it fits. A floppy or computer
@@ -648,6 +649,7 @@ def match_want(ad: str | WantAd, item: InventoryItem) -> float:
             continue
         if token.isdigit() and not _numeric_part_fits(token, title_tokens, support):
             continue
+        part_hit = True
         score = max(score, 0.82 if token.isdigit() or len(token) >= 5 else 0.7)
     species_hits = []
     for spec in item.species:
@@ -670,7 +672,8 @@ def match_want(ad: str | WantAd, item: InventoryItem) -> float:
         score = max(score, 0.62)
     if species_hits and any(_place_in_title(place, folded) for place in places):
         score = max(score, 0.85)
-    if stock_role in _ACCESSORY_ROLES and want_ad_role(blob) != stock_role:
+    want_role = want_ad_role(blob)
+    if stock_role in _ACCESSORY_ROLES and want_role != stock_role:
         score = min(score, 0.49)
     want_form = jewelry_form(blob)
     stock_form = stock_jewelry_form(item)
@@ -683,6 +686,15 @@ def match_want(ad: str | WantAd, item: InventoryItem) -> float:
     have_colors = stock_colors(item)
     asked_colors = want_colors(ad, blob)
     if have_colors and asked_colors and not (have_colors & asked_colors):
+        score = min(score, 0.49)
+    semantic_support = bool(title_tokens & support) or part_hit or bool(species_hits)
+    if stock_role in _ACCESSORY_ROLES and want_role == stock_role:
+        semantic_support = True
+    if not semantic_support:
+        # Character similarity alone is unsafe around the 0.50 boundary:
+        # "Kupim Iphone 12 mini" and "Pamatne 2 Eur mince" score 0.51 despite
+        # describing unrelated goods. Require at least one product token, a
+        # validated part number/species, or the same recognised accessory role.
         score = min(score, 0.49)
     return score
 

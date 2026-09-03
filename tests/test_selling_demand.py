@@ -135,6 +135,19 @@ def test_numeric_part_needs_product_context() -> None:
     assert best_item("SUCHE John Deere 6510", [chip(), crystal()]) is None
 
 
+def test_iphone_want_never_matches_commemorative_euro_coins() -> None:
+    coins = InventoryItem(
+        id="euro-coins",
+        segment="commodity",
+        title="Pamätné 2 Eur mince",
+        listed={"vinted": Decimal("2.8")},
+    )
+    ad = "Kupim Iphone 12 mini"
+
+    assert match_want(ad, coins) < 0.5
+    assert best_item(ad, [coins]) is None
+
+
 def test_psu_1541_does_not_match_a_disk_drive_sale() -> None:
     drive = "Commodore 1541-II Diskettenlaufwerk"
     assert match_want(drive, psu()) < 0.5
@@ -1131,5 +1144,4 @@ def test_facebook_and_olx_login_walls_ingest_public_index_ads() -> None:
     body = format_buyer_digest(digest)
     assert "login wall" not in body
     assert "facebook.com/marketplace/item/9876543210" in body or digest.fetched["facebook.com"] >= 1
-
 
