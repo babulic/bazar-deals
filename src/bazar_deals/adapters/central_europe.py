@@ -7,7 +7,7 @@ import re
 import time
 from decimal import Decimal, InvalidOperation
 from html.parser import HTMLParser
-from urllib.parse import quote, urlencode, urljoin, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse
 
 import httpx
 
@@ -61,6 +61,25 @@ def _safe_url(url: str, source: str) -> bool:
     host = parsed.hostname or ""
     return (parsed.scheme == "https" and not parsed.username and not parsed.password
             and parsed.port in (None, 443) and host in {SITES[source], "www." + SITES[source]})
+
+
+def _safe_sbazar_bootstrap(url: str) -> bool:
+    """Allow only Sbazar's anonymous Seznam autologin redirect.
+
+    Sbazar intermittently bootstraps a public browsing session through this
+    endpoint. It does not ask for credentials, and its return URL must point
+    straight back to the public Sbazar search with ``noredirect=1``.
+    """
+    parsed = urlparse(url)
+    if (parsed.scheme, parsed.hostname, parsed.port, parsed.path) != (
+        "https", "login.seznam.cz", None, "/api/v1/autologin"
+    ):
+        return False
+    params = parse_qs(parsed.query)
+    if params.get("service") != ["sbazar"] or len(params.get("return_url", [])) != 1:
+        return False
+    return_url = params["return_url"][0]
+    return _safe_url(return_url, "sbazar") and parse_qs(urlparse(return_url).query).get("noredirect") == ["1"]
 
 
 def _money(amount: object, currency: str) -> Money | None:
@@ -310,12 +329,28 @@ class CentralEuropeClient(ListingSource):
             hops += 1
         return response, url
 
+    def _follow_sbazar_redirect(self, response, url: str, requester, kwargs: dict):
+        hops = 0
+        while response.is_redirect and hops < 4:
+            location = response.headers.get("Location") or ""
+            nxt = urljoin(url, location)
+            if not (_safe_url(nxt, "sbazar") or _safe_sbazar_bootstrap(nxt)):
+                raise RuntimeError("BLOCKED: unsafe Sbazar redirect; manual verification needed")
+            url = nxt
+            response = requester(url, timeout=12, follow_redirects=False, **kwargs)
+            hops += 1
+        if response.is_redirect:
+            raise RuntimeError("BLOCKED: too many Sbazar redirects; manual verification needed")
+        return response, url
+
     def _get(self, url: str, **kwargs):
         # Never follow arbitrary listing redirects into another host/private address.
         requester = self.client.get if self.client else httpx.get
         response = requester(url, timeout=12, follow_redirects=False, **kwargs)
         if self.marketplace == "olx":
             response, url = self._follow_olx_redirect(response, url, requester, kwargs)
+        elif self.marketplace == "sbazar":
+            response, url = self._follow_sbazar_redirect(response, url, requester, kwargs)
         if (response.status_code == 404 and self.marketplace == "sbazar"
                 and url.startswith("https://www.sbazar.cz/hledej/")
                 and _empty_sbazar_search(response.text)):
@@ -333,13 +368,24 @@ class CentralEuropeClient(ListingSource):
         return response
 
     def search(self, query: str) -> list[Listing]:
+        if self.marketplace == "sbazar" and self.client is None:
+            # The anonymous Seznam bootstrap sets cookies that must survive its
+            # redirect back to Sbazar. Scope them to this one public search.
+            with httpx.Client() as session:
+                self.client = session
+                try:
+                    return self.search(query)
+                finally:
+                    self.client = None
         if self.marketplace.startswith("allegro_"):
             return self._allegro(query)
         url = search_url(self.marketplace, query)
         headers = {
             "User-Agent": BROWSER_UA if self.marketplace in {"facebook", "olx"} else self.settings.bazos_user_agent,
-            "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "pl-PL,sk-SK,cs-CZ,en;q=0.8",
+            # Sbazar returns the same public HTML directly for */* but routes
+            # text/html through an anonymous Seznam bootstrap/consent chain.
+            "Accept": "*/*" if self.marketplace == "sbazar" else "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "cs-CZ,cs;q=0.9,en;q=0.7" if self.marketplace == "sbazar" else "pl-PL,sk-SK,cs-CZ,en;q=0.8",
         }
         blocked: BaseException | None = None
         listings: list[Listing] = []

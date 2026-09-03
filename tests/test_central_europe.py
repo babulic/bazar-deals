@@ -282,3 +282,43 @@ def test_sbazar_fetch_continues_after_empty_query():
         rows = CentralEuropeClient('sbazar', Settings(bazos_request_gap_seconds=0), client=client).fetch_new()
         assert len(requests) > 1
         assert len(rows) == 1
+
+
+def test_sbazar_follows_only_anonymous_seznam_bootstrap():
+    search = "https://www.sbazar.cz/hledej/koup%C3%ADm%20ametyst"
+    bootstrap = (
+        "https://login.seznam.cz/api/v1/autologin?service=sbazar&return_url="
+        "https%3A%2F%2Fwww.sbazar.cz%2Fhledej%2Fkoup%25C3%25ADm%2520ametyst%3Fnoredirect%3D1"
+    )
+    responses = iter([
+        httpx.Response(302, headers={"Location": bootstrap}),
+        httpx.Response(302, headers={"Location": search + "?noredirect=1"}),
+        httpx.Response(301, headers={"Location": "/hledej/koup%C3%ADm%20ametyst"}),
+        httpx.Response(200, text=sbazar([sbazar_row()])),
+    ])
+    requests = []
+    accepts = []
+    def handler(request):
+        requests.append(str(request.url))
+        accepts.append(request.headers["accept"])
+        return next(responses)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        rows = CentralEuropeClient("sbazar", Settings(), client=client).search("koupím ametyst")
+
+    assert len(rows) == 1
+    assert len(requests) == 4
+    assert accepts == ["*/*"] * 4
+    assert requests[1].startswith("https://login.seznam.cz/api/v1/autologin?")
+
+
+def test_sbazar_rejects_autologin_with_foreign_return_url():
+    unsafe = (
+        "https://login.seznam.cz/api/v1/autologin?service=sbazar&"
+        "return_url=https%3A%2F%2Fexample.com%2Fsteal%3Fnoredirect%3D1"
+    )
+    with httpx.Client(transport=httpx.MockTransport(
+        lambda request: httpx.Response(302, headers={"Location": unsafe})
+    )) as client:
+        with pytest.raises(RuntimeError, match="unsafe Sbazar redirect"):
+            CentralEuropeClient("sbazar", Settings(), client=client).search("koupím ametyst")
