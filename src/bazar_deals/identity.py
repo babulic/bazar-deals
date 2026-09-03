@@ -21,6 +21,11 @@ _REPLACEMENT_PART_PATTERNS = (
     r"\b(?:back\s+glass|zadn\w*\s+sklo|housing|charging\s+port|nabijac\w*\s+konektor|nabíjac\w*\s+konektor|flex\s+(?:cable|kabel)|camera\s+module|logic\s+board)\b",
     r"\b(?:battery|bateria|batéria|akku)\b.{0,20}\b(?:pre|pro|for|fur|für)\b.{0,20}\b(?:iphone|ipad|galaxy|pixel)\b",
     r"\b(?:iphone|ipad|galaxy|pixel)\b.{0,25}\b(?:lcd|oled|digitizer|touchscreen|replacement|ersatzteil)\b",
+    # A Slovak/Czech dive or protective case is the product being sold, while
+    # GoPro is only its compatibility target. Keep this title-shaped rule
+    # narrow so "GoPro + podvodny kryt" bundles remain complete cameras.
+    r"^\s*(?:(?:nov\w*|originaln\w*|ochrann\w*|podvodn\w*|vodotesn\w*)\s+){0,3}"
+    r"(?:kryt|puzdro|obal)\b.{0,30}\b(?:na|pre|pro)\b.{0,20}\bgopro\b",
 )
 
 

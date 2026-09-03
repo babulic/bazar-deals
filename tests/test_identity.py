@@ -86,6 +86,23 @@ def test_iphone_replacement_display_is_accessory_not_phone() -> None:
     assert item.kind != ItemKind.PHONES.value
 
 
+def test_gopro_underwater_case_is_accessory_not_camera() -> None:
+    case = "Podvodný kryt na Gopro"
+    camera = "GoPro Hero 10 Black kamera"
+
+    assert is_replacement_part_text(case)
+    assert classify_kind(case) is ItemKind.ACCESSORIES
+    assert not similar_titles(case, camera)
+    assert not similar_titles(camera, case)
+
+
+def test_gopro_camera_bundle_with_case_stays_complete_hardware() -> None:
+    title = "GoPro Hero 10 Black + podvodný kryt"
+
+    assert not is_replacement_part_text(title)
+    assert classify_kind(title) is ItemKind.HARDWARE
+
+
 def test_replacement_display_never_matches_complete_iphone_comp() -> None:
     part = "Nový OLED display na iPhone 13 128GB"
     phone = "Apple iPhone 13 128GB Midnight"
