@@ -58,10 +58,13 @@ class EbayBrowseClient(ListingSource):
         self,
         settings: Settings | None = None,
         client: httpx.Client | None = None,
+        *,
+        retry_budget: int = _EBAY_RETRY_BUDGET,
     ) -> None:
         self.settings = settings or Settings()
         self._client = client
         self._token: str | None = None
+        self._retry_budget = max(0, retry_budget)
         self.notes: list[str] = []
 
     def fetch_new(self, vertical: Vertical | None = None) -> list[Listing]:
@@ -223,7 +226,7 @@ class EbayBrowseClient(ListingSource):
         return self._browse_get(params, marketplace_id)
 
     def _browse_get(self, params: dict, marketplace_id: str | None) -> dict:
-        retries = _EBAY_RETRY_BUDGET
+        retries = self._retry_budget
         headers = self._browse_headers(marketplace_id)
         while True:
             if self._client is not None:

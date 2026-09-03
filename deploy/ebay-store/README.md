@@ -6,7 +6,9 @@ retained eBay-data destination; it is not the Polymarket application.
 ## Deployment scope
 
 - Host: Alwyzon, application directory `/opt/bazar-deals`.
-- Public HTTPS: `https://46.102.157.230/`; ports 80/443 for HTTPS and ACME renewal.
+- Public HTTPS: `https://46-102-157-230.sslip.io/`; ports 80/443 for HTTPS and ACME renewal.
+  The direct IP endpoint remains available for operational checks, but eBay's
+  notification tester requires a DNS name in the certificate.
 - Private application port 8090 is reachable only inside the Compose network.
 - Existing Polymarket service on `127.0.0.1:8080` is unchanged.
 - Two containers, memory limits 256 MiB and 192 MiB, restart unless stopped.
@@ -23,7 +25,7 @@ Create an ignored `deploy/ebay-store/.env`, permission 0600, with:
 ```text
 EBAY_STORE_TOKEN=<cryptographically random access secret, at least 32 characters>
 EBAY_VERIFICATION_TOKEN=<random 32–80 alphanumeric/underscore/hyphen characters>
-EBAY_NOTIFICATION_URL=https://46.102.157.230/ebay/account-deletion
+EBAY_NOTIFICATION_URL=https://46-102-157-230.sslip.io/ebay/account-deletion
 EBAY_STORE_DIR=/data
 ```
 
