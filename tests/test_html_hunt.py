@@ -93,6 +93,112 @@ def test_aukro_public_backend_rejects_auction_and_adult() -> None:
     assert _listing_from_public_node({**base, "adultContent": True}) is None
 
 
+def test_aukro_detail_uses_cheapest_verified_shipping_to_slovakia(monkeypatch) -> None:
+    from bazar_deals.adapters import aukro as aukro_mod
+    from bazar_deals.config import Settings
+    from bazar_deals.domain import Action, IdentifiedItem
+    from bazar_deals.scoring import score_deal
+
+    listing = _listing_from_public_node(
+        {
+            "itemId": 7122446207,
+            "itemName": "CANON EOS 650",
+            "buyNowActive": True,
+            "buyNowPrice": {"amount": "33.32", "currency": "EUR"},
+            "seoUrl": "canon-eos-650",
+            "auction": False,
+            "adultContent": False,
+        }
+    )
+    assert listing is not None
+    state = {
+        "unrelated": {"itemId": 1, "shippingOptions": []},
+        "offer": {
+            "itemId": 7122446207,
+            "shippingOptions": [
+                {
+                    "countryFrom": "CZ",
+                    "countryTo": "CZ",
+                    "firstPackagePrice": {"amount": 2.5, "currency": "EUR"},
+                    "name": "Czech delivery",
+                },
+                {
+                    "countryFrom": "CZ",
+                    "countryTo": "SK",
+                    "firstPackagePrice": {"amount": 5.57, "currency": "EUR"},
+                    "name": "Packeta na adresu",
+                },
+                {
+                    "countryFrom": "CZ",
+                    "countryTo": "SK",
+                    "firstPackagePrice": {"amount": 3.67, "currency": "EUR"},
+                    "name": "Packeta na výdajné miesto",
+                },
+            ],
+        },
+    }
+    html = '<script id="ng-state" type="application/json">' + json.dumps(state) + "</script>"
+    monkeypatch.setattr(aukro_mod, "_get", lambda _url, _agent: html)
+
+    enriched = AukroHuntClient(Settings()).enrich_listing(listing)
+
+    assert enriched.ships_to_slovakia is True
+    assert enriched.shipping_cost is not None
+    assert enriched.shipping_cost.amount == Decimal("3.67")
+    assert enriched.shipping_cost.currency == "EUR"
+    assert "countryTo=SK" in enriched.raw["delivery_evidence"]
+    assert "výdajné miesto" in enriched.raw["delivery_evidence"]
+
+    deal = score_deal(
+        IdentifiedItem(
+            listing=enriched,
+            vertical=Vertical.RETRO,
+            canonical_name="Canon EOS 650",
+            confidence=0.9,
+        ),
+        Decimal("80"),
+        enriched.shipping_cost.amount,
+    )
+    assert deal.action is Action.BUY
+    assert deal.costs.net_profit == Decimal("31.01")
+
+
+def test_aukro_detail_rejects_offer_without_shipping_to_slovakia(monkeypatch) -> None:
+    from bazar_deals.adapters import aukro as aukro_mod
+
+    listing = _listing_from_public_node(
+        {
+            "itemId": 7,
+            "itemName": "Camera",
+            "buyNowActive": True,
+            "buyNowPrice": {"amount": 20, "currency": "EUR"},
+            "seoUrl": "camera",
+            "auction": False,
+            "adultContent": False,
+        }
+    )
+    assert listing is not None
+    state = {
+        "offer": {
+            "itemId": 7,
+            "shippingOptions": [
+                {
+                    "countryTo": "CZ",
+                    "firstPackagePrice": {"amount": 2, "currency": "EUR"},
+                }
+            ],
+        }
+    }
+    html = '<script id="ng-state">' + json.dumps(state) + "</script>"
+    monkeypatch.setattr(aukro_mod, "_get", lambda _url, _agent: html)
+
+    enriched = AukroHuntClient().enrich_listing(listing)
+
+    assert enriched.ships_to_slovakia is False
+    assert enriched.shipping_cost is None
+    assert "no delivery option" in enriched.raw["delivery_evidence"]
+
+
 def test_json_ld_description_is_kept_for_scoring() -> None:
     html = (
         '<script type="application/ld+json">'
