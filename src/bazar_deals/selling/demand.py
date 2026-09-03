@@ -358,7 +358,11 @@ def merge_buyer_digests(first: BuyerDigest, extra: BuyerDigest) -> BuyerDigest:
         seen.add(key)
         matches.append(row)
     matches.sort(key=lambda row: (row.score, row.want.offer_eur or Decimal("0")), reverse=True)
-    notes = list(first.notes) + ["research loop after 0 buyers or throttled eBay"] + list(extra.notes)
+    notes = _coalesce_index_statuses(
+        list(first.notes)
+        + ["research loop after 0 buyers or throttled eBay"]
+        + list(extra.notes)
+    )
     fetched: Counter[str] = Counter(first.fetched)
     fetched.update(extra.fetched)
     boards = list(dict.fromkeys([*first.boards, *extra.boards]))
@@ -369,6 +373,39 @@ def merge_buyer_digests(first: BuyerDigest, extra: BuyerDigest) -> BuyerDigest:
         fetched=fetched,
         boards=boards,
     )
+
+
+def _coalesce_index_statuses(notes: list[str]) -> list[str]:
+    """A successful indexed pass outranks a later login-wall miss."""
+    result = list(notes)
+    for source in ("facebook", "olx"):
+        ready = [
+            note for note in result
+            if note.startswith(f"{source}: READY_LIMITED:")
+        ]
+        if not ready:
+            continue
+        # Research can find more rows than the first pass. Keep its strongest
+        # status, while removing both duplicates and the misleading `skipped`.
+        best = max(
+            ready,
+            key=lambda note: int(match.group(1))
+            if (match := re.search(r"READY_LIMITED:\s+(\d+)", note))
+            else 0,
+        )
+        positions = [
+            index for index, note in enumerate(result)
+            if note.startswith(f"{source}: READY_LIMITED:")
+            or note.startswith(f"{source}: skipped")
+        ]
+        insert_at = positions[0]
+        result = [
+            note for note in result
+            if not note.startswith(f"{source}: READY_LIMITED:")
+            and not note.startswith(f"{source}: skipped")
+        ]
+        result.insert(min(insert_at, len(result)), best)
+    return result
 
 
 def searched_buy_phrases() -> list[str]:
@@ -993,6 +1030,7 @@ def find_buyers(
             if reason := searcher.manual_mode():
                 continue
             phrase = "koupím" if source == "sbazar" else "kupię" if source in {"olx", "allegro_pl"} else "kúpim"
+            source_offer_ids: set[str] = set()
             for query in queries[:int(rules()["central_europe"]["max_queries"])]:
                 full_query = f"{phrase} {query}"
                 try:
@@ -1000,16 +1038,20 @@ def find_buyers(
                 except (RuntimeError, httpx.HTTPError, ValueError) as exc:
                     wall = _login_wall_note(source, site, exc)
                     if wall:
-                        special_notes.append(wall)
+                        if not (searcher.used_public_index and source_offer_ids):
+                            special_notes.append(wall)
                         break
                     special_notes.append(
                         f"{_http_note(site, exc)}; manual search: {search_url(source, full_query)}"
                     )
                     break
                 for note in searcher.notes:
+                    if "via search index" in note:
+                        continue
                     if note not in special_notes:
                         special_notes.append(note)
                 searcher.notes.clear()
+                source_offer_ids.update(listing.external_id for listing in batch)
                 wants = []
                 for listing in batch:
                     try:
@@ -1035,6 +1077,8 @@ def find_buyers(
                         )
                     )
                 ingest(wants, f"{site}: fetched {len(wants)} rows", site)
+            if searcher.used_public_index and source_offer_ids:
+                special_notes.append(searcher.public_index_status(len(source_offer_ids)))
 
     def fetch_image(url: str) -> bytes | None:
         return _fetch_image_bytes(url, client=client)

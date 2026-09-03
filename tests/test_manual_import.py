@@ -176,6 +176,40 @@ def test_facebook_hunt_reads_public_item_urls_from_search_index():
     assert any("via search index" in note for note in client.notes)
 
 
+def test_facebook_fetch_reports_limited_once_after_later_index_miss():
+    calls = 0
+
+    def handler(request):
+        nonlocal calls
+        if "duckduckgo.com" in str(request.url):
+            calls += 1
+            if calls == 1:
+                return httpx.Response(
+                    200,
+                    text=_ddg_html(
+                        "Apple iPhone SE 64GB",
+                        "https://www.facebook.com/marketplace/item/555001122/",
+                    ),
+                )
+            return httpx.Response(200, text="<html></html>")
+        return httpx.Response(302, headers={"Location": "https://www.facebook.com/login"})
+
+    client = CentralEuropeClient(
+        "facebook",
+        Settings(bazos_request_gap_seconds=0),
+        client=httpx.Client(transport=httpx.MockTransport(handler)),
+    )
+    rows = client.fetch_new()
+
+    assert len(rows) == 1
+    status = [note for note in client.notes if note.startswith("facebook: READY")]
+    assert status == [
+        "facebook: READY_LIMITED: 1 public indexed offers; "
+        "direct Marketplace requires login/access, coverage incomplete"
+    ]
+    assert not any("LOGIN_REQUIRED" in note for note in client.notes)
+
+
 def test_olx_hunt_reads_public_oferta_urls_from_search_index():
     def handler(request):
         url = str(request.url)

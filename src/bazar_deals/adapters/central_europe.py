@@ -306,6 +306,19 @@ class CentralEuropeClient(ListingSource):
         self.notes: list[str] = []
         self._auth = AllegroAuth(settings, client)
         self._public_html_blocked = False
+        self.used_public_index = False
+
+    def public_index_status(self, offers: int) -> str:
+        """One honest status for an index-backed source with incomplete coverage."""
+        label, verb = (
+            ("Marketplace", "requires")
+            if self.marketplace == "facebook"
+            else ("listing pages", "require")
+        )
+        return (
+            f"{self.marketplace}: READY_LIMITED: {offers} public indexed offers; "
+            f"direct {label} {verb} login/access, coverage incomplete"
+        )
 
     def manual_mode(self) -> str | None:
         # OLX's official API cannot search other sellers. Public HTML/JSON-LD is
@@ -411,6 +424,7 @@ class CentralEuropeClient(ListingSource):
         if self.marketplace in {"facebook", "olx"}:
             indexed = self._indexed_ads(query)
             if indexed:
+                self.used_public_index = True
                 if not any("via search index" in note for note in self.notes):
                     self.notes.append(
                         f"{self.marketplace}: READY: public ads via search index"
@@ -464,11 +478,20 @@ class CentralEuropeClient(ListingSource):
                 for listing in self.search(query):
                     found.setdefault(listing.external_id, listing)
             except (RuntimeError, httpx.HTTPError, ValueError) as exc:
+                if found and self.used_public_index:
+                    # A later query can miss the public index and fall back to
+                    # the already-known login wall. The source is limited, not
+                    # wholly skipped, because earlier queries returned offers.
+                    break
                 self.notes.append(f"{self.marketplace}: {exc}")
                 break  # Do not hammer a blocked or unauthenticated source.
             time.sleep(self.settings.bazos_request_gap_seconds)
         if found:
-            self.notes.append(f"{self.marketplace}: READY: {len(found)} readable offers (SK eligibility checked separately)")
+            if self.used_public_index:
+                self.notes = [note for note in self.notes if "via search index" not in note]
+                self.notes.append(self.public_index_status(len(found)))
+            else:
+                self.notes.append(f"{self.marketplace}: READY: {len(found)} readable offers (SK eligibility checked separately)")
             unknown = sum(item.ships_to_slovakia is not True for item in found.values())
             if unknown:
                 self.notes.append(f"{self.marketplace}: NEEDS_DELIVERY_CONFIRMATION: {unknown} offers require detail or manual evidence")

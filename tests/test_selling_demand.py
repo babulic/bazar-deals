@@ -1138,10 +1138,68 @@ def test_facebook_and_olx_login_walls_ingest_public_index_ads() -> None:
 
     assert digest.fetched.get("facebook.com", 0) >= 1
     assert digest.fetched.get("olx.pl", 0) >= 1
-    assert any("via search index" in note for note in digest.notes)
+    assert any("public indexed offers" in note for note in digest.notes)
     assert not any("login wall" in note for note in digest.notes)
     assert retryable_sell_errors(digest.notes) == []
     body = format_buyer_digest(digest)
     assert "login wall" not in body
     assert "facebook.com/marketplace/item/9876543210" in body or digest.fetched["facebook.com"] >= 1
 
+
+def test_facebook_index_success_is_not_also_reported_as_skipped() -> None:
+    index_calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal index_calls
+        url = str(request.url)
+        if "duckduckgo.com" in url:
+            query = str(request.url.params.get("q") or "")
+            if "facebook.com" not in query:
+                return httpx.Response(200, text="<html></html>")
+            index_calls += 1
+            if index_calls == 1:
+                return httpx.Response(
+                    200,
+                    text=_ddg_html(
+                        "Kúpim MOS 6510 C64",
+                        "https://www.facebook.com/marketplace/item/9876543210/",
+                    ),
+                )
+            return httpx.Response(200, text="<html></html>")
+        if "facebook.com" in url:
+            return httpx.Response(403, text="login required")
+        if "olx.pl" in url:
+            return httpx.Response(403, text="Forbidden")
+        return _quiet_handler(request)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        digest = find_buyers(
+            Inventory(items=[chip()]),
+            Settings(ebay_client_id="", ebay_client_secret=""),
+            client=client,
+        )
+
+    facebook = [note for note in digest.notes if note.startswith("facebook:")]
+    assert facebook == [
+        "facebook: READY_LIMITED: 1 public indexed offers; "
+        "direct Marketplace requires login/access, coverage incomplete"
+    ]
+    assert not any("facebook: skipped" in note for note in digest.notes)
+
+
+def test_research_merge_keeps_ready_limited_over_login_wall_skip() -> None:
+    from bazar_deals.selling.demand import BuyerDigest, merge_buyer_digests
+
+    first = BuyerDigest(notes=[
+        "facebook: READY_LIMITED: 2 public indexed offers; "
+        "direct Marketplace requires login/access, coverage incomplete"
+    ])
+    research = BuyerDigest(notes=[
+        "facebook: skipped (public marketplace is a login wall)"
+    ])
+
+    merged = merge_buyer_digests(first, research)
+
+    facebook = [note for note in merged.notes if note.startswith("facebook:")]
+    assert facebook == first.notes
+    assert not any("facebook: skipped" in note for note in merged.notes)
