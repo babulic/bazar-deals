@@ -1,3 +1,6 @@
+import pytest
+from pydantic import ValidationError
+
 from bazar_deals.config import Settings
 from bazar_deals.github_alerts import ALERT_LABEL
 from bazar_deals.rules import rules
@@ -92,3 +95,9 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "diamant" in markers
     assert "smaragd" in markers
     assert "tanzanit" in markers
+
+
+def test_hunt_score_seconds_allows_github_actions_budget() -> None:
+    assert Settings(hunt_score_seconds=5400).hunt_score_seconds == 5400
+    with pytest.raises(ValidationError):
+        Settings(hunt_score_seconds=7201)
