@@ -185,12 +185,14 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
         ("oversized", "nezmestí sa do krabice od topánok"),
         ("damaged", "poškodené"),
         ("skip_keyword", "zakázané slovo"),
-        ("drop_kind", "mimo sortiment (oblečenie/médiá/knihy)"),
+        ("drop_kind", "mimo sortiment (príslušenstvo/oblečenie/médiá/knihy)"),
+        ("excluded_product", "vyradené staré DSLR"),
         ("detail_damaged", "poškodené po detaile"),
         ("detail_bulky", "rozmerné po detaile"),
         ("detail_heavy", "ťažké po detaile"),
         ("detail_oversized", "krabica od topánok po detaile"),
         ("detail_skip_keyword", "zakázané slovo po detaile"),
+        ("detail_excluded_product", "vyradené staré DSLR po detaile"),
     ):
         if n(key):
             pre.append(f"{n(key)} {label}")

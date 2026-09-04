@@ -4,6 +4,7 @@ from pathlib import Path
 from bazar_deals.catalog import (
     is_bulky,
     is_christmas_lighting,
+    is_excluded_product,
     is_oversized,
     is_skip_keyword,
     is_too_heavy,
@@ -33,6 +34,42 @@ def test_christmas_lights_are_skipped_headlamps_and_lamps_are_not() -> None:
     assert not is_christmas_lighting("Nabíjačka a osvetlenie stanu")
     assert reject_physical("Vánoční osvětlení 200 LED") == "skip_keyword"
     assert reject_physical("Petzl čelovka Actik Core") is None
+
+
+def test_old_dslrs_are_explicitly_excluded_but_lenses_and_new_cameras_are_not() -> None:
+    assert is_excluded_product("Digitální zrcadlovka Canon EOS 400D")
+    assert is_excluded_product("Canon EOS 1200D telo")
+    assert is_excluded_product("Nikon D3100 DSLR")
+    assert reject_physical("Digitální zrcadlovka Canon EOS 500D") == "excluded_product"
+    assert not is_excluded_product("Canon EOS R50 mirrorless")
+    assert not is_excluded_product("Canon EF 50mm f/1.8 objektív")
+
+
+def test_reported_apple_watch_straps_never_reach_price_comparison() -> None:
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="watch-straps",
+        title="Remienky Apple watch",
+        description="Spigen Modern Fit Ultra.",
+        url="https://mobil.bazos.sk/inzerat/watch-straps/",
+        price=Money(amount=Decimal("20"), currency="EUR"),
+    )
+    run = score_listings([listing], Settings(), SoldCompClient(fixture_path=SOLD))
+    assert run.deals == []
+    assert run.funnel["drop_kind"] == 1
+
+
+def test_reported_old_canon_dslr_never_reaches_price_comparison() -> None:
+    listing = Listing(
+        marketplace=Marketplace.AUKRO,
+        external_id="canon-500d",
+        title="Digitální zrcadlovka Canon EOS 500D",
+        url="https://aukro.sk/canon-eos-500d/",
+        price=Money(amount=Decimal("39.27"), currency="EUR"),
+    )
+    run = score_listings([listing], Settings(), SoldCompClient(fixture_path=SOLD))
+    assert run.deals == []
+    assert run.funnel["excluded_product"] == 1
 
 
 def test_weight_cap_is_two_kg_and_ignores_storage() -> None:

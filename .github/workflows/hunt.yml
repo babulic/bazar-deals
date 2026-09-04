@@ -3,7 +3,7 @@ name: Hunt alerts
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "0 */2 * * *"
   push:
     branches: [main]
 
@@ -13,7 +13,7 @@ permissions:
   copilot-requests: write
 
 # Do not cancel an in-progress hunt. Scoring stops at HUNT_SCORE_SECONDS so
-# --notify can comment issue #1 before the 70-minute job timeout. The
+# --notify can comment issue #1 before the 110-minute job timeout. The
 # research job is the 0-BUY retry.
 concurrency:
   group: hunt-alerts
@@ -22,7 +22,7 @@ concurrency:
 jobs:
   hunt:
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 110
     outputs:
       buys: ${{ steps.score.outputs.buys }}
       looped: ${{ steps.score.outputs.looped }}
@@ -128,10 +128,11 @@ jobs:
           COMPS_TTL_DAYS: "7"
           # First-pass scoring must finish and comment. A second in-process
           # score pass used to burn the 70-minute job with nothing posted.
-          # Stop scoring at 30 minutes so --notify still runs in this process.
-          COMPS_LIVE_QUERIES: "12"
-          MAX_SCORE_LISTINGS: "12"
-          HUNT_SCORE_SECONDS: "1800"
+          # A two-hour cadence gives the scorer enough room to inspect the full
+          # configured batch instead of stopping after roughly 12 costly rows.
+          COMPS_LIVE_QUERIES: "80"
+          MAX_SCORE_LISTINGS: "80"
+          HUNT_SCORE_SECONDS: "5400"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
@@ -145,7 +146,7 @@ jobs:
           # every candidate in the 12-listing scoring budget reach the AI gate.
           AI_MAX_REVIEWS: "12"
           AI_MAX_IDENTIFICATIONS: "6"
-          AI_TIMEOUT_SECONDS: "45"
+          AI_TIMEOUT_SECONDS: "90"
           AI_REVIEW_TTL_DAYS: "14"
           AI_MIN_CONFIDENCE: "0.75"
       - name: Keep first-hunt listings for the 0 BUY retry
@@ -160,10 +161,10 @@ jobs:
   research:
     needs: hunt
     # Backup: the hunt job posts the first-pass report, then skips the
-    # in-process 0-BUY loop so it can finish before the 70-minute timeout.
+    # in-process 0-BUY loop so it can finish before the job timeout.
     if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') && needs.hunt.outputs.looped != '1' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -211,9 +212,9 @@ jobs:
           NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
-          COMPS_LIVE_QUERIES: "12"
-          MAX_SCORE_LISTINGS: "12"
-          HUNT_SCORE_SECONDS: "1800"
+          COMPS_LIVE_QUERIES: "80"
+          MAX_SCORE_LISTINGS: "80"
+          HUNT_SCORE_SECONDS: "5400"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
@@ -223,6 +224,6 @@ jobs:
           AI_REVIEW_REQUIRED: "true"
           AI_MAX_REVIEWS: "12"
           AI_MAX_IDENTIFICATIONS: "6"
-          AI_TIMEOUT_SECONDS: "45"
+          AI_TIMEOUT_SECONDS: "90"
           AI_REVIEW_TTL_DAYS: "14"
           AI_MIN_CONFIDENCE: "0.75"

@@ -51,6 +51,7 @@ _FUNNEL_KEYS = (
     "damaged",
     "bulky",
     "skip_keyword",
+    "excluded_product",
     "drop_kind",
     "heavy",
     "oversized",
@@ -60,6 +61,7 @@ _FUNNEL_KEYS = (
     "detail_damaged",
     "detail_bulky",
     "detail_skip_keyword",
+    "detail_excluded_product",
     "detail_heavy",
     "detail_oversized",
     "insufficient_detail",
@@ -524,20 +526,28 @@ def _apply_ai_gate(
     deadline: float | None = None,
 ) -> list[Deal]:
     buys = [deal for deal in deals if deal.action is Action.BUY]
-    ordered_buys = _round_robin_deals(buys)
+    near = [
+        deal
+        for deal in deals
+        if deal.action is not Action.BUY and deal.costs.net_profit > 0
+    ]
+    # Validate every card eligible for the user-facing alert, not only rows that
+    # already crossed BUY. This prevents an unverified inflated near-miss price
+    # from being presented as a meaningful valuation.
+    review_queue = _round_robin_deals(buys) + _round_robin_deals(near)
     replacements: dict[tuple[str, str], Deal] = {}
     reviewed = 0
-    for deal in ordered_buys:
+    for deal in review_queue:
         key = (deal.item.listing.marketplace.value, deal.item.listing.external_id)
         timed_out = deadline is not None and time.monotonic() >= deadline
         if timed_out or reviewed >= max(0, int(settings.ai_max_reviews)):
             funnel["ai_review_cap"] += 1
-            if settings.ai_review_required:
-                reason = (
-                    "AI review time cap reached; fail closed"
-                    if timed_out
-                    else "AI review cap reached; fail closed"
-                )
+            reason = (
+                "AI review time cap reached; fail closed"
+                if timed_out
+                else "AI review cap reached; fail closed"
+            )
+            if settings.ai_review_required or deal.action is not Action.BUY:
                 replacements[key] = deal.model_copy(
                     update={"action": Action.SKIP, "reason": reason}
                 )
@@ -554,9 +564,12 @@ def _apply_ai_gate(
                 last_exc = exc
         if review is None:
             funnel["ai_unavailable"] += 1
-            if settings.ai_review_required:
+            if settings.ai_review_required or deal.action is not Action.BUY:
                 replacements[key] = deal.model_copy(
-                    update={"action": Action.SKIP, "reason": f"AI review unavailable: {last_exc}"}
+                    update={
+                        "action": Action.SKIP,
+                        "reason": f"AI review unavailable: {last_exc}",
+                    }
                 )
             continue
         funnel["ai_reviewed"] += 1

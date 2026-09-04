@@ -6,7 +6,7 @@ import httpx
 
 from bazar_deals.ai_review import AIReviewClient
 from bazar_deals.config import Settings
-from bazar_deals.domain import AIReview, Condition, IdentifiedItem, Listing, Marketplace, Money
+from bazar_deals.domain import Action, AIReview, Condition, IdentifiedItem, Listing, Marketplace, Money
 from bazar_deals.pipeline import _apply_ai_gate, _round_robin_listings
 from bazar_deals.scoring import score_deal
 
@@ -164,6 +164,38 @@ def test_ai_can_only_lower_price_and_veto_after_recalculation() -> None:
     result = _apply_ai_gate([deal], settings, _Reviewer(), Counter())[0]
     assert result.costs.estimated_resale == Decimal("80")
     assert result.action.value == "skip"
+    assert result.ai_review is not None
+
+
+def test_ai_also_corrects_positive_near_miss_before_it_can_be_reported() -> None:
+    class _Reviewer:
+        def review(self, deal):
+            return AIReview(
+                approved=True,
+                complete_product=True,
+                canonical_name="Spigen Apple Watch strap",
+                kind="accessories",
+                quick_sale_price_eur=Decimal("8"),
+                confidence=0.95,
+                reason="Same-product web prices are about 8 EUR.",
+                source_urls=["https://example.test/strap"],
+                model="copilot:auto",
+            )
+
+    near = _deal().model_copy(
+        update={
+            "action": Action.SKIP,
+            "reason": "expected net profit 16 EUR < 20 EUR",
+        }
+    )
+    result = _apply_ai_gate(
+        [near],
+        Settings(ai_review_enabled=True, ai_review_required=True),
+        _Reviewer(),
+        Counter(),
+    )[0]
+    assert result.costs.estimated_resale == Decimal("8")
+    assert result.costs.net_profit < 0
     assert result.ai_review is not None
 
 

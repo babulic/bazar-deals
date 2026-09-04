@@ -190,11 +190,14 @@ def format_compact_listing(
 
 
 def is_ai_rejected(deal: Deal) -> bool:
-    """True when the price review vetoed identity or the typical."""
+    """True when the displayed price lacks a successful final web review."""
     review = deal.ai_review
     if review is not None and not review.approved:
         return True
-    return (deal.reason or "").casefold().startswith("ai rejected")
+    reason = (deal.reason or "").casefold()
+    return reason.startswith(
+        ("ai rejected", "ai review unavailable", "ai review cap", "ai review time")
+    )
 
 
 def is_cheaper_than_usual(deal: Deal) -> bool:

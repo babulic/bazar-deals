@@ -142,12 +142,26 @@ _HIGH_YIELD_KINDS = frozenset({
     "tools",
 })
 _DROP_KINDS = frozenset({
+    "accessories",
     "clothing",
     "bags",
     "cosmetics",
     "books",
     "media",
 })
+
+# Low-liquidity early digital SLR bodies explicitly excluded from this hunt.
+# The model token is required, so lenses and modern mirrorless Canon/Nikon gear
+# are unaffected.
+_OBSOLETE_DSLR_RE = re.compile(
+    r"\b(?:"
+    r"(?:canon\s+)?eos\s*(?:300d|350d|400d|450d|500d|550d|600d|650d|700d|1000d|1100d|1200d)"
+    r"|nikon\s+d(?:40x?|50|60|70|80|90|100|200|300|3000|3100|3200|3300)"
+    r"|sony\s+(?:alpha\s*)?(?:a|α)(?:100|200|230|290|300|330|350|380|390|450|500|550|560|580)"
+    r"|pentax\s+k(?:10d|20d|-m|-x|-r)"
+    r")\b",
+    re.IGNORECASE,
+)
 
 
 def is_high_yield_kind(kind: str, text: str = "") -> bool:
@@ -161,8 +175,13 @@ def is_high_yield_kind(kind: str, text: str = "") -> bool:
 
 
 def is_drop_kind(kind: str) -> bool:
-    """True for fashion/media/books — never hunted, even with a brand in the title."""
+    """True for product classes that cannot meet this hunt's resale objective."""
     return (kind or "").casefold() in _DROP_KINDS
+
+
+def is_excluded_product(text: str) -> bool:
+    """True for explicitly retired low-liquidity product generations."""
+    return _OBSOLETE_DSLR_RE.search(text or "") is not None
 
 
 # Match "6 kg" / "6,5kg" but not storage like "16GB".
@@ -265,6 +284,8 @@ def reject_physical(text: str) -> str | None:
         return "bulky"
     if is_christmas_lighting(text) or is_fashion_drop(text):
         return "skip_keyword"
+    if is_excluded_product(text):
+        return "excluded_product"
     if is_too_heavy(text):
         return "heavy"
     if is_oversized(text):
