@@ -101,20 +101,31 @@ class Settings(BaseSettings):
     # None keeps the catalog rule (and the wider local research pass). The
     # scheduled workflow sets an explicit wall-clock-safe network-work cap.
     max_score_listings: int | None = Field(default=None, ge=1, le=200)
-    # None = no wall-clock cap (local CLI). GitHub Actions sets this so the
-    # scoring loop stops with time left to post --notify before the 70-minute
-    # job is killed.
-    hunt_score_seconds: int | None = Field(default=None, ge=1, le=3600)
+    # None = no wall-clock cap (local CLI). GitHub Actions sets 5400 so
+    # scoring stops with time left to post --notify before the 110-minute
+    # job is killed. Oversized env values are clamped so Settings() cannot
+    # crash the hunt (that is what red-X'd Hunt alerts after PR #59).
+    hunt_score_seconds: int | None = Field(default=None, ge=1, le=7200)
 
     @field_validator("eur_czk", "eur_pln", mode="before")
     @classmethod
     def optional_fx_rate(cls, value: object) -> object:
         return None if isinstance(value, str) and not value.strip() else value
 
-    @field_validator("max_score_listings", "hunt_score_seconds", mode="before")
+    @field_validator("max_score_listings", mode="before")
     @classmethod
     def optional_positive_int(cls, value: object) -> object:
         return None if value is None or (isinstance(value, str) and not value.strip()) else value
+
+    @field_validator("hunt_score_seconds", mode="before")
+    @classmethod
+    def clamp_hunt_score_seconds(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return None
+        seconds = int(value)
+        if seconds < 1:
+            return 1
+        return min(seconds, 7200)
 
     @field_validator("ebay_client_id", "ebay_client_secret", mode="before")
     @classmethod

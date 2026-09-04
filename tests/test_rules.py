@@ -92,3 +92,11 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "diamant" in markers
     assert "smaragd" in markers
     assert "tanzanit" in markers
+
+
+def test_hunt_score_seconds_accepts_github_actions_5400(monkeypatch) -> None:
+    assert Settings(hunt_score_seconds=5400).hunt_score_seconds == 5400
+    monkeypatch.setenv("HUNT_SCORE_SECONDS", "5400")
+    assert Settings().hunt_score_seconds == 5400
+    monkeypatch.setenv("HUNT_SCORE_SECONDS", "99999")
+    assert Settings().hunt_score_seconds == 7200

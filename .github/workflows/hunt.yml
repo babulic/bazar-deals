@@ -127,7 +127,7 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
           # First-pass scoring must finish and comment. A second in-process
-          # score pass used to burn the 70-minute job with nothing posted.
+          # score pass used to burn the job with nothing posted.
           # A two-hour cadence gives the scorer enough room to inspect the full
           # configured batch instead of stopping after roughly 12 costly rows.
           COMPS_LIVE_QUERIES: "80"
@@ -162,7 +162,9 @@ jobs:
     needs: hunt
     # Backup: the hunt job posts the first-pass report, then skips the
     # in-process 0-BUY loop so it can finish before the job timeout.
-    if: ${{ always() && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') && needs.hunt.outputs.looped != '1' }}
+    # Do not start research after a failed hunt — that doubled the red X
+    # when Settings() rejected HUNT_SCORE_SECONDS=5400.
+    if: ${{ needs.hunt.result == 'success' && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') && needs.hunt.outputs.looped != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 110
     steps:
