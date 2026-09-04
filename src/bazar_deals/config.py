@@ -102,9 +102,10 @@ class Settings(BaseSettings):
     # scheduled workflow sets an explicit wall-clock-safe network-work cap.
     max_score_listings: int | None = Field(default=None, ge=1, le=200)
     # None = no wall-clock cap (local CLI). GitHub Actions sets this so the
-    # scoring loop stops with time left to post --notify before the 70-minute
-    # job is killed.
-    hunt_score_seconds: int | None = Field(default=None, ge=1, le=3600)
+    # scoring loop stops with time left to post --notify before the GitHub
+    # Actions job is killed. The scheduled two-hour workflow reserves 20
+    # minutes for reporting and therefore uses 5,400 seconds.
+    hunt_score_seconds: int | None = Field(default=None, ge=1, le=7200)
 
     @field_validator("eur_czk", "eur_pln", mode="before")
     @classmethod

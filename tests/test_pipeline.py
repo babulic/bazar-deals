@@ -278,6 +278,10 @@ def test_score_listings_caps_on_wall_clock(monkeypatch) -> None:
     assert run.funnel["score_capped"] == 4
 
 
+def test_scheduled_score_budget_accepts_ninety_minutes():
+    assert Settings(hunt_score_seconds=5400).hunt_score_seconds == 5400
+
+
 def test_unconfirmed_sbazar_does_not_fill_the_score_cap(monkeypatch) -> None:
     from copy import deepcopy
 
