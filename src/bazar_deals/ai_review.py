@@ -255,7 +255,11 @@ Tasks:
    reject. If only asking-price evidence exists, use a deliberately low
    conservative estimate rather than the optimistic average. Reject weak/ambiguous
    evidence.
-3. Cross-check the deterministic identity and valuation. You may lower the
+3. Approve only a fully functional, undamaged item. Reject anything described
+   as broken, defective, for parts, for repair, locked, cracked, incomplete or
+   otherwise damaged, including structured condition fields. If battery health
+   is stated, it must be at least 84%; reject 83% or lower.
+4. Cross-check the deterministic identity and valuation. You may lower the
    valuation or reject the candidate. Do not inflate a value to make a deal pass.
 
 --- LISTING DATA START ---

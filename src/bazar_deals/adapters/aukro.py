@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 import time
+import unicodedata
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -10,9 +13,10 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.catalog import hunt_research_only, hunt_fetch_queries
 from bazar_deals.config import Settings
-from bazar_deals.domain import Listing, Marketplace, Money, Vertical
+from bazar_deals.domain import Condition, Listing, Marketplace, Money, Vertical
 from bazar_deals.htmlparse import parse_json_ld_products
 from bazar_deals.rules import rules
+from bazar_deals.working import is_damaged_text
 
 _AUKRO = rules().get("aukro") or {}
 _PUBLIC_SEARCH = str(_AUKRO.get("search_url") or "https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon")
@@ -20,6 +24,10 @@ _SMALL_CATEGORIES = tuple(int(value) for value in _AUKRO.get("small_categories")
 _PAGE_SIZE = int(_AUKRO.get("page_size") or 30)
 _PAGES = int(_AUKRO.get("pages") or 1)
 _API = "https://api.aukro.cz"
+_NG_STATE = re.compile(
+    r'<script[^>]+id=["\']ng-state["\'][^>]*>(?P<payload>.*?)</script>',
+    re.IGNORECASE | re.DOTALL,
+)
 
 
 def _search_body(category_id: int | None) -> dict:
@@ -127,7 +135,7 @@ class AukroHuntClient(ListingSource):
         return found
 
     def enrich_listing(self, listing: Listing) -> Listing:
-        if self.fixture_path or (listing.description or "").strip():
+        if self.fixture_path:
             return listing
         try:
             html = _get(str(listing.url), self.settings.bazos_user_agent)
@@ -137,11 +145,77 @@ class AukroHuntClient(ListingSource):
             return listing.model_copy(update={"raw": raw})
         products = parse_json_ld_products(html, marketplace=Marketplace.AUKRO, default_currency="EUR")
         detail = next((item for item in products if item.description.strip()), None)
+        attributes = _detail_attributes(html, listing.external_id)
+        condition = _condition_from_attributes(attributes)
         raw = dict(listing.raw)
-        raw["detail_fetched"] = detail is not None
-        if detail is None:
-            return listing.model_copy(update={"raw": raw})
-        return listing.model_copy(update={"description": detail.description, "raw": raw})
+        raw["detail_fetched"] = detail is not None or bool(attributes)
+        raw["condition_verified"] = condition is not Condition.UNKNOWN
+        if attributes:
+            raw["attributes"] = attributes
+        updates: dict = {"raw": raw}
+        if detail is not None:
+            updates["description"] = detail.description
+        if condition is not Condition.UNKNOWN:
+            updates["condition"] = condition
+        return listing.model_copy(update=updates)
+
+
+def _detail_attributes(html: str, item_id: str) -> list[dict]:
+    match = _NG_STATE.search(html)
+    if match is None:
+        return []
+    try:
+        state = json.loads(match.group("payload"))
+    except (json.JSONDecodeError, TypeError):
+        return []
+    item = _find_item_with_attributes(state, item_id)
+    if item is None:
+        return []
+    return [item for item in item.get("attributes") or [] if isinstance(item, dict)]
+
+
+def _find_item_with_attributes(value: object, item_id: str) -> dict | None:
+    if isinstance(value, dict):
+        candidate_id = value.get("itemId") or value.get("id")
+        if str(candidate_id or "") == str(item_id) and isinstance(value.get("attributes"), list):
+            return value
+        for child in value.values():
+            found = _find_item_with_attributes(child, item_id)
+            if found is not None:
+                return found
+    elif isinstance(value, list):
+        for child in value:
+            found = _find_item_with_attributes(child, item_id)
+            if found is not None:
+                return found
+    return None
+
+
+def _fold(value: object) -> str:
+    normalized = unicodedata.normalize("NFKD", str(value or "").casefold())
+    return "".join(char for char in normalized if not unicodedata.combining(char))
+
+
+def _condition_from_attributes(attributes: object) -> Condition:
+    if not isinstance(attributes, list):
+        return Condition.UNKNOWN
+    for attribute in attributes:
+        if not isinstance(attribute, dict):
+            continue
+        name = _fold(attribute.get("attributeName") or attribute.get("name"))
+        if "stav" not in name and "condition" not in name:
+            continue
+        value = str(attribute.get("attributeValue") or attribute.get("value") or "")
+        folded = _fold(value)
+        if attribute.get("attributeValueId") == 4 or is_damaged_text(value):
+            return Condition.FOR_PARTS
+        if any(marker in folded for marker in ("nove", "new")):
+            return Condition.NEW
+        if any(marker in folded for marker in ("rozbalene", "zachovane", "like new")):
+            return Condition.LIKE_NEW
+        if any(marker in folded for marker in ("pouzite", "used")):
+            return Condition.USED
+    return Condition.UNKNOWN
 
 
 def _listing_from_public_node(node: dict) -> Listing | None:
@@ -166,12 +240,14 @@ def _listing_from_public_node(node: dict) -> Listing | None:
         started = datetime.fromisoformat(str(node.get("startingTime") or ""))
     except ValueError:
         pass
+    attributes = node.get("attributes") if isinstance(node.get("attributes"), list) else []
     return Listing(
         marketplace=Marketplace.AUKRO,
         external_id=item_id,
         title=title,
         url=f"https://aukro.sk/{seo}-{item_id}",
         price=Money(amount=amount, currency=currency),
+        condition=_condition_from_attributes(attributes),
         seller_id=str(node.get("sellerLogin") or "") or None,
         seller_score=float(score) if score is not None else None,
         created_at=started,
@@ -181,6 +257,8 @@ def _listing_from_public_node(node: dict) -> Listing | None:
             "categoryPath": node.get("categoryPath"),
             "buyersProtectionAvailable": node.get("buyersProtectionAvailable"),
             "freeShipping": node.get("freeShipping"),
+            "attributes": attributes,
+            "condition_verified": _condition_from_attributes(attributes) is not Condition.UNKNOWN,
         },
     )
 

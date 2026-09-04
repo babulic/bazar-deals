@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import re
 from decimal import Decimal, ROUND_CEILING
 
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 from bazar_deals.rules import rules
+from bazar_deals.working import MIN_BATTERY_HEALTH_PERCENT, battery_health
 
 
 def assumed_shipping(buy: Decimal, settings: Settings | None = None) -> Decimal:
@@ -24,28 +24,13 @@ def _vinted_buy_fee(buy: Decimal, settings: Settings) -> Decimal:
     return (buy * rate + fixed).quantize(Decimal("0.01"))
 
 
-def _battery_health(text: str) -> int | None:
-    folded = text.casefold()
-    patterns = (
-        r"(?:battery\s*health|battery|bat[eé]ri[ae]|bateria|akku|kond[ií]cia\s*bat[eé]rie)[^\d]{0,20}(\d{2,3})\s*%",
-        r"(\d{2,3})\s*%[^\n]{0,20}(?:battery|bat[eé]ri[ae]|bateria|akku)",
-    )
-    for pattern in patterns:
-        match = re.search(pattern, folded, flags=re.I)
-        if match:
-            value = int(match.group(1))
-            if 1 <= value <= 100:
-                return value
-    return None
-
-
 def condition_haircut(item: IdentifiedItem, resale: Decimal, settings: Settings) -> Decimal:
     """Known listing-specific defects/accessory gaps reduce the conservative resale value."""
     listing = item.listing
     text = f"{listing.title} {listing.description}".casefold()
     haircut = Decimal("0")
 
-    battery = _battery_health(text)
+    battery = battery_health(text)
     if battery is not None:
         if battery < 80:
             haircut += resale * settings.battery_under_80_haircut_rate
@@ -122,6 +107,18 @@ def score_deal(
         net_profit=net,
         fx_fee_reserve=fx_reserve,
     )
+
+    stated_battery = battery_health(f"{listing.title} {listing.description}")
+    if stated_battery is not None and stated_battery < MIN_BATTERY_HEALTH_PERCENT:
+        return Deal(
+            item=item,
+            costs=costs,
+            action=Action.SKIP,
+            reason=(
+                f"battery health {stated_battery}% < "
+                f"{MIN_BATTERY_HEALTH_PERCENT}% minimum"
+            ),
+        )
 
     if not listing.purchase_allowed(require_confirmation=listing.marketplace.value in SITES):
         return Deal(item=item, costs=costs, action=Action.SKIP, reason="Delivery to Slovakia not verified")

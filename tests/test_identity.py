@@ -51,6 +51,8 @@ class _Source(ListingSource):
 def test_kinds_cover_small_goods() -> None:
     assert classify_kind(CASSETTE_TITLE) is ItemKind.MEDIA
     assert classify_kind("Obal na iPhone 13") is ItemKind.ACCESSORIES
+    assert classify_kind("Remienky Apple watch Spigen Modern Fit Ultra") is ItemKind.ACCESSORIES
+    assert classify_kind("Pásky pre Galaxy Watch") is ItemKind.ACCESSORIES
     assert classify_kind("iPhone 13 128GB") is ItemKind.PHONES
     assert classify_kind("Pánske rifle Levi's 32") is ItemKind.CLOTHING
     assert classify_kind("wlvs siltovka") is ItemKind.CLOTHING
@@ -103,6 +105,18 @@ def test_normal_iphone_is_still_phone() -> None:
             price=Money(amount=Decimal("100"), currency="EUR"),
         )
     ).kind == ItemKind.PHONES.value
+
+
+def test_included_charger_does_not_turn_complete_console_into_accessory() -> None:
+    listing = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="switch-with-charger",
+        title="Nintendo Switch V2",
+        description="Plne funkčná konzola s nabíjačkou.",
+        url="https://pc.bazos.sk/inzerat/switch-with-charger/",
+        price=Money(amount=Decimal("90"), currency="EUR"),
+    )
+    assert identify(listing).kind == ItemKind.HARDWARE.value
 
 
 def test_billardspiele_cassette_is_not_a_c64_computer() -> None:

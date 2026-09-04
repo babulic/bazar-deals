@@ -157,6 +157,15 @@ def identify(listing: Listing, vertical_hint: Vertical | None = None) -> Identif
         kind = ItemKind.ACCESSORIES
     else:
         kind = classify_kind(hay)
+        title_kind = classify_kind(listing.title)
+        # An included charger/cable in the description does not turn a complete
+        # console or phone into an accessory. The title must itself sell the
+        # accessory before the accessory exclusion may apply.
+        if kind is ItemKind.ACCESSORIES and title_kind not in {
+            ItemKind.ACCESSORIES,
+            ItemKind.GENERIC,
+        }:
+            kind = title_kind
     specs = extract_specs(hay)
     query = sold_query(hay, kind)
     if query is not None:
