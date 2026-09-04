@@ -78,6 +78,78 @@ def test_aukro_public_backend_buy_now_mapping() -> None:
     assert str(listing.url).startswith("https://aukro.sk/apple-iphone-13-128gb-7130000001")
 
 
+def test_aukro_maps_structured_for_parts_condition_before_scoring() -> None:
+    from bazar_deals.domain import Condition
+
+    listing = _listing_from_public_node(
+        {
+            "itemId": 7132073059,
+            "itemName": "Apple Watch SE 40 mm GPS Midnight",
+            "buyNowActive": True,
+            "buyNowPrice": {"amount": 33.3, "currency": "EUR"},
+            "seoUrl": "apple-watch-se-40-mm-gps-midnight",
+            "auction": False,
+            "adultContent": False,
+            "attributes": [
+                {
+                    "attributeId": 48,
+                    "attributeName": "Stav tovaru",
+                    "attributeValue": "Nefunkčné / na diely",
+                    "attributeValueId": 4,
+                }
+            ],
+        }
+    )
+    assert listing is not None
+    assert listing.condition is Condition.FOR_PARTS
+    assert listing.raw["condition_verified"] is True
+
+
+def test_aukro_detail_reads_condition_from_ng_state(monkeypatch) -> None:
+    from bazar_deals.adapters import aukro as aukro_mod
+    from bazar_deals.domain import Condition
+
+    listing = _listing_from_public_node(
+        {
+            "itemId": 7132073059,
+            "itemName": "Apple Watch SE 40 mm GPS Midnight",
+            "buyNowActive": True,
+            "buyNowPrice": {"amount": 33.3, "currency": "EUR"},
+            "seoUrl": "apple-watch-se-40-mm-gps-midnight",
+            "auction": False,
+            "adultContent": False,
+        }
+    )
+    assert listing is not None
+    state = {
+        "offer": {
+            "itemMods": [
+                {
+                    "content": [
+                        {
+                            "id": 7132073059,
+                            "attributes": [
+                                {
+                                    "attributeName": "Stav tovaru",
+                                    "attributeValue": "Nefunkčné / na diely",
+                                    "attributeValueId": 4,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            ]
+        }
+    }
+    html = '<script id="ng-state">' + json.dumps(state) + "</script>"
+    monkeypatch.setattr(aukro_mod, "_get", lambda _url, _agent: html)
+
+    enriched = AukroHuntClient().enrich_listing(listing)
+
+    assert enriched.condition is Condition.FOR_PARTS
+    assert enriched.raw["condition_verified"] is True
+
+
 def test_aukro_public_backend_rejects_auction_and_adult() -> None:
     base = {
         "itemId": 1,

@@ -193,6 +193,7 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
         ("detail_oversized", "krabica od topánok po detaile"),
         ("detail_skip_keyword", "zakázané slovo po detaile"),
         ("detail_excluded_product", "vyradené staré DSLR po detaile"),
+        ("condition_unverified", "Aukro bez overeného stavu"),
     ):
         if n(key):
             pre.append(f"{n(key)} {label}")

@@ -4,6 +4,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.scoring import assumed_shipping, score_deal
+from bazar_deals.working import is_working_listing
 
 
 def _listing(price: str = "38", *, description: str = "") -> Listing:
@@ -66,6 +67,22 @@ def test_battery_under_80_and_no_box_reduce_resale_value() -> None:
     )
     deal = score_deal(item, Decimal("70"), Decimal("0"), settings=settings)
     assert deal.costs.condition_haircut == Decimal("15.50")
+    assert deal.action.value == "skip"
+    assert "77% < 84%" in deal.reason
+
+
+def test_battery_health_83_is_rejected_and_84_is_allowed() -> None:
+    low = identify(_listing("38", description="Plne funkčný, batéria 83 %."), Vertical.APPLE)
+    minimum = identify(_listing("38", description="Plne funkčný, batéria 84 %."), Vertical.APPLE)
+    assert score_deal(low, Decimal("120"), Decimal("8")).action.value == "skip"
+    assert score_deal(minimum, Decimal("120"), Decimal("8")).action.value == "buy"
+
+
+def test_structured_battery_health_below_84_is_rejected() -> None:
+    low = _listing("38").model_copy(update={"raw": {"batteryHealth": "83%"}})
+    minimum = _listing("38").model_copy(update={"raw": {"batteryHealth": "84%"}})
+    assert is_working_listing(low) is False
+    assert is_working_listing(minimum) is True
 
 
 def test_custom_net_profit_floor() -> None:

@@ -62,6 +62,7 @@ _FUNNEL_KEYS = (
     "detail_bulky",
     "detail_skip_keyword",
     "detail_excluded_product",
+    "condition_unverified",
     "detail_heavy",
     "detail_oversized",
     "insufficient_detail",
@@ -357,6 +358,10 @@ def score_listings(
                 and (
                     len(listing.description.strip()) < 40
                     or (
+                        listing.marketplace is Marketplace.AUKRO
+                        and listing.condition.value == "unknown"
+                    )
+                    or (
                         listing.marketplace.value in SITES
                         and listing.ships_to_slovakia is not True
                     )
@@ -381,6 +386,12 @@ def score_listings(
                 continue
             if not listing.purchase_allowed(require_confirmation=listing.marketplace.value in SITES):
                 funnel["no_sk_delivery"] += 1
+                continue
+            if (
+                listing.marketplace is Marketplace.AUKRO
+                and listing.condition.value == "unknown"
+            ):
+                funnel["condition_unverified"] += 1
                 continue
             if not listing.is_immediate_buy():
                 funnel["not_buy_now"] += 1
