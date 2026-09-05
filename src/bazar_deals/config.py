@@ -99,6 +99,8 @@ class Settings(BaseSettings):
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
     comps_live_queries: int = Field(default=int(_HUNT.get("max_sold_lookups", 80)), ge=0, le=80)
     hunt_batch_db: str = ".cache/bazar-hunt-batch.sqlite"
+    hunt_batch_url: str = ""
+    hunt_batch_token: str = Field(default="", repr=False)
     hunt_batch_page_size: int = Field(
         default=int(_HUNT.get("batch_page_size", 80)),
         ge=1,

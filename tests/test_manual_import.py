@@ -321,9 +321,8 @@ def test_regular_hunt_does_not_delete_comments():
     assert workflow['jobs']['hunt']['outputs']['batch_complete']
     assert workflow['jobs']['hunt']['outputs']['dispatch_next']
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
-    assert '--batch-db .cache/bazar-hunt-batch.sqlite' in hunt_yaml
+    assert '--batch-url "$HUNT_BATCH_URL"' in hunt_yaml
     assert 'actions/cache/save@v4' in hunt_yaml
-    assert hunt_yaml.index('Save batch checkpoint before continuation') < hunt_yaml.index('Start the next page')
     assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
     assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
     assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
@@ -331,6 +330,11 @@ def test_regular_hunt_does_not_delete_comments():
     assert '--source olx' in hunt_yaml
     assert 'hunt-olx.json' in hunt_yaml
     assert '--source ebay' in hunt_yaml
+    deploy_yaml = Path('.github/workflows/deploy-ebay-store.yml').read_text()
+    assert 'CONDENS_SSH_PRIVATE_KEY' in deploy_yaml
+    assert 'git pull --ff-only origin main' in deploy_yaml
+    assert 'docker compose -f deploy/ebay-store/compose.yml up -d --build' in deploy_yaml
+    assert 'https://46-102-157-230.sslip.io/health' in deploy_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])

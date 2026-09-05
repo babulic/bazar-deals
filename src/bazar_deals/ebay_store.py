@@ -38,6 +38,15 @@ class SnapshotStore:
                 CREATE TABLE IF NOT EXISTS batches (id INTEGER PRIMARY KEY, created REAL, payload TEXT);
                 CREATE TABLE IF NOT EXISTS deleted (digest TEXT PRIMARY KEY);
                 CREATE TABLE IF NOT EXISTS events (digest TEXT PRIMARY KEY);
+                CREATE TABLE IF NOT EXISTS hunt_queue (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    batch_id TEXT NOT NULL,
+                    created REAL NOT NULL,
+                    next_offset INTEGER NOT NULL,
+                    total INTEGER NOT NULL,
+                    page_size INTEGER NOT NULL,
+                    payload TEXT NOT NULL
+                );
             """)
         path.chmod(0o600)
 
@@ -83,6 +92,7 @@ class SnapshotStore:
                 return
             db.execute("INSERT INTO events VALUES (?)", (event,))
             db.execute("DELETE FROM batches")
+            db.execute("DELETE FROM hunt_queue")
             db.execute("UPDATE state SET epoch=epoch+1 WHERE id=1")
             for identity in identities:
                 if identity:
@@ -95,6 +105,86 @@ class SnapshotStore:
         with self.connect() as db:
             row = db.execute("SELECT created,payload FROM batches ORDER BY id DESC LIMIT 1").fetchone()
         return {"created": row[0], "records": json.loads(self.cipher.decrypt(row[1].encode()))} if row else {"records": []}
+
+    def hunt_status(self):
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT batch_id,next_offset,total,page_size FROM hunt_queue WHERE singleton=1"
+            ).fetchone()
+        if row is None:
+            return None
+        return {
+            "batch_id": str(row[0]),
+            "next_offset": int(row[1]),
+            "total": int(row[2]),
+            "page_size": int(row[3]),
+        }
+
+    def replace_hunt(self, batch_id, listings, page_size, fetch_notes):
+        payload = self.cipher.encrypt(
+            json.dumps(
+                {"listings": listings, "fetch_notes": fetch_notes},
+                ensure_ascii=False,
+                separators=(",", ":"),
+            ).encode()
+        ).decode()
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            current = db.execute(
+                "SELECT next_offset,total FROM hunt_queue WHERE singleton=1"
+            ).fetchone()
+            if current is not None and int(current[0]) < int(current[1]):
+                raise ValueError("hunt batch is still pending")
+            db.execute("DELETE FROM hunt_queue")
+            db.execute(
+                "INSERT INTO hunt_queue "
+                "(singleton,batch_id,created,next_offset,total,page_size,payload) "
+                "VALUES (1,?,?,0,?,?,?)",
+                (batch_id, time.time(), len(listings), page_size, payload),
+            )
+        return self.hunt_status()
+
+    def hunt_page(self):
+        with self.connect() as db:
+            row = db.execute(
+                "SELECT batch_id,next_offset,total,page_size,payload "
+                "FROM hunt_queue WHERE singleton=1"
+            ).fetchone()
+        if row is None or int(row[1]) >= int(row[2]):
+            return None
+        payload = json.loads(self.cipher.decrypt(str(row[4]).encode()))
+        start, size = int(row[1]), int(row[3])
+        listings = payload["listings"][start : start + size]
+        return {
+            "batch_id": str(row[0]),
+            "offset": start,
+            "total": int(row[2]),
+            "page_size": size,
+            "listings": listings,
+            "fetch_notes": payload.get("fetch_notes", []),
+        }
+
+    def advance_hunt(self, batch_id, offset, count):
+        if count < 1:
+            raise ValueError("invalid page count")
+        with self.connect() as db:
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute(
+                "SELECT batch_id,next_offset,total,page_size FROM hunt_queue WHERE singleton=1"
+            ).fetchone()
+            if row is None or str(row[0]) != batch_id or int(row[1]) != offset:
+                raise ValueError("stale hunt checkpoint")
+            next_offset = min(int(row[2]), offset + count)
+            db.execute(
+                "UPDATE hunt_queue SET next_offset=? WHERE singleton=1",
+                (next_offset,),
+            )
+        return {
+            "batch_id": batch_id,
+            "next_offset": next_offset,
+            "total": int(row[2]),
+            "page_size": int(row[3]),
+        }
 
 
 class EbaySignatureVerifier:
@@ -157,7 +247,7 @@ class EbaySignatureVerifier:
 
 def create_app(config=None, verifier=None):
     app = Flask(__name__)
-    app.config.update(MAX_CONTENT_LENGTH=2_000_000)
+    app.config.update(MAX_CONTENT_LENGTH=20_000_000)
     cfg = config or os.environ
     root = Path(cfg.get("EBAY_STORE_DIR", "/data"))
     token = cfg["EBAY_STORE_TOKEN"]
@@ -270,6 +360,70 @@ def create_app(config=None, verifier=None):
                 return "", 400
         try:
             return jsonify(saved=store.save(data["epoch"], rows))
+        except ValueError:
+            return "", 409
+
+    @app.get("/api/hunt/status")
+    def hunt_status():
+        if not authorized():
+            return "", 401
+        return jsonify(store.hunt_status())
+
+    @app.get("/api/hunt/page")
+    def hunt_page():
+        if not authorized():
+            return "", 401
+        page = store.hunt_page()
+        return (jsonify(page), 200) if page is not None else ("", 204)
+
+    @app.post("/api/hunt/batches")
+    def hunt_batches():
+        if not authorized():
+            return "", 401
+        data = request.get_json()
+        if not isinstance(data, dict):
+            return "", 400
+        listings = data.get("listings")
+        notes = data.get("fetch_notes", [])
+        page_size = data.get("page_size")
+        batch_id = data.get("batch_id")
+        if (
+            not isinstance(batch_id, str)
+            or not re.fullmatch(r"[a-f0-9]{32}", batch_id)
+            or type(page_size) is not int
+            or not 1 <= page_size <= 80
+            or not isinstance(listings, list)
+            or len(listings) > 20_000
+            or any(not isinstance(row, dict) for row in listings)
+            or not isinstance(notes, list)
+            or any(not isinstance(note, str) or len(note) > 2000 for note in notes)
+        ):
+            return "", 400
+        try:
+            return jsonify(store.replace_hunt(batch_id, listings, page_size, notes))
+        except ValueError:
+            return "", 409
+
+    @app.post("/api/hunt/advance")
+    def hunt_advance():
+        if not authorized():
+            return "", 401
+        data = request.get_json()
+        if (
+            not isinstance(data, dict)
+            or not isinstance(data.get("batch_id"), str)
+            or type(data.get("offset")) is not int
+            or type(data.get("count")) is not int
+        ):
+            return "", 400
+        try:
+            return jsonify(
+                store.advance_hunt(
+                    data["batch_id"],
+                    data["offset"],
+                    data["count"],
+                )
+            )
         except ValueError:
             return "", 409
 

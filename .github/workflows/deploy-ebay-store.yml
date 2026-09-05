@@ -1,0 +1,64 @@
+name: Deploy eBay store and Hunt queue
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: deploy-ebay-store
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Configure pinned SSH access
+        env:
+          CONDENS_SSH_PRIVATE_KEY: ${{ secrets.CONDENS_SSH_PRIVATE_KEY }}
+          CONDENS_SSH_USER: ${{ secrets.CONDENS_SSH_USER }}
+        run: |
+          : "${CONDENS_SSH_PRIVATE_KEY:?missing CONDENS_SSH_PRIVATE_KEY}"
+          : "${CONDENS_SSH_USER:?missing CONDENS_SSH_USER}"
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$CONDENS_SSH_PRIVATE_KEY" > ~/.ssh/condens
+          chmod 600 ~/.ssh/condens
+          ssh-keygen -y -f ~/.ssh/condens >/dev/null
+          cat > ~/.ssh/known_hosts <<'EOF'
+          46.102.157.230 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBxLpy7QeOJdsskTztHiHYPEJgb9ZUhsynBtvY+sBcbO
+          EOF
+      - name: Fast-forward and restart the private store
+        env:
+          CONDENS_SSH_USER: ${{ secrets.CONDENS_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/condens \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            "$CONDENS_SSH_USER@46.102.157.230" \
+            'cd /opt/bazar-deals &&
+             git fetch origin main &&
+             git pull --ff-only origin main &&
+             docker compose -f deploy/ebay-store/compose.yml up -d --build &&
+             docker compose -f deploy/ebay-store/compose.yml ps'
+      - name: Verify HTTPS health
+        run: curl --fail --silent --show-error --retry 8 --retry-delay 3 https://46-102-157-230.sslip.io/health
+      - name: Start Hunt after deployment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/hunt.yml/dispatches" \
+            --data '{"ref":"main","inputs":{"continuation":"false"}}'

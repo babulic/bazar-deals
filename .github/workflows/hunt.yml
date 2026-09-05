@@ -9,8 +9,6 @@ on:
         default: false
   schedule:
     - cron: "0 */2 * * *"
-  push:
-    branches: [main]
 
 permissions:
   actions: write
@@ -59,12 +57,6 @@ jobs:
           key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             ecb-fx-
-      - uses: actions/cache/restore@v4
-        with:
-          path: .cache/bazar-hunt-batch.sqlite
-          key: hunt-batch-v1-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            hunt-batch-v1-
       - run: python -m pip install -e .
       - name: Install Copilot CLI for final AI verification
         run: npm install -g @github/copilot
@@ -74,7 +66,10 @@ jobs:
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
       - name: Check persisted hunt batch
         id: batch
-        run: python -m bazar_deals hunt --batch-db .cache/bazar-hunt-batch.sqlite --batch-status
+        env:
+          HUNT_BATCH_URL: ${{ vars.EBAY_STORE_URL }}
+          HUNT_BATCH_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
+        run: python -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --batch-status
       - name: Fetch Bazos
         if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
@@ -129,7 +124,7 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Score, 0-BUY loop, and comment
         id: score
-        run: python -u -m bazar_deals hunt --batch-db .cache/bazar-hunt-batch.sqlite --batch-page-size 80 --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
+        run: python -u -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --batch-page-size 80 --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
@@ -153,7 +148,8 @@ jobs:
           # merely because a prior page exhausted this run's query allowance.
           COMPS_LIVE_QUERIES: "80"
           MAX_SCORE_LISTINGS: "80"
-          HUNT_BATCH_DB: .cache/bazar-hunt-batch.sqlite
+          HUNT_BATCH_URL: ${{ vars.EBAY_STORE_URL }}
+          HUNT_BATCH_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
           HUNT_BATCH_PAGE_SIZE: "80"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
@@ -179,11 +175,6 @@ jobs:
         with:
           path: .cache/ecb-fx.json
           key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Save batch checkpoint before continuation
-        uses: actions/cache/save@v4
-        with:
-          path: .cache/bazar-hunt-batch.sqlite
-          key: hunt-batch-v1-${{ github.run_id }}-${{ github.run_attempt }}
       - name: Start the next page or fresh batch
         if: steps.score.outputs.dispatch_next == '1'
         env:

@@ -4,11 +4,12 @@ from collections import Counter
 import json
 
 import pytest
+import httpx
 
 from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money
-from bazar_deals.hunt_batch import HuntBatchStore
+from bazar_deals.hunt_batch import HuntBatchStore, RemoteHuntBatchStore
 from bazar_deals.pipeline import HuntRun, filter_usable_listings
 
 
@@ -211,3 +212,72 @@ def test_cli_does_not_checkpoint_page_when_price_query_budget_was_hit(
     status = HuntBatchStore(batch_path).status()
     assert status is not None
     assert status.next_offset == status.total == 1
+
+
+def test_remote_store_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = {"offset": 0, "rows": [], "batch_id": ""}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/hunt/status":
+            if not state["batch_id"]:
+                return httpx.Response(200, json=None)
+            return httpx.Response(
+                200,
+                json={
+                    "batch_id": state["batch_id"],
+                    "next_offset": state["offset"],
+                    "total": len(state["rows"]),
+                    "page_size": 1,
+                },
+            )
+        if request.url.path == "/api/hunt/batches":
+            payload = json.loads(request.content)
+            state["batch_id"] = payload["batch_id"]
+            state["rows"] = payload["listings"]
+            return httpx.Response(
+                200,
+                json={
+                    "batch_id": state["batch_id"],
+                    "next_offset": 0,
+                    "total": len(state["rows"]),
+                    "page_size": 1,
+                },
+            )
+        if request.url.path == "/api/hunt/page":
+            return httpx.Response(
+                200,
+                json={
+                    "batch_id": state["batch_id"],
+                    "offset": state["offset"],
+                    "total": len(state["rows"]),
+                    "page_size": 1,
+                    "listings": state["rows"][state["offset"] : state["offset"] + 1],
+                    "fetch_notes": ["bazos: fetched 1"],
+                },
+            )
+        payload = json.loads(request.content)
+        state["offset"] = payload["offset"] + payload["count"]
+        return httpx.Response(
+            200,
+            json={
+                "batch_id": state["batch_id"],
+                "next_offset": state["offset"],
+                "total": len(state["rows"]),
+                "page_size": 1,
+            },
+        )
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        "bazar_deals.hunt_batch.httpx.request",
+        lambda method, url, **kwargs: client.request(method, url, **kwargs),
+    )
+    store = RemoteHuntBatchStore("https://store.example", "secret")
+    assert store.needs_fetch()
+    status = store.replace([listing(1)], page_size=1, fetch_notes=["bazos: fetched 1"])
+    assert status.total == 1
+    page = store.current_page()
+    assert page is not None
+    assert page.listings[0].external_id == "1"
+    assert page.fetch_notes == ["bazos: fetched 1"]
+    assert not store.advance(page).pending

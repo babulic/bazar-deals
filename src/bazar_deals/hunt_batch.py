@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
 
+import httpx
+
 from bazar_deals.domain import Listing
 
 
@@ -224,3 +226,100 @@ class HuntBatchStore:
             total=page.total,
             page_size=page.page_size,
         )
+
+
+class RemoteHuntBatchStore:
+    """Deletion-aware queue backed by the private Alwyzon retention service."""
+
+    def __init__(self, base_url: str, token: str) -> None:
+        if not base_url.startswith("https://") or not token:
+            raise ValueError("remote hunt batch store requires HTTPS URL and token")
+        self.base_url = base_url.rstrip("/")
+        self.headers = {"Authorization": "Bearer " + token}
+
+    def _request(self, method: str, path: str, **kwargs) -> httpx.Response:
+        response = httpx.request(
+            method,
+            self.base_url + path,
+            headers=self.headers,
+            timeout=45,
+            **kwargs,
+        )
+        response.raise_for_status()
+        return response
+
+    @staticmethod
+    def _status(data: dict | None) -> BatchStatus | None:
+        if data is None:
+            return None
+        return BatchStatus(
+            batch_id=str(data["batch_id"]),
+            next_offset=int(data["next_offset"]),
+            total=int(data["total"]),
+            page_size=int(data["page_size"]),
+        )
+
+    def status(self) -> BatchStatus | None:
+        return self._status(self._request("GET", "/api/hunt/status").json())
+
+    def needs_fetch(self) -> bool:
+        status = self.status()
+        return status is None or not status.pending
+
+    def replace(
+        self,
+        listings: list[Listing],
+        *,
+        page_size: int,
+        fetch_notes: list[str] | None = None,
+    ) -> BatchStatus:
+        batch_id = uuid.uuid4().hex
+        response = self._request(
+            "POST",
+            "/api/hunt/batches",
+            json={
+                "batch_id": batch_id,
+                "page_size": page_size,
+                "fetch_notes": fetch_notes or [],
+                "listings": [
+                    listing.model_dump(mode="json")
+                    for listing in listings
+                ],
+            },
+        )
+        status = self._status(response.json())
+        if status is None:
+            raise RuntimeError("remote hunt store returned no batch status")
+        return status
+
+    def current_page(self) -> BatchPage | None:
+        response = self._request("GET", "/api/hunt/page")
+        if response.status_code == 204:
+            return None
+        data = response.json()
+        return BatchPage(
+            batch_id=str(data["batch_id"]),
+            offset=int(data["offset"]),
+            total=int(data["total"]),
+            page_size=int(data["page_size"]),
+            listings=[
+                Listing.model_validate(item)
+                for item in data["listings"]
+            ],
+            fetch_notes=[str(note) for note in data.get("fetch_notes", [])],
+        )
+
+    def advance(self, page: BatchPage) -> BatchStatus:
+        response = self._request(
+            "POST",
+            "/api/hunt/advance",
+            json={
+                "batch_id": page.batch_id,
+                "offset": page.offset,
+                "count": len(page.listings),
+            },
+        )
+        status = self._status(response.json())
+        if status is None:
+            raise RuntimeError("remote hunt store returned no checkpoint status")
+        return status

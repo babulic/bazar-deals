@@ -95,3 +95,64 @@ def test_storage_failure_is_not_acknowledged(service, monkeypatch):
     monkeypatch.setattr(app.extensions["ebay_store"], "purge", fail)
     body, headers = notification(key)
     assert client.post("/ebay/account-deletion", data=body, headers=headers).status_code == 503
+
+
+def test_hunt_queue_pages_and_advances_atomically(service):
+    _app, client, _key = service
+    rows = [
+        {
+            "marketplace": "bazos",
+            "external_id": str(index),
+            "title": f"iPhone {index}",
+            "url": f"https://mobil.bazos.sk/inzerat/{index}/",
+            "price": {"amount": "40", "currency": "EUR"},
+        }
+        for index in range(3)
+    ]
+    payload = {
+        "batch_id": "a" * 32,
+        "page_size": 2,
+        "fetch_notes": ["bazos: fetched 3"],
+        "listings": rows,
+    }
+    assert client.get("/api/hunt/status").status_code == 401
+    created = client.post("/api/hunt/batches", headers=AUTH, json=payload)
+    assert created.status_code == 200
+    assert created.json["next_offset"] == 0
+    page = client.get("/api/hunt/page", headers=AUTH).json
+    assert [row["external_id"] for row in page["listings"]] == ["0", "1"]
+    assert page["fetch_notes"] == ["bazos: fetched 3"]
+
+    assert client.post(
+        "/api/hunt/advance",
+        headers=AUTH,
+        json={"batch_id": "b" * 32, "offset": 0, "count": 2},
+    ).status_code == 409
+    advanced = client.post(
+        "/api/hunt/advance",
+        headers=AUTH,
+        json={"batch_id": "a" * 32, "offset": 0, "count": 2},
+    )
+    assert advanced.json["next_offset"] == 2
+    page = client.get("/api/hunt/page", headers=AUTH).json
+    assert [row["external_id"] for row in page["listings"]] == ["2"]
+    client.post(
+        "/api/hunt/advance",
+        headers=AUTH,
+        json={"batch_id": "a" * 32, "offset": 2, "count": 1},
+    )
+    assert client.get("/api/hunt/page", headers=AUTH).status_code == 204
+
+
+def test_signed_ebay_deletion_purges_hunt_queue(service):
+    app, client, key = service
+    payload = {
+        "batch_id": "a" * 32,
+        "page_size": 1,
+        "listings": [row()],
+    }
+    assert client.post("/api/hunt/batches", headers=AUTH, json=payload).status_code == 200
+    body, headers = notification(key)
+    assert client.post("/ebay/account-deletion", data=body, headers=headers).status_code == 204
+    assert client.get("/api/hunt/status", headers=AUTH).json is None
+    assert b"title-canary" not in app.extensions["ebay_store"].path.read_bytes()

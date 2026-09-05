@@ -16,7 +16,7 @@ from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
-from bazar_deals.hunt_batch import BatchPage, HuntBatchStore
+from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import (
     BatchProgress,
@@ -130,6 +130,11 @@ def main(argv: list[str] | None = None) -> int:
         help="Persist and resume a stable hunt listing batch in this SQLite file.",
     )
     parser.add_argument(
+        "--batch-url",
+        default=None,
+        help="Persist and resume the batch in the deletion-aware HTTPS store.",
+    )
+    parser.add_argument(
         "--batch-page-size",
         type=int,
         default=None,
@@ -159,9 +164,13 @@ def main(argv: list[str] | None = None) -> int:
 
     settings = Settings()
     if args.batch_status:
-        if args.command != "hunt" or not args.batch_db:
-            parser.error("--batch-status requires hunt --batch-db")
-        store = HuntBatchStore(args.batch_db)
+        if args.command != "hunt" or not (args.batch_db or args.batch_url):
+            parser.error("--batch-status requires hunt --batch-db or --batch-url")
+        store = (
+            RemoteHuntBatchStore(args.batch_url, settings.hunt_batch_token)
+            if args.batch_url
+            else HuntBatchStore(args.batch_db)
+        )
         status = store.status()
         needs_fetch = status is None or not status.pending
         payload = {
@@ -253,7 +262,13 @@ def main(argv: list[str] | None = None) -> int:
 
     vertical = Vertical(args.vertical) if args.vertical else None
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    batch_store = HuntBatchStore(args.batch_db) if args.batch_db else None
+    batch_store = (
+        RemoteHuntBatchStore(args.batch_url, settings.hunt_batch_token)
+        if args.batch_url
+        else HuntBatchStore(args.batch_db)
+        if args.batch_db
+        else None
+    )
     batch_page: BatchPage | None = None
     new_batch_funnel = None
     batch_pending = bool(batch_store and not batch_store.needs_fetch())
