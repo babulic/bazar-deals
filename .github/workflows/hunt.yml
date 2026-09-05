@@ -4,11 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       continuation:
-        description: Continue the persisted batch without waiting for the two-hour recovery schedule
+        description: Continue the persisted Alwyzon batch
         type: boolean
         default: false
-  schedule:
-    - cron: "0 */2 * * *"
 
 permissions:
   actions: write
@@ -16,9 +14,8 @@ permissions:
   issues: write
   copilot-requests: write
 
-# Every run owns one persisted page. A successful run saves its monotonic
-# SQLite offset before dispatching the next run. The two-hour schedule is a
-# recovery trigger if a dispatch is lost.
+# Every run owns one persisted Alwyzon page. A successful run saves its
+# monotonic offset before dispatching the next run from main immediately.
 concurrency:
   group: hunt-alerts
   cancel-in-progress: false
@@ -33,6 +30,8 @@ jobs:
       dispatch_next: ${{ steps.score.outputs.dispatch_next }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: main
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"

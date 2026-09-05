@@ -317,6 +317,7 @@ def test_regular_hunt_does_not_delete_comments():
     import yaml
     workflow = yaml.safe_load(Path('.github/workflows/hunt.yml').read_text())
     assert set(workflow['jobs']) == {'hunt'}
+    assert 'schedule' not in workflow[True]
     assert workflow['permissions']['actions'] == 'write'
     assert workflow['jobs']['hunt']['outputs']['batch_complete']
     assert workflow['jobs']['hunt']['outputs']['dispatch_next']
@@ -324,6 +325,8 @@ def test_regular_hunt_does_not_delete_comments():
     assert '--batch-url "$HUNT_BATCH_URL"' in hunt_yaml
     assert 'actions/cache/save@v4' in hunt_yaml
     assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
+    assert 'ref: main' in hunt_yaml
+    assert '0 */2 * * *' not in hunt_yaml
     assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
     assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
     assert "delete-issue-comments" not in str(workflow)

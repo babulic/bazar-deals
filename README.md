@@ -2,7 +2,7 @@
 
 Hunter for **small, shippable, working goods** with a conservative resale valuation.
 
-Hunt purchase sources (a recovery trigger runs every two hours):
+Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 - `vinted.sk`
 - `aukro.sk`
@@ -16,7 +16,7 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted on every finished run (BUY cards, still-profitable near-misses, or a 0 BUY status). `@` ping only on BUY. Sell comments still require a `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** Scheduled Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per workflow run. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. The two-hour schedule recovers a chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
+**0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. There is no two-hour Hunt schedule; one manual dispatch bootstraps the continuous paging chain. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
@@ -236,7 +236,7 @@ price-book sample), not that every usable ad is a loss.
 GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
 The per-board `scored 0` dump is not on the issue; fetch counts stay under
 Zdroje. Zero funnel counters are omitted. `score_capped` is explained as the
-80-ad scoring limit (the hourly job cannot open thousands of detail pages).
+80-ad page limit (one run cannot open thousands of detail pages).
 `sold_lookup_cap` is **products** skipped by the live price-book budget, not
 extra ads — it must not be added to `no_sold_comps`. `detail_failed` can
 overlap later buckets. The compact `filter: usable=… scored=… buy=…` dump
