@@ -238,7 +238,7 @@ class SoldCompClient:
     def prepare_price_book(self, listings: list[Listing]) -> None:
         """Live-search cheapest hunt-target products before the scoring loop.
 
-        The 20–110 € hunt batch is a bargain bin. Spending the live query budget
+        The 15–130 € hunt batch is a bargain bin. Spending the live query budget
         on those SKUs first (not on whatever showed up first in round-robin)
         is what can still produce a P25 high enough for a 20 € net BUY.
         """
@@ -390,7 +390,7 @@ class SoldCompClient:
             self_key,
             source_title=listing.title,
         )
-        # Hunt fetch is capped at 20–110 €. P25×0.75 of that bargain bin is often
+        # Hunt fetch is capped at 15–130 €. P25×0.75 of that bargain bin is often
         # too low for a 20 € net BUY. Skip the live search only when the seed
         # sample already clears the floor for this listing.
         if self._seed_covers_buy(listing, seed_peers, min_n):
@@ -577,7 +577,7 @@ class SoldCompClient:
     def _market_hits(self, query: str) -> list[Listing]:
         """Live marketplace hits only. Hunt-batch ads are seed fallback, not mixed in.
 
-        Mixing the 20–110 € bargain bin into the live sample pulls P25 down so a
+        Mixing the 15–130 € bargain bin into the live sample pulls P25 down so a
         20 € net BUY becomes mathematically impossible.
         """
         if query in self._market_cache:

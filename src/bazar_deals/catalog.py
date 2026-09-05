@@ -78,7 +78,7 @@ def hunt_target_queries() -> tuple[str, ...]:
 
 
 def hunt_fetch_queries() -> tuple[str, ...]:
-    """Marketplace search phrases that can still sit in 20–110 € and clear 20 € net.
+    """Marketplace search phrases that can still sit in 15–130 € and clear 20 € net.
 
     Newest-dumps are full of clothing. BUY needs targeted SKU searches
     (iPhone SE, 1541, Switch Lite), not `commodore` pulling cassette games.

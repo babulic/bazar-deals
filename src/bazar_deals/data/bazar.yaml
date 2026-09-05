@@ -29,8 +29,8 @@ domain:
   default_currency: EUR
 
 hunt:
-  max_buy_eur: 110
-  min_buy_eur: 20
+  max_buy_eur: 130
+  min_buy_eur: 15
   # Packeta shoebox: 2 kg, longest edge 50 cm, L+W+H <= 120 cm (e.g. 50x40x30).
   max_weight_kg: 2
   max_edge_cm: 50
@@ -44,6 +44,9 @@ hunt:
   # This cap is expensive work (detail HTTP + live comps), not cache hits.
   # Ads without 5 comps do not consume it.
   max_score_listings: 80
+  # One persisted page per workflow run. In the worst case every listing has a
+  # distinct product query, so this must not exceed max_sold_lookups.
+  batch_page_size: 80
   # Names used to recognise a hunt-target ad (dump matching / scoring).
   # Marketplace search uses fetch_queries, not these bare keywords.
   target_queries:
@@ -75,7 +78,7 @@ hunt:
     - galenit
     - kindle
     - galaxy s21
-  # Marketplace search: high-turnover SKUs that still sit in 20–110 € and can
+  # Marketplace search: high-turnover SKUs that still sit in 15–130 € and can
   # clear 20 € net. EU refurbished volume is iPhone 11/12/13, then AirPods,
   # Apple Watch, Switch Lite, Galaxy S21/S22. Clothing is never searched.
   # Bare `commodore` / `c64` stay in target_queries only.

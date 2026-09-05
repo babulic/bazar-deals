@@ -108,16 +108,34 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
     tried = max(0, usable - capped) if usable else 0
     lines: list[str] = []
 
+    if run.batch_progress is not None:
+        progress = run.batch_progress
+        lines.append(
+            f"- Dávka {progress.batch_id[:8]}: strana {progress.page}/{progress.pages}, "
+            f"inzeráty {progress.start + 1}–{progress.end} z {progress.total}. "
+            f"Po úspešnej strane zostáva {progress.remaining}; nový fetch sa spustí "
+            "až po prejdení celej dávky."
+        )
+
     if usable:
-        if capped:
+        if capped and run.batch_progress is not None:
+            lines.append(
+                f"- Strana sa nedokončila: {tried} sa skúsilo a {capped} zostáva. "
+                "Offset sa neposunie a ďalší run zopakuje túto stranu."
+            )
+        elif capped:
             lines.append(
                 f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €). "
                 f"Ocenenie má limit {score_cap} za hunt, takže sa skúšalo {tried} "
-                f"a {capped} ostalo mimo — hodinovka nestihne otvárať tisíce stránok."
+                f"a {capped} ostalo mimo."
             )
         else:
             lines.append(
-                f"- {usable} použiteľných inzerátov (kúpiť hneď, {min_buy}–{max_buy} €)."
+                f"- Táto strana obsahuje {usable} použiteľných inzerátov "
+                f"(kúpiť hneď, {min_buy}–{max_buy} €)."
+                if run.batch_progress is not None
+                else f"- {usable} použiteľných inzerátov "
+                f"(kúpiť hneď, {min_buy}–{max_buy} €)."
             )
 
     scored_bits: list[str] = []
@@ -163,10 +181,16 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
         lines.append(f"- {prefix}{', '.join(scored_bits)}.")
 
     if n("sold_lookup_cap"):
-        lines.append(
-            f"- cenník vynechal {n('sold_lookup_cap')} produktov (limit live query, "
-            "to nie je počet inzerátov). Bez ceny to nie je strata."
-        )
+        if run.batch_progress is not None:
+            lines.append(
+                f"- Cenník narazil na limit pri {n('sold_lookup_cap')} produktoch. "
+                "Strana sa necheckpointne a ďalší run ju zopakuje s uloženými cenami."
+            )
+        else:
+            lines.append(
+                f"- cenník vynechal {n('sold_lookup_cap')} produktov (limit live query, "
+                "to nie je počet inzerátov). Bez ceny to nie je strata."
+            )
     if n("detail_failed"):
         lines.append(
             f"- {n('detail_failed')} stránok inzerátu sa nenačítalo. "

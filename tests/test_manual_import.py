@@ -316,16 +316,16 @@ def test_regular_hunt_does_not_delete_comments():
     from pathlib import Path
     import yaml
     workflow = yaml.safe_load(Path('.github/workflows/hunt.yml').read_text())
-    assert set(workflow['jobs']) == {'hunt', 'research'}
-    assert workflow['jobs']['research']['needs'] == 'hunt'
-    assert "needs.hunt.result == 'success'" in str(workflow['jobs']['research']['if'])
-    assert "always()" not in str(workflow['jobs']['research']['if'])
-    assert "buys == '0'" in str(workflow['jobs']['research']['if'])
-    assert "looped != '1'" in str(workflow['jobs']['research']['if'])
-    assert workflow['jobs']['hunt']['outputs']['looped']
-    assert '--research' in str(workflow['jobs']['research'])
+    assert set(workflow['jobs']) == {'hunt'}
+    assert workflow['permissions']['actions'] == 'write'
+    assert workflow['jobs']['hunt']['outputs']['batch_complete']
+    assert workflow['jobs']['hunt']['outputs']['dispatch_next']
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
-    assert 'hunt-listings' in hunt_yaml
+    assert '--batch-db .cache/bazar-hunt-batch.sqlite' in hunt_yaml
+    assert 'actions/cache/save@v4' in hunt_yaml
+    assert hunt_yaml.index('Save batch checkpoint before continuation') < hunt_yaml.index('Start the next page')
+    assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
+    assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
     assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
     assert "delete-issue-comments" not in str(workflow)
     assert '--source olx' in hunt_yaml
