@@ -260,7 +260,8 @@ class RemoteHuntBatchStore:
         )
 
     def status(self) -> BatchStatus | None:
-        return self._status(self._request("GET", "/api/hunt/status").json())
+        response = self._request("GET", "/api/hunt/status")
+        return self._status(response.json() if response.content else None)
 
     def needs_fetch(self) -> bool:
         status = self.status()
