@@ -311,15 +311,31 @@ class RemoteHuntBatchStore:
         )
 
     def advance(self, page: BatchPage) -> BatchStatus:
-        response = self._request(
-            "POST",
-            "/api/hunt/advance",
-            json={
-                "batch_id": page.batch_id,
-                "offset": page.offset,
-                "count": len(page.listings),
-            },
-        )
+        try:
+            response = self._request(
+                "POST",
+                "/api/hunt/advance",
+                json={
+                    "batch_id": page.batch_id,
+                    "offset": page.offset,
+                    "count": len(page.listings),
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            # A dispatch retry can reach the service after a previous runner
+            # already checkpointed this exact page. Treat that specific 409 as
+            # success only when the authoritative status proves the page is
+            # past its end; a conflicting batch or offset still fails closed.
+            if exc.response.status_code != 409:
+                raise
+            status = self.status()
+            if (
+                status is not None
+                and status.batch_id == page.batch_id
+                and status.next_offset >= page.end
+            ):
+                return status
+            raise RuntimeError("remote hunt checkpoint conflicts with current batch") from exc
         status = self._status(response.json())
         if status is None:
             raise RuntimeError("remote hunt store returned no checkpoint status")
