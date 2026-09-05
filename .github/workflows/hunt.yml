@@ -3,7 +3,7 @@ name: Hunt alerts
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 */2 * * *"
+    - cron: "0 */4 * * *"
   push:
     branches: [main]
 
@@ -128,8 +128,8 @@ jobs:
           COMPS_TTL_DAYS: "7"
           # First-pass scoring must finish and comment. A second in-process
           # score pass used to burn the job with nothing posted.
-          # A two-hour cadence gives the scorer enough room to inspect the full
-          # configured batch instead of stopping after roughly 12 costly rows.
+          # A four-hour cadence prevents the full first-pass plus research
+          # retry cycle from overlapping while retaining the full batch.
           COMPS_LIVE_QUERIES: "80"
           MAX_SCORE_LISTINGS: "80"
           HUNT_SCORE_SECONDS: "5400"
