@@ -285,6 +285,29 @@ def test_hunt_progress_explains_cap_and_query_units() -> None:
     assert "stiahnuté" not in body
 
 
+def test_hunt_progress_uses_runtime_price_bounds() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=3, under_min=1, over_cap=2),
+        source_stats={},
+        fetch_notes=["bazos: fetched 6"],
+    )
+    body = format_hunt_comment(
+        run,
+        mention="babulic",
+        min_profit=25,
+        min_buy=Decimal("17"),
+        max_buy=Decimal("140"),
+    )
+    assert "17–140 €" in body
+    assert "1 pod 17 €" in body
+    assert "2 nad 140 €" in body
+
+
 def test_hunt_progress_reports_persisted_batch_page_without_claiming_hourly_cap() -> None:
     from collections import Counter
 
@@ -313,7 +336,7 @@ def test_hunt_progress_reports_persisted_batch_page_without_claiming_hourly_cap(
     assert "limit 80 za hunt" not in body
 
 
-def test_alerts_are_buy_only_and_omit_losses() -> None:
+def test_alerts_put_buys_first_and_include_failed_candidates() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -342,7 +365,7 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
     selected = select_alert_deals(run.deals)
     assert selected[0].action is Action.BUY
     assert len(selected) <= 5
-    # Losses stay out: asking above usual with non-positive net profit.
+    # Failed candidates remain visible after BUY cards.
     loss_listing = _deal().item.listing.model_copy(
         update={"external_id": "loss-over", "url": "https://pc.bazos.sk/inzerat/loss-over/"}
     )
@@ -356,8 +379,9 @@ def test_alerts_are_buy_only_and_omit_losses() -> None:
         fetch_notes=["aukro: fetched 2"],
     )
     mixed_body = format_hunt_comment(mixed, mention="babulic", min_profit=30)
-    assert "https://pc.bazos.sk/inzerat/loss-over/" not in mixed_body
-    assert select_alert_deals(mixed.deals) == [buy]
+    assert "https://pc.bazos.sk/inzerat/loss-over/" in mixed_body
+    assert "- výsledok: NEPREŠIEL" in mixed_body
+    assert select_alert_deals(mixed.deals) == [buy, loss]
 
 
 def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
@@ -381,7 +405,7 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "najlepších stále ziskových inzerátov" in body
+    assert "Top 1 vyhodnotených kandidátov" in body
     assert "https://pc.bazos.sk/inzerat/near/" in body
     assert "**BUY: nie**" in body
     assert "- nákupná cena:" in body
@@ -436,14 +460,15 @@ def test_ai_rejected_typical_is_not_a_still_profitable_card() -> None:
         fetch_notes=["ebay.de: fetched 1"],
     )
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
-    assert select_alert_deals(run.deals) == []
-    assert "https://www.ebay.de/itm/287558443831" not in body
-    assert "104.25" not in body
-    assert "**BUY: nie**" not in body
+    assert select_alert_deals(run.deals) == [skip]
+    assert "https://www.ebay.de/itm/287558443831" in body
+    assert "104.25" in body
+    assert "**BUY: nie**" in body
+    assert "- výsledok: NEPREŠIEL" in body
     assert "AI zamietlo" in body
 
 
-def test_losing_hunts_post_status_without_cards() -> None:
+def test_losing_hunts_show_top_failed_card() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -464,10 +489,11 @@ def test_losing_hunts_post_status_without_cards() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Stratové a podprahové inzeráty sa neposielajú" in body
-    assert "https://pc.bazos.sk/inzerat/loss/" not in body
-    assert "**BUY:" not in body
-    assert select_alert_deals(run.deals) == []
+    assert "Top 1 vyhodnotených kandidátov" in body
+    assert "https://pc.bazos.sk/inzerat/loss/" in body
+    assert "**BUY: nie**" in body
+    assert "- výsledok: NEPREŠIEL" in body
+    assert select_alert_deals(run.deals) == [skip]
 
 
 def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:

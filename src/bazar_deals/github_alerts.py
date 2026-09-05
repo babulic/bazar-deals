@@ -6,7 +6,6 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Action, Deal
 from bazar_deals.notify import (
     format_github_deal,
-    is_ai_rejected,
     is_cheaper_than_usual,
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
@@ -26,31 +25,26 @@ def listing_key(deal: Deal) -> str:
 
 
 def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
-    """Top hunt cards: BUY first, then still-profitable ads under the 20 € floor.
+    """Top evaluated hunt candidates: BUY first, then every failed candidate.
 
-    A listing is still-profitable when expected net profit is > 0. Losses and
-    overpriced ads stay out. The BUY action itself still requires the 20 € floor.
+    Failed cards intentionally remain visible. The report must explain what the
+    scorer actually inspected, including losses and AI rejections, rather than
+    turning a 0-BUY page into a status-only alert with no listing links.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     buys = [deal for deal in deals if deal.action is Action.BUY]
-    near = [
-        deal
-        for deal in deals
-        if deal.action is not Action.BUY
-        and deal.costs.net_profit > 0
-        and not is_ai_rejected(deal)
-    ]
+    failed = [deal for deal in deals if deal.action is not Action.BUY]
     ranked_buys = sorted(
         buys,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    ranked_near = sorted(
-        near,
+    ranked_failed = sorted(
+        failed,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    return (ranked_buys + ranked_near)[:cap]
+    return (ranked_buys + ranked_failed)[:cap]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -69,8 +63,10 @@ def format_hunt_comment(
     *,
     mention: str,
     min_profit,
+    min_buy=None,
+    max_buy=None,
 ) -> str:
-    """Hunt report: BUY cards, then still-profitable ads under the 20 € floor."""
+    """Hunt report with the top evaluated candidates, whether they passed or not."""
     shown = select_alert_deals(run.deals)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
@@ -78,6 +74,8 @@ def format_hunt_comment(
     status = _format_status(
         run,
         min_profit=min_profit,
+        min_buy=min_buy,
+        max_buy=max_buy,
         buy_count=buy_count,
         shown=len(shown),
     )
@@ -96,13 +94,13 @@ def _funnel_n(run: HuntRun, key: str) -> int:
     return int(run.funnel.get(key, 0) or 0)
 
 
-def _format_progress(run: HuntRun, *, min_profit) -> str:
+def _format_progress(run: HuntRun, *, min_profit, min_buy=None, max_buy=None) -> str:
     """Slovak drop-off, only non-zero counts, with units so the numbers add up."""
     n = lambda key: _funnel_n(run, key)
     hunt = rules()["hunt"]
     score_cap = int(hunt.get("max_score_listings", 80))
-    min_buy = hunt.get("min_buy_eur", 20)
-    max_buy = hunt.get("max_buy_eur", 110)
+    min_buy = hunt.get("min_buy_eur", 20) if min_buy is None else min_buy
+    max_buy = hunt.get("max_buy_eur", 110) if max_buy is None else max_buy
     usable = n("usable")
     capped = n("score_capped")
     tried = max(0, usable - capped) if usable else 0
@@ -228,27 +226,27 @@ def _format_progress(run: HuntRun, *, min_profit) -> str:
 
 
 def _format_status(
-    run: HuntRun, *, min_profit, buy_count: int, shown: int
+    run: HuntRun,
+    *,
+    min_profit,
+    min_buy=None,
+    max_buy=None,
+    buy_count: int,
+    shown: int,
 ) -> str:
     notes = _status_notes(run)
     scored = _funnel_n(run, "scored")
     above = _funnel_n(run, "above_typical")
     if buy_count:
-        if shown > buy_count:
-            headline = (
-                f"**{buy_count} BUY áno** · {shown} kariet (BUY a stále ziskové pod prahom "
-                f"{min_profit} €) podľa očakávaného čistého zisku."
-            )
-        else:
-            headline = (
-                f"**{buy_count} BUY áno** · {shown} ziskových kariet podľa očakávaného čistého zisku "
-                f"(prah {min_profit} €)."
-            )
+        headline = (
+            f"**{buy_count} BUY áno** · Top {shown} vyhodnotených kandidátov "
+            f"(prešli aj neprešli), BUY prah {min_profit} € čistého zisku."
+        )
     elif shown:
         headline = (
-            f"**0 BUY áno** · prah {min_profit} € čistého zisku. Nižšie je {shown} "
-            "najlepších stále ziskových inzerátov (čistý zisk > 0, aj pod prahom) "
-            "s odkazom, nákupnou cenou a rozdielom od obvyklej."
+            f"**0 BUY áno** · Top {shown} vyhodnotených kandidátov (všetky neprešli), "
+            f"BUY prah {min_profit} € čistého zisku. Karty uvádzajú odkaz, ceny, "
+            "výsledok a dôvod zamietnutia."
         )
     elif scored == 0:
         if above:
@@ -271,7 +269,13 @@ def _format_status(
     return (
         f"{headline}\n\n"
         f"Zdroje:\n{notes}\n\n"
-        f"Priebeh:\n{_format_progress(run, min_profit=min_profit)}"
+        "Priebeh:\n"
+        + _format_progress(
+            run,
+            min_profit=min_profit,
+            min_buy=min_buy,
+            max_buy=max_buy,
+        )
     )
 
 
@@ -330,9 +334,9 @@ class GitHubIssueAlerts:
     def post_run(self, run: HuntRun) -> int:
         """Post the hunt report every finished run.
 
-        BUY cards and still-profitable near-misses are the cards. A 0 BUY hunt
-        still comments the Slovak status so issue #1 is never silent. The
-        assignee is pinged only when there is a BUY.
+        The top evaluated candidates are shown whether they passed or failed.
+        A 0 BUY hunt still comments the Slovak status so issue #1 is never
+        silent. The assignee is pinged only when there is a BUY.
         """
         self._require_auth()
         issue = self.ensure_issue()
@@ -340,6 +344,8 @@ class GitHubIssueAlerts:
             run,
             mention=self._assignee(),
             min_profit=self.settings.min_net_profit_eur,
+            min_buy=self.settings.min_buy_eur,
+            max_buy=self.settings.max_buy_eur,
         )
         self._request(
             "POST",

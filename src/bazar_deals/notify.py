@@ -85,6 +85,7 @@ def format_github_deal(deal: Deal) -> str:
     kind = _kind_label(item.kind)
     rows: list[tuple[str, str]] = [
         ("BUY", _buy_flag(deal)),
+        ("výsledok", "PREŠIEL — BUY" if deal.action is Action.BUY else "NEPREŠIEL"),
         ("titulok inzerátu", _md_link(title, url)),
         ("identifikovaný tovar", item.canonical_name or "—"),
         ("typ tovaru", kind),
