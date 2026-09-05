@@ -2,19 +2,23 @@ name: Hunt alerts
 
 on:
   workflow_dispatch:
+    inputs:
+      continuation:
+        description: Continue the persisted batch without waiting for the two-hour recovery schedule
+        type: boolean
+        default: false
   schedule:
     - cron: "0 */2 * * *"
-  push:
-    branches: [main]
 
 permissions:
+  actions: write
   contents: read
   issues: write
   copilot-requests: write
 
-# Do not cancel an in-progress hunt. Scoring stops at HUNT_SCORE_SECONDS so
-# --notify can comment issue #1 before the 110-minute job timeout. The
-# research job is the 0-BUY retry.
+# Every run owns one persisted page. A successful run saves its monotonic
+# SQLite offset before dispatching the next run. The two-hour schedule is a
+# recovery trigger if a dispatch is lost.
 concurrency:
   group: hunt-alerts
   cancel-in-progress: false
@@ -25,7 +29,8 @@ jobs:
     timeout-minutes: 110
     outputs:
       buys: ${{ steps.score.outputs.buys }}
-      looped: ${{ steps.score.outputs.looped }}
+      batch_complete: ${{ steps.score.outputs.batch_complete }}
+      dispatch_next: ${{ steps.score.outputs.dispatch_next }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -40,13 +45,13 @@ jobs:
             --description "Automatické hunt alerty" \
             --color D93F0B \
             --force
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .cache/bazar-comps-v2.sqlite
           key: sold-comps-fx-v3-${{ github.run_id }}
           restore-keys: |
             sold-comps-fx-v3-
-      - uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
           path: .cache/ecb-fx.json
           key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
@@ -59,31 +64,42 @@ jobs:
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
         run: python -c "from bazar_deals.soldcomps import SoldCompClient; SoldCompClient()"
+      - name: Check persisted hunt batch
+        id: batch
+        env:
+          HUNT_BATCH_URL: ${{ vars.EBAY_STORE_URL }}
+          HUNT_BATCH_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
+        run: python -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --batch-status
       - name: Fetch Bazos
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source bazos --fetch-only --listings-out .cache/hunt-bazos.json
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Fetch Aukro
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source aukro --fetch-only --listings-out .cache/hunt-aukro.json
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Fetch Vinted
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source vinted --fetch-only --listings-out .cache/hunt-vinted.json
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Fetch sbazar
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source sbazar --fetch-only --listings-out .cache/hunt-sbazar.json
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Fetch eBay
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source ebay --fetch-only --listings-out .cache/hunt-ebay.json
         env:
@@ -93,12 +109,14 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
       - name: Fetch Facebook
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source facebook --fetch-only --listings-out .cache/hunt-facebook.json
         env:
           PYTHONUNBUFFERED: "1"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Fetch OLX
+        if: steps.batch.outputs.needs_fetch == '1'
         continue-on-error: true
         run: python -u -m bazar_deals hunt --source olx --fetch-only --listings-out .cache/hunt-olx.json
         env:
@@ -106,17 +124,17 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Score, 0-BUY loop, and comment
         id: score
-        run: python -u -m bazar_deals hunt --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
+        run: python -u -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --batch-page-size 80 --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_ALERT_ISSUE: "1"
           GITHUB_ASSIGNEE: babulic
-          MAX_BUY_EUR: "110"
+          MAX_BUY_EUR: "130"
           EUR_CZK: ${{ vars.EUR_CZK }}
           EUR_PLN: ${{ vars.EUR_PLN }}
-          MIN_BUY_EUR: "20"
+          MIN_BUY_EUR: "15"
           MIN_NET_PROFIT_EUR: "20"
           MAX_SHIPPING_EUR: "15"
           CHEAP_BUY_EUR: "20"
@@ -126,13 +144,13 @@ jobs:
           NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
           COMPS_TTL_DAYS: "7"
-          # First-pass scoring must finish and comment. A second in-process
-          # score pass used to burn the job with nothing posted.
-          # A two-hour cadence gives the scorer enough room to inspect the full
-          # configured batch instead of stopping after roughly 12 costly rows.
+          # Page size and live-query budget match, so no product is skipped
+          # merely because a prior page exhausted this run's query allowance.
           COMPS_LIVE_QUERIES: "80"
           MAX_SCORE_LISTINGS: "80"
-          HUNT_SCORE_SECONDS: "5400"
+          HUNT_BATCH_URL: ${{ vars.EBAY_STORE_URL }}
+          HUNT_BATCH_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
+          HUNT_BATCH_PAGE_SIZE: "80"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
@@ -140,92 +158,32 @@ jobs:
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
-          # The last completed hunt produced 5 pre-AI BUY candidates and the
-          # research retry produced 8, but a limit of four failed the rest
-          # closed without review. Runtime is now bounded separately, so let
-          # every candidate in the 12-listing scoring budget reach the AI gate.
-          AI_MAX_REVIEWS: "12"
-          AI_MAX_IDENTIFICATIONS: "6"
+          # A page must not silently defer an otherwise eligible card because
+          # an independent AI counter was lower than the page size.
+          AI_MAX_REVIEWS: "80"
+          AI_MAX_IDENTIFICATIONS: "80"
           AI_TIMEOUT_SECONDS: "90"
           AI_REVIEW_TTL_DAYS: "14"
           AI_MIN_CONFIDENCE: "0.75"
-      - name: Keep first-hunt listings for the 0 BUY retry
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: hunt-listings
-          path: .cache/hunt-*.json
-          if-no-files-found: ignore
-          retention-days: 1
-
-  research:
-    needs: hunt
-    # Backup: the hunt job posts the first-pass report, then skips the
-    # in-process 0-BUY loop so it can finish before the job timeout.
-    # Do not start research after a failed hunt — that doubled the red X
-    # when Settings() rejected HUNT_SCORE_SECONDS=5400.
-    if: ${{ needs.hunt.result == 'success' && (needs.hunt.outputs.buys == '0' || needs.hunt.outputs.buys == '') && needs.hunt.outputs.looped != '1' }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 110
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: actions/cache@v4
+      - name: Save price book checkpoint
+        uses: actions/cache/save@v4
         with:
           path: .cache/bazar-comps-v2.sqlite
           key: sold-comps-fx-v3-${{ github.run_id }}
-          restore-keys: |
-            sold-comps-fx-v3-
-      - uses: actions/cache@v4
+      - name: Save FX checkpoint
+        uses: actions/cache/save@v4
         with:
           path: .cache/ecb-fx.json
           key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
-          restore-keys: |
-            ecb-fx-
-      - run: python -m pip install -e .
-      - name: Install Copilot CLI for final AI verification
-        run: npm install -g @github/copilot
-      - name: Reuse first-hunt listings
-        continue-on-error: true
-        uses: actions/download-artifact@v4
-        with:
-          name: hunt-listings
-          path: .cache
-      - name: Research retry after 0 BUY
-        run: python -u -m bazar_deals hunt --research --notify --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json
+      - name: Start the next page or fresh batch
+        if: steps.score.outputs.dispatch_next == '1'
         env:
-          PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_ALERT_ISSUE: "1"
-          GITHUB_ASSIGNEE: babulic
-          MAX_BUY_EUR: "110"
-          EUR_CZK: ${{ vars.EUR_CZK }}
-          EUR_PLN: ${{ vars.EUR_PLN }}
-          MIN_BUY_EUR: "20"
-          MIN_NET_PROFIT_EUR: "20"
-          MAX_SHIPPING_EUR: "15"
-          CHEAP_BUY_EUR: "20"
-          MAX_SHIPPING_CHEAP_EUR: "11"
-          RESALE_FEE_RATE: "0.10"
-          SELLER_RISK_RESERVE_RATE: "0.05"
-          NO_BOX_HAIRCUT_EUR: "5"
-          COMPS_DB: .cache/bazar-comps-v2.sqlite
-          COMPS_TTL_DAYS: "7"
-          COMPS_LIVE_QUERIES: "80"
-          MAX_SCORE_LISTINGS: "80"
-          HUNT_SCORE_SECONDS: "5400"
-          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
-          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
-          EBAY_RETENTION_ENABLED: "true"
-          AI_PROVIDER: copilot
-          COPILOT_MODEL: auto
-          AI_REVIEW_ENABLED: "true"
-          AI_REVIEW_REQUIRED: "true"
-          AI_MAX_REVIEWS: "12"
-          AI_MAX_IDENTIFICATIONS: "6"
-          AI_TIMEOUT_SECONDS: "90"
-          AI_REVIEW_TTL_DAYS: "14"
-          AI_MIN_CONFIDENCE: "0.75"
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/hunt.yml/dispatches" \
+            --data '{"ref":"main","inputs":{"continuation":"true"}}'

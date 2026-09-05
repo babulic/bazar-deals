@@ -10,7 +10,7 @@ https://46.102.157.230, https://46-102-157-230.sslip.io {
         }
     }
     request_body {
-        max_size 2MB
+        max_size 20MB
     }
     reverse_proxy store:8090
 }

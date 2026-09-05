@@ -1,7 +1,8 @@
 # Private eBay evaluation store
 
-The batch CLI remains the normal application. This optional service is the one
-retained eBay-data destination; it is not the Polymarket application.
+The batch CLI remains the normal application. This service is the retained
+eBay-data destination and the deletion-aware Hunt page queue; it is not the
+Polymarket application.
 
 ## Deployment scope
 
@@ -15,8 +16,10 @@ retained eBay-data destination; it is not the Polymarket application.
 - Caddy obtains a public short-lived IP certificate and renews it automatically.
   [Let's Encrypt IP certificates](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability.html).
 
-The production start/firewall change requires the owner's explicit approval.
-Preparing the files or validating Caddy is not a completed deployment.
+After tests pass on `main`, `deploy-ebay-store.yml` fast-forwards
+`/opt/bazar-deals`, rebuilds the Compose service, verifies HTTPS health and
+dispatches Hunt. It uses the pinned host key plus GitHub secrets
+`CONDENS_SSH_PRIVATE_KEY` and `CONDENS_SSH_USER`.
 
 ## Secrets and activation sequence
 
@@ -61,9 +64,9 @@ export data into local files or GitHub reports outside this deletion service.
   for at most one hour, and reject missing/invalid signatures. The SHA-1 signature
   algorithm matches [eBay's official SDK](https://github.com/eBay/event-notification-nodejs-sdk/blob/master/lib/constants.js).
 - Every new, verified account-deletion event deletes **all eBay snapshots**.
-  This conservative initial policy intentionally discards unrelated comparisons
-  too, avoiding partial deletion of aggregate/derived records. It does not touch
-  any other marketplace's data or the checked-in owner-provided stock catalog.
+  It also deletes the current Hunt queue because that encrypted batch can contain
+  eBay listings. The next Hunt run materializes a fresh batch. This conservative
+  policy avoids partial deletion of aggregate/derived records.
 - SQLite secure deletion, rollback-journal mode and VACUUM remove payloads from
   application-managed storage. Only keyed hashes of deleted identities/event IDs
   remain, to reject re-imports and repeated deliveries. In-flight batches are
@@ -77,6 +80,14 @@ The dashboard distinguishes active stock comparisons, unreviewed purchase
 candidates and actual want-to-buy titles. An active listing is neither a sold
 price nor a confirmed buyer; requesting `deliveryCountry:SK` alone does not turn
 a candidate into an approved BUY.
+
+## Hunt page queue
+
+The authenticated `/api/hunt/*` endpoints keep one encrypted batch and a
+monotonic offset. A workflow run reads at most 80 listings, posts its report and
+advances only with the matching batch ID and offset. Stale or concurrent advances
+return conflict. The next run starts immediately; marketplace fetch repeats only
+after the previous batch is exhausted.
 
 ## Rollback
 

@@ -277,12 +277,40 @@ def test_hunt_progress_explains_cap_and_query_units() -> None:
     assert "to nie je počet inzerátov" in body
     assert "24 stránok inzerátu sa nenačítalo" in body
     assert "nesčíta sa to na limit" in body
-    assert "320 pod 20 €" in body
+    assert "320 pod 15 €" in body
     assert "4 rozmerné" in body
     assert "5 ťažké" in body
     assert "bazos: fetched 2000" in body
     assert "Marketplace:" not in body
     assert "stiahnuté" not in body
+
+
+def test_hunt_progress_reports_persisted_batch_page_without_claiming_hourly_cap() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import BatchProgress, HuntRun
+
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(usable=80, no_sold_comps=5),
+        source_stats={},
+        fetch_notes=["loaded 80 cached listing(s)"],
+        batch_progress=BatchProgress(
+            batch_id="12345678abcdef",
+            page=2,
+            pages=29,
+            start=80,
+            end=160,
+            total=2315,
+        ),
+    )
+    body = format_hunt_comment(run, mention="babulic", min_profit=20)
+    assert "strana 2/29" in body
+    assert "inzeráty 81–160 z 2315" in body
+    assert "zostáva 2155" in body
+    assert "nový fetch" in body
+    assert "hodinovka" not in body
+    assert "limit 80 za hunt" not in body
 
 
 def test_alerts_are_buy_only_and_omit_losses() -> None:

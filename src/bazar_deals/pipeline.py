@@ -96,6 +96,23 @@ class HuntRun:
     fetch_notes: list[str] = field(default_factory=list)
     listings: list[Listing] = field(default_factory=list)
     price_book_misses: list[PriceBookMiss] = field(default_factory=list)
+    batch_progress: BatchProgress | None = None
+
+
+@dataclass(frozen=True)
+class BatchProgress:
+    """Stable position of this scoring page in a persisted hunt batch."""
+
+    batch_id: str
+    page: int
+    pages: int
+    start: int
+    end: int
+    total: int
+
+    @property
+    def remaining(self) -> int:
+        return max(0, self.total - self.end)
 
 
 def hunt(
@@ -205,46 +222,8 @@ def score_listings(
         else None
     )
     cap = settings.max_buy_eur
-    floor = settings.min_buy_eur
     enrichers = enrichers or {}
-    funnel: Counter[str] = Counter()
-    source_stats: dict[Marketplace, Counter[str]] = defaultdict(Counter)
-    funnel["fetched"] = len(listings)
-    converted = []
-    for listing in listings:
-        try:
-            converted.append(_to_eur(listing, settings.eur_czk, settings.eur_pln))
-        except ValueError:
-            funnel["invalid_price"] += 1
-            source_stats[listing.marketplace]["fetched"] += 1
-    usable: list[Listing] = []
-    for listing in converted:
-        source_stats[listing.marketplace]["fetched"] += 1
-        if not listing.is_immediate_buy():
-            funnel["not_buy_now"] += 1
-            continue
-        if listing.price.amount <= 0:
-            funnel["invalid_price"] += 1
-            continue
-        if not listing.purchase_allowed(require_confirmation=listing.marketplace is Marketplace.EBAY):
-            funnel["no_sk_delivery"] += 1
-            continue
-        if listing.price.amount < floor:
-            funnel["under_min"] += 1
-            continue
-        if listing.price.amount > cap:
-            funnel["over_cap"] += 1
-            continue
-        if not is_working_listing(listing):
-            funnel["damaged"] += 1
-            continue
-        dropped = reject_physical(f"{listing.title} {listing.description}")
-        if dropped:
-            funnel[dropped] += 1
-            continue
-        usable.append(listing)
-        source_stats[listing.marketplace]["usable"] += 1
-    funnel["usable"] = len(usable)
+    usable, converted, funnel, source_stats = filter_usable_listings(listings, settings)
     seeder = getattr(sold, "seed_asking", None)
     if callable(seeder):
         seeder(converted)
@@ -254,51 +233,11 @@ def score_listings(
         emit(f"price book: preparing hunt-target products from {len(usable)} usable ads")
         preparer(usable)
 
-    # Round-robin by marketplace, cheapest first within each board. Cached
-    # overpriced ads do not consume the 80 valuation slots. Unconfirmed SK
-    # (sbazar catalog) stays last. BUY-candidate cache hits (net >= 20 €) go
-    # first so the cap is not 69 live misses and four below-floor ads.
-    ready: list[Listing] = []
-    pending_sk: list[Listing] = []
-    for listing in usable:
-        if listing.marketplace.value in SITES and listing.ships_to_slovakia is not True:
-            pending_sk.append(listing)
-        else:
-            ready.append(listing)
-    peeker = getattr(sold, "cached_typical", None)
-    min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
-    buy_hits: list[Listing] = []
-    target_hits: list[Listing] = []
-    rest: list[Listing] = []
-    overpriced: list[Listing] = []
-    for item in ready:
-        bucket = _buy_likelihood_bucket(
-            item, peeker=peeker, settings=settings, min_conf=min_conf
-        )
-        if bucket == 0:
-            buy_hits.append(item)
-        elif bucket == 4:
-            overpriced.append(item)
-        else:
-            identified = identify(item)
-            if matches_hunt_target(listing_text(item)) and is_high_yield_kind(
-                identified.kind, listing_text(item)
-            ):
-                target_hits.append(item)
-            else:
-                rest.append(item)
-    queue = (
-        _round_robin_listings(buy_hits)
-        + _round_robin_listings(target_hits)
-        + _round_robin_listings(rest)
-        + _round_robin_listings(overpriced)
-        + pending_sk
-    )
-    # Live detail pages are the other bounded network budget in addition to
-    # price-book queries. Keep it configurable so the scheduled two-pass hunt
-    # can finish and publish a report before the runner deadline. Target and
-    # cached BUY candidates are ordered first above, so a smaller cap retains
-    # the highest-yield work. Cached no-detail valuations do not consume it.
+    queue = order_score_queue(usable, settings, sold)
+
+    # Cached overpriced ads do not consume valuation slots. Live detail pages
+    # and price lookups are bounded by the persisted page size in scheduled runs.
+    # Local one-shot hunts keep the configured fallback cap.
     if settings.max_score_listings is None:
         score_cap = int(rules()["hunt"].get("max_score_listings", 80))
         if hunt_research_only():
@@ -494,6 +433,109 @@ def score_listings(
         listings=list(listings),
         price_book_misses=list(getattr(sold, "misses", []) or []),
     )
+
+
+def filter_usable_listings(
+    listings: list[Listing],
+    settings: Settings,
+) -> tuple[
+    list[Listing],
+    list[Listing],
+    Counter[str],
+    dict[Marketplace, Counter[str]],
+]:
+    """Apply the deterministic pre-valuation gates used to materialize a batch."""
+
+    cap = settings.max_buy_eur
+    floor = settings.min_buy_eur
+    funnel: Counter[str] = Counter()
+    source_stats: dict[Marketplace, Counter[str]] = defaultdict(Counter)
+    funnel["fetched"] = len(listings)
+    converted: list[Listing] = []
+    for listing in listings:
+        try:
+            converted.append(_to_eur(listing, settings.eur_czk, settings.eur_pln))
+        except ValueError:
+            funnel["invalid_price"] += 1
+            source_stats[listing.marketplace]["fetched"] += 1
+    usable: list[Listing] = []
+    for listing in converted:
+        source_stats[listing.marketplace]["fetched"] += 1
+        if not listing.is_immediate_buy():
+            funnel["not_buy_now"] += 1
+            continue
+        if listing.price.amount <= 0:
+            funnel["invalid_price"] += 1
+            continue
+        if not listing.purchase_allowed(require_confirmation=listing.marketplace is Marketplace.EBAY):
+            funnel["no_sk_delivery"] += 1
+            continue
+        if listing.price.amount < floor:
+            funnel["under_min"] += 1
+            continue
+        if listing.price.amount > cap:
+            funnel["over_cap"] += 1
+            continue
+        if not is_working_listing(listing):
+            funnel["damaged"] += 1
+            continue
+        dropped = reject_physical(f"{listing.title} {listing.description}")
+        if dropped:
+            funnel[dropped] += 1
+            continue
+        usable.append(listing)
+        source_stats[listing.marketplace]["usable"] += 1
+    funnel["usable"] = len(usable)
+    return usable, converted, funnel, source_stats
+
+
+def order_score_queue(
+    usable: list[Listing],
+    settings: Settings,
+    sold: SoldCompClient,
+) -> list[Listing]:
+    """Build the stable, highest-yield-first order persisted across page runs."""
+
+    # Round-robin by marketplace, cheapest first within each board. Cached
+    # overpriced ads go last and unconfirmed central-European delivery stays
+    # behind listings whose Slovak delivery is already known.
+    ready: list[Listing] = []
+    pending_sk: list[Listing] = []
+    for listing in usable:
+        if listing.marketplace.value in SITES and listing.ships_to_slovakia is not True:
+            pending_sk.append(listing)
+        else:
+            ready.append(listing)
+    peeker = getattr(sold, "cached_typical", None)
+    min_conf = float(rules()["identity"]["confidence"]["min_to_hunt"])
+    buy_hits: list[Listing] = []
+    target_hits: list[Listing] = []
+    rest: list[Listing] = []
+    overpriced: list[Listing] = []
+    for item in ready:
+        bucket = _buy_likelihood_bucket(
+            item, peeker=peeker, settings=settings, min_conf=min_conf
+        )
+        if bucket == 0:
+            buy_hits.append(item)
+        elif bucket == 4:
+            overpriced.append(item)
+        else:
+            identified = identify(item)
+            if matches_hunt_target(listing_text(item)) and is_high_yield_kind(
+                identified.kind, listing_text(item)
+            ):
+                target_hits.append(item)
+            else:
+                rest.append(item)
+    queue = (
+        _round_robin_listings(buy_hits)
+        + _round_robin_listings(target_hits)
+        + _round_robin_listings(rest)
+        + _round_robin_listings(overpriced)
+        + pending_sk
+    )
+    return queue
 
 
 def _rescue_identity(

@@ -16,8 +16,17 @@ from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
+from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore
 from bazar_deals.notify import format_deal
-from bazar_deals.pipeline import hunt_sources, is_alert_noise, score_listings
+from bazar_deals.pipeline import (
+    BatchProgress,
+    HuntRun,
+    filter_usable_listings,
+    hunt_sources,
+    is_alert_noise,
+    order_score_queue,
+    score_listings,
+)
 from bazar_deals.progress import emit
 from bazar_deals.research import (
     enable_hunt_research,
@@ -115,6 +124,27 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="This pass is the 0-hit retry (expand SKUs/queries). Hunt and sell also loop in-process; GHA uses this flag as backup.",
     )
+    parser.add_argument(
+        "--batch-db",
+        default=None,
+        help="Persist and resume a stable hunt listing batch in this SQLite file.",
+    )
+    parser.add_argument(
+        "--batch-url",
+        default=None,
+        help="Persist and resume the batch in the deletion-aware HTTPS store.",
+    )
+    parser.add_argument(
+        "--batch-page-size",
+        type=int,
+        default=None,
+        help="Usable listings scored per persisted batch page (maximum 80).",
+    )
+    parser.add_argument(
+        "--batch-status",
+        action="store_true",
+        help="Print whether a persisted hunt batch needs a fresh marketplace fetch.",
+    )
     args = parser.parse_args(argv)
     if args.research:
         enable_hunt_research()
@@ -133,6 +163,25 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     settings = Settings()
+    if args.batch_status:
+        if args.command != "hunt" or not (args.batch_db or args.batch_url):
+            parser.error("--batch-status requires hunt --batch-db or --batch-url")
+        store = (
+            RemoteHuntBatchStore(args.batch_url, settings.hunt_batch_token)
+            if args.batch_url
+            else HuntBatchStore(args.batch_db)
+        )
+        status = store.status()
+        needs_fetch = status is None or not status.pending
+        payload = {
+            "needs_fetch": needs_fetch,
+            "batch_id": status.batch_id if status else "",
+            "next_offset": status.next_offset if status else 0,
+            "total": status.total if status else 0,
+        }
+        print(json.dumps(payload))
+        write_github_output(needs_fetch=int(needs_fetch))
+        return 0
     fx_notes: list[str] = []
     if (args.command == "hunt" and not args.fetch_only) or args.refresh or args.buyers:
         settings, fx_notes = prepare_exchange_rates(settings, offline=args.offline)
@@ -213,19 +262,41 @@ def main(argv: list[str] | None = None) -> int:
 
     vertical = Vertical(args.vertical) if args.vertical else None
     sold = SoldCompClient(settings, fixture_path=SOLD_FIXTURE) if args.offline else SoldCompClient(settings)
-    if args.listings_in or args.manual_in:
+    batch_store = (
+        RemoteHuntBatchStore(args.batch_url, settings.hunt_batch_token)
+        if args.batch_url
+        else HuntBatchStore(args.batch_db)
+        if args.batch_db
+        else None
+    )
+    batch_page: BatchPage | None = None
+    new_batch_funnel = None
+    batch_pending = bool(batch_store and not batch_store.needs_fetch())
+    if args.listings_in or args.manual_in or batch_pending:
         listings: list[Listing] = list(manual)
         cached_notes: list[str] = []
-        for path in args.listings_in:
-            loaded = _load_listings(Path(path))
-            emit(f"loaded {len(loaded)} listing(s) from {path}")
-            listings.extend(loaded)
-            note_path = Path(path).with_suffix(".notes.json")
-            if note_path.is_file():
-                cached_notes.extend(json.loads(note_path.read_text(encoding="utf-8")))
         sources = _sources("all", settings, fixture=None if not args.offline else FIXTURE)
         enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
-        if args.research and not args.offline:
+        if batch_pending:
+            assert batch_store is not None
+            batch_page = batch_store.current_page()
+            if batch_page is None:
+                raise RuntimeError("pending hunt batch has no current page")
+            listings = list(batch_page.listings)
+            cached_notes = list(batch_page.fetch_notes)
+            emit(
+                f"resuming hunt batch {batch_page.batch_id[:8]} "
+                f"page {batch_page.page}/{batch_page.pages}"
+            )
+        else:
+            for path in args.listings_in:
+                loaded = _load_listings(Path(path))
+                emit(f"loaded {len(loaded)} listing(s) from {path}")
+                listings.extend(loaded)
+                note_path = Path(path).with_suffix(".notes.json")
+                if note_path.is_file():
+                    cached_notes.extend(json.loads(note_path.read_text(encoding="utf-8")))
+        if args.research and not args.offline and batch_store is None:
             extra = hunt_sources(
                 sources,
                 vertical=vertical,
@@ -236,16 +307,58 @@ def main(argv: list[str] | None = None) -> int:
             listings = _merge_listings(listings, extra.listings)
             cached_notes.extend(extra.fetch_notes)
             emit(f"research fetch merged to {len(listings)} listing(s)")
+        listings = _merge_listings(listings)
+        if batch_store is not None and batch_page is None:
+            page_size = args.batch_page_size or settings.hunt_batch_page_size
+            if not 1 <= page_size <= settings.comps_live_queries:
+                parser.error(
+                    "--batch-page-size must be between 1 and COMPS_LIVE_QUERIES "
+                    "so every page can request a price"
+                )
+            usable, _converted, new_batch_funnel, _source_stats = filter_usable_listings(
+                listings, settings
+            )
+            ordered = order_score_queue(usable, settings, sold)
+            status = batch_store.replace(
+                ordered,
+                page_size=page_size,
+                fetch_notes=cached_notes,
+            )
+            emit(
+                f"created hunt batch {status.batch_id[:8]} with "
+                f"{status.total} usable listing(s)"
+            )
+            batch_page = batch_store.current_page()
+            if batch_page is not None:
+                listings = list(batch_page.listings)
+            else:
+                run = HuntRun(
+                    deals=[],
+                    funnel=new_batch_funnel,
+                    source_stats={},
+                    fetch_notes=cached_notes,
+                    listings=[],
+                )
         emit(f"scoring {len(listings)} cached listing(s)")
-        run = score_listings(listings, settings, sold, enrichers=enrichers)
-        run.listings = listings
-        sold_notes = [
-            note for note in (getattr(sold, "notes", []) or []) if not is_alert_noise(note)
-        ]
-        run.fetch_notes = [
-            f"loaded {len(listings)} cached listing(s)",
-            *(note for note in cached_notes if not is_alert_noise(note)),
-        ] + sold_notes
+        if batch_page is not None or batch_store is None:
+            run = score_listings(listings, settings, sold, enrichers=enrichers)
+            run.listings = listings
+            sold_notes = [
+                note for note in (getattr(sold, "notes", []) or []) if not is_alert_noise(note)
+            ]
+            run.fetch_notes = [
+                f"loaded {len(listings)} cached listing(s)",
+                *(note for note in cached_notes if not is_alert_noise(note)),
+            ] + sold_notes
+            if batch_page is not None:
+                run.batch_progress = BatchProgress(
+                    batch_id=batch_page.batch_id,
+                    page=batch_page.page,
+                    pages=batch_page.pages,
+                    start=batch_page.offset,
+                    end=batch_page.end,
+                    total=batch_page.total,
+                )
     else:
         sources = _sources(args.source, settings, fixture=FIXTURE if args.offline else None)
         enrichers = {} if args.offline else {Marketplace(source.marketplace): source for source in sources}
@@ -273,7 +386,7 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     looped = 0
-    if should_research_loop(
+    if batch_store is None and should_research_loop(
         buy_count=len(buys),
         already_research=bool(args.research),
         offline=bool(args.offline),
@@ -305,16 +418,42 @@ def main(argv: list[str] | None = None) -> int:
                 print(exc)
                 return 2
             print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
-    elif should_research_loop(
+    elif batch_store is None and should_research_loop(
         buy_count=len(buys),
         already_research=bool(args.research),
         offline=bool(args.offline),
     ):
         emit("0 BUY — GHA research job retries; first-pass report already posted")
+    batch_complete = 0
+    dispatch_next = 0
+    if batch_store is not None and batch_page is not None:
+        incomplete_page = bool(
+            int(run.funnel.get("score_capped", 0) or 0)
+            or int(run.funnel.get("sold_lookup_cap", 0) or 0)
+        )
+        if incomplete_page:
+            status = batch_store.status()
+            assert status is not None
+            emit(
+                f"hunt batch page {batch_page.page}/{batch_page.pages} incomplete; "
+                "checkpoint unchanged for retry"
+            )
+        else:
+            status = batch_store.advance(batch_page)
+            batch_complete = int(not status.pending)
+            emit(
+                f"checkpointed hunt batch {status.batch_id[:8]} at "
+                f"{status.next_offset}/{status.total}"
+            )
+        # Continue immediately. A completed batch starts a fresh fetch in the
+        # next run; a pending or incomplete batch resumes its persisted page.
+        dispatch_next = 1
     write_github_output(
         buys=len(buys),
         research=int(bool(args.research) or looped),
         looped=looped,
+        batch_complete=batch_complete,
+        dispatch_next=dispatch_next,
     )
     write_run_summary(
         Path(".cache/bazar-hunt-run.json"),
@@ -325,6 +464,8 @@ def main(argv: list[str] | None = None) -> int:
             "no_sold_comps": int(run.funnel.get("no_sold_comps", 0)),
             "research": bool(args.research) or bool(looped),
             "looped": bool(looped),
+            "batch_complete": bool(batch_complete),
+            "dispatch_next": bool(dispatch_next),
             "hint": hunt_research_hint(run.funnel) if not buys else "",
         },
     )

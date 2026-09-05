@@ -18,8 +18,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "alpine loop" not in data["identity"]["kind_markers"]["accessories"]
     assert "airpods" in data["identity"]["kind_markers"]["hardware"]
     assert data["domain"]["item_kinds"][-1] == "generic"
-    assert data["hunt"]["max_buy_eur"] == 110
-    assert data["hunt"]["min_buy_eur"] == 20
+    assert data["hunt"]["max_buy_eur"] == 130
+    assert data["hunt"]["min_buy_eur"] == 15
     assert data["hunt"]["max_weight_kg"] == 2
     assert data["hunt"]["max_edge_cm"] == 50
     assert data["hunt"]["max_sum_cm"] == 120
@@ -41,6 +41,7 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "cz" in data["catalog"]["bazos_rss"]
     assert Settings().comps_live_queries == 80
     assert data["hunt"]["max_score_listings"] == 80
+    assert Settings().hunt_batch_page_size == 80
     assert Settings().copilot_model == "auto"
     assert "phones" in data["domain"]["item_kinds"]
     assert "clothing" in data["domain"]["item_kinds"]

@@ -30,7 +30,7 @@ def hunt_ebay_marketplace_ids() -> tuple[str, ...]:
 
 
 def is_hunt_ebay_url(url: object) -> bool:
-    """True for the German and Austrian storefronts the hourly hunt is allowed to buy from."""
+    """True for the German and Austrian storefronts the scheduled hunt may buy from."""
     host = (urlparse(str(url)).hostname or "").casefold()
     return any(host == item or host.endswith("." + item) for item in _HUNT_HOSTS)
 

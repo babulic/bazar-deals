@@ -2,7 +2,7 @@
 
 Hunter for **small, shippable, working goods** with a conservative resale valuation.
 
-Hourly hunt purchase sources:
+Hunt purchase sources (a recovery trigger runs every two hours):
 
 - `vinted.sk`
 - `aukro.sk`
@@ -16,16 +16,16 @@ Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
 Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted on every finished run (BUY cards, still-profitable near-misses, or a 0 BUY status). `@` ping only on BUY. Sell comments still require a `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** The hunt posts the first-pass report immediately, then stops scoring at `HUNT_SCORE_SECONDS` so the GitHub Actions 110-minute job cannot die before `--notify`. A second in-process score used to burn that budget so **issue #1 stayed empty**; scheduled hunts now skip that second pass and let the `research` job retry. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 20–110 € buy, 2 kg, shoebox). The loop exists to get **>0 BUY and >0 sell**, not to tighten filters. A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
+**0 BUY or 0 sell is a miss, not a quiet success.** Scheduled Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per workflow run. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. The two-hour schedule recovers a chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
 Price-book gaps trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
-Live comps are searched **up to 3× max buy** (not only the 20–110 € hunt window).
+Live comps are searched **up to 3× max buy** (not only the 15–130 € hunt window).
 The hunt batch is a fallback when that live sample already clears a 20 € net BUY,
 or when live search finds fewer than 5 similar ads. Mixing the bargain-bin batch
-into the live P25 is skipped, because P25×0.75 of 20–110 € ads is often too low
+into the live P25 is skipped, because P25×0.75 of 15–130 € ads is often too low
 for a 20 € floor. Scoring spends its configured cap on detail HTTP and live lookups,
 not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 20 €)
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
@@ -47,7 +47,7 @@ A listing becomes **BUY only when expected conservative net profit is at least 2
 ```text
 newest buy-now listing
     ↓
-small + working + shoebox (max 2 kg, longest edge 50 cm, L+W+H ≤ 120 cm, e.g. 50×40×30) + purchase 20–110 EUR
+small + working + shoebox (max 2 kg, longest edge 50 cm, L+W+H ≤ 120 cm, e.g. 50×40×30) + purchase 15–130 EUR
     ↓
 identify the product from the whole ad, not the headline
 (title + body + marketplace fields; AI names what the rules cannot)
@@ -73,7 +73,7 @@ BUY only if expected net profit >= 20 EUR
 
 ## What is searched
 
-The hunt looks for **small, working, high-turnover goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **20–110 EUR**. Assortment is phones (especially iPhone 11/12/13), AirPods, Apple Watch, Switch Lite, Galaxy S21/S22, headphones, GoPro, Kindle, and identifiable hardware (1541, C64 computer). **Clothing is out.**
+The hunt looks for **small, working, high-turnover goods that fit a shoebox (longest edge 50 cm, sum of sides ≤ 120 cm) and weigh at most 2 kg**, priced **15–130 EUR**. Assortment is phones (especially iPhone 11/12/13), AirPods, Apple Watch, Switch Lite, Galaxy S21/S22, headphones, GoPro, Kindle, and identifiable hardware (1541, C64 computer). **Clothing is out.**
 
 - **Bazoš** SK and CZ: `fetch_queries` first, then RSS rubrics Počítače, Mobily, Elektro, Foto, Hudba, Ostatné, Dom a záhrada. Oblečenie, knihy, šport and deti are not fetched.
 - **Aukro** search uses the same SKU phrases. Fallback categories are phones, wearables, photo, consoles, retro PCs, tablets, minerals and tools — not clothing, bags, perfume, vinyl or toys. **Christmas lights** are dropped; headlamps stay in.
@@ -120,7 +120,7 @@ The price-book budget (`hunt.max_sold_lookups`, default 80) counts **unique
 normalized product queries**, not listings. Before scoring, the hunt live-searches
 the cheapest hunt-target products (iPhone 13 128GB, not "canon") so the budget
 is not spent on whatever showed up first. Live hits (Bazos/Aukro/Vinted/eBay,
-prices up to 3× max buy) are the market sample. The current 20–110 € batch is
+prices up to 3× max buy) are the market sample. The current 15–130 € batch is
 only used when that live sample already clears a 20 € net BUY for the listing,
 or when live search finds fewer than 5 similar ads. Ten ads for the same iPhone
 13 128GB still cost one price-book write. `128 GB` and `128GB` match as the same
@@ -154,7 +154,7 @@ to make a deal pass.
 For BUY decisions:
 
 1. Comparable items must match price-critical specifications **and the same commercial object**. A 64 GB phone is not priced from 256 GB peers; a C64 cassette/game is not priced from a C64 computer; a watch strap is not priced from a watch. `GENERIC` is unknown identity, not a wildcard that can inherit hardware prices. Media search queries drop the host platform (`commodore` / `64` / `128`) so the price book does not retrieve computers.
-2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 20–110 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If five same-object peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card.
+2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 15–130 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If five same-object peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card.
 3. That P25×0.75 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 5 similar ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
@@ -188,7 +188,7 @@ Discovered comparable prices live in:
 
 Tables `sold_queries` (product query → P25×0.75, sample size, source, fetched_at)
 and `sold_listings` (the peer ads behind that row). GitHub Actions restores and
-saves this file with `actions/cache`, so the next hourly hunt starts from the
+saves this file with `actions/cache`, so the next Hunt page starts from the
 prices already found. `COMPS_TTL_DAYS` (default 7) is the reuse window.
 
 The v2 file intentionally does not reuse the older median cache.
@@ -477,7 +477,7 @@ treating it as net proceeds. Use actual payment-provider costs to tune this esti
 Scheduled hunts buy from Bazos, Aukro, Vinted and Sbazar. Sbazar catalog ads
 without SK delivery are scored last so they cannot fill the 80-ad cap; BUY
 still needs confirmed SK delivery after the detail page. Facebook, OLX and
-Allegro are manual-import / sell-side only — the hourly hunt does not probe
+Allegro are manual-import / sell-side only — the scheduled hunt does not probe
 them, and those `LOGIN_REQUIRED` / `ACCESS_NOT_GRANTED` banners do not go on
 the Deal alerts issue. Price-book reuse keys and live-query budget messages
 stay in the job log, not in the GitHub comment.

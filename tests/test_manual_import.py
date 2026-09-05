@@ -316,21 +316,25 @@ def test_regular_hunt_does_not_delete_comments():
     from pathlib import Path
     import yaml
     workflow = yaml.safe_load(Path('.github/workflows/hunt.yml').read_text())
-    assert set(workflow['jobs']) == {'hunt', 'research'}
-    assert workflow['jobs']['research']['needs'] == 'hunt'
-    assert "needs.hunt.result == 'success'" in str(workflow['jobs']['research']['if'])
-    assert "always()" not in str(workflow['jobs']['research']['if'])
-    assert "buys == '0'" in str(workflow['jobs']['research']['if'])
-    assert "looped != '1'" in str(workflow['jobs']['research']['if'])
-    assert workflow['jobs']['hunt']['outputs']['looped']
-    assert '--research' in str(workflow['jobs']['research'])
+    assert set(workflow['jobs']) == {'hunt'}
+    assert workflow['permissions']['actions'] == 'write'
+    assert workflow['jobs']['hunt']['outputs']['batch_complete']
+    assert workflow['jobs']['hunt']['outputs']['dispatch_next']
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
-    assert 'hunt-listings' in hunt_yaml
+    assert '--batch-url "$HUNT_BATCH_URL"' in hunt_yaml
+    assert 'actions/cache/save@v4' in hunt_yaml
+    assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
+    assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
     assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
     assert "delete-issue-comments" not in str(workflow)
     assert '--source olx' in hunt_yaml
     assert 'hunt-olx.json' in hunt_yaml
     assert '--source ebay' in hunt_yaml
+    deploy_yaml = Path('.github/workflows/deploy-ebay-store.yml').read_text()
+    assert 'CONDENS_SSH_PRIVATE_KEY' in deploy_yaml
+    assert 'git pull --ff-only origin main' in deploy_yaml
+    assert 'docker compose -f deploy/ebay-store/compose.yml up -d --build' in deploy_yaml
+    assert 'https://46-102-157-230.sslip.io/health' in deploy_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])
