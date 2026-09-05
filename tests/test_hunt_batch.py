@@ -9,7 +9,7 @@ import httpx
 from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money
-from bazar_deals.hunt_batch import HuntBatchStore, RemoteHuntBatchStore
+from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore
 from bazar_deals.pipeline import HuntRun, filter_usable_listings
 
 
@@ -280,4 +280,31 @@ def test_remote_store_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert page is not None
     assert page.listings[0].external_id == "1"
     assert page.fetch_notes == ["bazos: fetched 1"]
+    assert not store.advance(page).pending
+
+
+def test_remote_advance_accepts_an_already_checkpointed_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    state = {"batch_id": "a" * 32, "offset": 1}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/hunt/status":
+            return httpx.Response(
+                200,
+                json={"batch_id": state["batch_id"], "next_offset": 1, "total": 1, "page_size": 1},
+            )
+        if request.url.path == "/api/hunt/advance":
+            return httpx.Response(409)
+        raise AssertionError(request.url.path)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        "bazar_deals.hunt_batch.httpx.request",
+        lambda method, url, **kwargs: client.request(method, url, **kwargs),
+    )
+    store = RemoteHuntBatchStore("https://store.example", "secret")
+    # Build the page directly because the service has already advanced it.
+    page = BatchPage(
+        batch_id=state["batch_id"], offset=0, total=1, page_size=1,
+        listings=[listing(1)], fetch_notes=[],
+    )
     assert not store.advance(page).pending
