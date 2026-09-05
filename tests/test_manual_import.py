@@ -332,8 +332,11 @@ def test_regular_hunt_does_not_delete_comments():
     assert '--source ebay' in hunt_yaml
     deploy_yaml = Path('.github/workflows/deploy-ebay-store.yml').read_text()
     assert 'CONDENS_SSH_PRIVATE_KEY' in deploy_yaml
-    assert 'git pull --ff-only origin main' in deploy_yaml
+    assert 'git archive --format=tar HEAD' in deploy_yaml
+    assert 'tar -xf - -C /opt/bazar-deals' in deploy_yaml
+    assert 'git pull' not in deploy_yaml
     assert 'docker compose -f deploy/ebay-store/compose.yml up -d --build' in deploy_yaml
+    assert 'caddy reload --config /etc/caddy/Caddyfile' in deploy_yaml
     assert 'https://46-102-157-230.sslip.io/health' in deploy_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
