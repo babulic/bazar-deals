@@ -21,6 +21,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - uses: actions/checkout@v4
       - name: Configure pinned SSH access
         env:
           CONDENS_SSH_PRIVATE_KEY: ${{ secrets.CONDENS_SSH_PRIVATE_KEY }}
@@ -29,25 +30,42 @@ jobs:
           : "${CONDENS_SSH_PRIVATE_KEY:?missing CONDENS_SSH_PRIVATE_KEY}"
           : "${CONDENS_SSH_USER:?missing CONDENS_SSH_USER}"
           install -m 700 -d ~/.ssh
-          printf '%s\n' "$CONDENS_SSH_PRIVATE_KEY" > ~/.ssh/condens
-          chmod 600 ~/.ssh/condens
+          python - <<'PY'
+          import os
+          import textwrap
+          from pathlib import Path
+
+          value = os.environ["CONDENS_SSH_PRIVATE_KEY"].strip()
+          header = "-----BEGIN OPENSSH PRIVATE KEY-----"
+          footer = "-----END OPENSSH PRIVATE KEY-----"
+          if not value.startswith(header) or not value.endswith(footer):
+              raise SystemExit("invalid OpenSSH key envelope")
+          body = value[len(header):-len(footer)]
+          body = "".join(body.split())
+          normalized = (
+              header + "\n" + "\n".join(textwrap.wrap(body, 70)) + "\n" + footer + "\n"
+          )
+          target = Path.home() / ".ssh" / "condens"
+          target.write_text(normalized, encoding="ascii")
+          target.chmod(0o600)
+          PY
           ssh-keygen -y -f ~/.ssh/condens >/dev/null
           cat > ~/.ssh/known_hosts <<'EOF'
           46.102.157.230 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBxLpy7QeOJdsskTztHiHYPEJgb9ZUhsynBtvY+sBcbO
           EOF
-      - name: Fast-forward and restart the private store
+      - name: Upload tracked release and restart the private store
         env:
           CONDENS_SSH_USER: ${{ secrets.CONDENS_SSH_USER }}
         run: |
-          ssh -i ~/.ssh/condens \
+          git archive --format=tar HEAD | ssh -i ~/.ssh/condens \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             "$CONDENS_SSH_USER@46.102.157.230" \
-            'cd /opt/bazar-deals &&
-             git fetch origin main &&
-             git pull --ff-only origin main &&
+            'tar -xf - -C /opt/bazar-deals &&
+             cd /opt/bazar-deals &&
              docker compose -f deploy/ebay-store/compose.yml up -d --build &&
+             docker compose -f deploy/ebay-store/compose.yml exec -T https caddy reload --config /etc/caddy/Caddyfile &&
              docker compose -f deploy/ebay-store/compose.yml ps'
       - name: Verify HTTPS health
         run: curl --fail --silent --show-error --retry 8 --retry-delay 3 https://46-102-157-230.sslip.io/health

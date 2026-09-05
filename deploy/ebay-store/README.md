@@ -16,9 +16,10 @@ Polymarket application.
 - Caddy obtains a public short-lived IP certificate and renews it automatically.
   [Let's Encrypt IP certificates](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability.html).
 
-After tests pass on `main`, `deploy-ebay-store.yml` fast-forwards
-`/opt/bazar-deals`, rebuilds the Compose service, verifies HTTPS health and
-dispatches Hunt. It uses the pinned host key plus GitHub secrets
+After tests pass on `main`, `deploy-ebay-store.yml` uploads a tracked
+`git archive` into `/opt/bazar-deals` without touching ignored `.env` or data,
+rebuilds the Compose service, verifies HTTPS health and dispatches Hunt. It uses
+the pinned host key plus GitHub secrets
 `CONDENS_SSH_PRIVATE_KEY` and `CONDENS_SSH_USER`.
 
 ## Secrets and activation sequence
