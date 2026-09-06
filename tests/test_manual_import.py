@@ -324,7 +324,8 @@ def test_regular_hunt_does_not_delete_comments():
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
     assert '--batch-url "$HUNT_BATCH_URL"' in hunt_yaml
     assert 'actions/cache/save@v4' in hunt_yaml
-    assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
+    assert 'BAZAR_AUTOMATION_ENABLED' in hunt_yaml
+    assert '/actions/workflows/hunt.yml/dispatches' not in hunt_yaml
     assert 'ref: main' in hunt_yaml
     assert '0 */2 * * *' not in hunt_yaml
     assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
@@ -341,9 +342,16 @@ def test_regular_hunt_does_not_delete_comments():
     assert 'docker compose -f deploy/ebay-store/compose.yml up -d --build' in deploy_yaml
     assert 'caddy reload --config /etc/caddy/Caddyfile' in deploy_yaml
     assert 'https://46-102-157-230.sslip.io/health' in deploy_yaml
+    assert 'BAZAR_AUTOMATION_ENABLED' not in deploy_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
+    assert 'schedule' not in sell[True]
+    assert 'push' not in sell[True]
     assert set(sell['jobs']) == {'sell-buyers', 'research'}
     assert "buyers == '0'" in str(sell['jobs']['research']['if'])
     assert "looped != '1'" in str(sell['jobs']['research']['if'])
     assert sell['jobs']['sell-buyers']['outputs']['looped']
     assert '--research' in str(sell['jobs']['research'])
+    assert 'BAZAR_AUTOMATION_ENABLED' in Path('.github/workflows/sell.yml').read_text()
+    ebay = yaml.safe_load(Path('.github/workflows/ebay-evaluate.yml').read_text())
+    assert 'schedule' not in ebay[True]
+    assert 'BAZAR_AUTOMATION_ENABLED' in Path('.github/workflows/ebay-evaluate.yml').read_text()

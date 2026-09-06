@@ -6,8 +6,6 @@ on:
         description: Configure notification verification credentials without collecting listings
         type: boolean
         default: false
-  schedule:
-    - cron: "45 * * * *"
 permissions:
   contents: read
 concurrency:
@@ -15,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   evaluate:
-    if: vars.EBAY_STORE_ENABLED == 'true' || inputs.configure_only == true
+    if: inputs.configure_only == true || (vars.BAZAR_AUTOMATION_ENABLED == 'true' && vars.EBAY_STORE_ENABLED == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

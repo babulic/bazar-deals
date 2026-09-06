@@ -22,6 +22,7 @@ concurrency:
 
 jobs:
   hunt:
+    if: vars.BAZAR_AUTOMATION_ENABLED == 'true' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     outputs:
@@ -174,15 +175,3 @@ jobs:
         with:
           path: .cache/ecb-fx.json
           key: ecb-fx-hunt-${{ github.run_id }}-${{ github.run_attempt }}
-      - name: Start the next page or fresh batch
-        if: steps.score.outputs.dispatch_next == '1'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          curl --fail-with-body --silent --show-error \
-            --request POST \
-            --header "Accept: application/vnd.github+json" \
-            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
-            --header "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/hunt.yml/dispatches" \
-            --data '{"ref":"main","inputs":{"continuation":"true"}}'
