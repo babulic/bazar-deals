@@ -14,7 +14,7 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above `hunt.alert_min_net_profit_eur`. `@` ping only on BUY. Sell comments still require a `kúpim` match.
+Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments: immediate `@` ping only for **BUY** with expected net ≥ `hunt.alert_min_net_profit_eur`; otherwise **one daily digest** in `github.digest_timezone` (Europe/Bratislava). Pagination/fetch Priebeh is not an alert unless `HUNT_NOTIFY_PROGRESS=true`. Sell comments still require a `kúpim` match.
 
 **0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
@@ -200,7 +200,9 @@ Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config
 | Env | Catalog key | Meaning |
 |---|---|---|
 | `MIN_NET_PROFIT_EUR` | `hunt.min_net_profit_eur` | Minimum expected clean profit for BUY |
-| `ALERT_MIN_NET_PROFIT_EUR` | `hunt.alert_min_net_profit_eur` | GitHub cards fire only strictly above this net |
+| `ALERT_MIN_NET_PROFIT_EUR` | `hunt.alert_min_net_profit_eur` | Immediate BUY GitHub alerts fire at this expected net |
+| `HUNT_NOTIFY_PROGRESS` | `github.notify_progress` | If true, Deal alerts include pagination/fetch Priebeh (default off) |
+| `HUNT_DIGEST_TIMEZONE` | `github.digest_timezone` | Calendar day for the 0-BUY digest (default Europe/Bratislava) |
 | `MIN_BUY_EUR` | `hunt.min_buy_eur` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `hunt.max_buy_eur` | Maximum purchase price |
 | `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Conservative inbound shipping when actual cost is unavailable |
@@ -218,28 +220,39 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 ## Alerts
 
-The hourly GitHub Actions hunt always comments on the Deal alerts collector
-issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
-cards (at most `github.alert_top_n`) are ranked by expected net profit and include a clickable
+`--notify` still uses `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_ALERT_ISSUE`
+(issue [#1](https://github.com/babulic/bazar-deals/issues/1)). What gets posted:
+
+1. **Immediate** `@` ping only for **BUY** cards with expected net profit ≥
+   `hunt.alert_min_net_profit_eur` (default 9 €). Duplicate listing keys already
+   on the issue are skipped. The BUY floor for scoring remains
+   `hunt.min_net_profit_eur` (20 €), so a BUY is always above the notify floor.
+2. **Otherwise one digest per calendar day** in `github.digest_timezone`
+   (`Europe/Bratislava`). The digest is 0 BUY, may include near-miss cards at or
+   above the 9 € floor, and does **not** ping. Later hunts the same CET day stay
+   quiet unless a BUY appears.
+3. Pagination/fetch progress (`strana X/Y, inzeráty A–B z N`, Priebeh, Zdroje
+   fetch counts) is **not** an alert. Set `HUNT_NOTIFY_PROGRESS=true` (catalog
+   `github.notify_progress`) only for debug.
+
+**BUY** cards (at most `github.alert_top_n`) are ranked by expected net profit and include a clickable
 listing title, asking price, usual quick-sale price, and the difference vs
-usual. Scored ads **cheaper than usual** that still miss the `hunt.min_net_profit_eur` floor are
-listed next with the same facts. Overpriced ads (asking above usual, e.g. a
-20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
-could not be valued (`no_sold_comps`, fewer than `hunt.min_sold_sample` same-model prices) go
-under **Málo porovnateľných inzerátov** only when cheaper than the thin-sample
-usual, or when usual is still unknown. The assignee is mentioned only when at
-least one BUY card is present. `scored` means cheaper than usual with a
+usual. Overpriced ads (asking above usual, e.g. a
+20 € cap vs 7 € usual) are not listed — that is not a near-miss. The assignee is mentioned only on
+immediate BUY comments. `scored` means cheaper than usual with a
 net-profit number. Asking at or above usual is `above_typical`, not scored:
 a 20 € cap vs 7 € usual is not a −30 € “ocenenie”. If `scored=0` and there
-was no usual price, the comment says profit was never computed (missing
+was no usual price, a debug Priebeh comment says profit was never computed (missing
 price-book sample), not that every usable ad is a loss.
 
-GitHub **Priebeh** is Slovak sentences, not `usable=2236 score_capped=2156`.
+GitHub **Priebeh** (debug only) is Slovak sentences, not `usable=2236 score_capped=2156`.
 The per-board `scored 0` dump is not on the issue; fetch counts stay under
-Zdroje. Zero funnel counters are omitted. `score_capped` is explained as the
+Zdroje when progress notify is on. Zero funnel counters are omitted. `score_capped` is explained as the
 80-ad page limit (one run cannot open thousands of detail pages).
 `sold_lookup_cap` is **products** skipped by the live price-book budget, not
-extra ads — it must not be added to `no_sold_comps`. `detail_failed` can
+extra ads — it must not be added to `no_sold_comps`. A live-query cap no longer
+holds the persisted page: the slice checkpoints so the next run can advance.
+`detail_failed` can
 overlap later buckets. The compact `filter: usable=… scored=… buy=…` dump
 stays in the job log.
 

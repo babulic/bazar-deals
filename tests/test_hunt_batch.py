@@ -174,7 +174,7 @@ def test_new_price_window_keeps_boundaries_and_rejects_outside() -> None:
     assert funnel["over_cap"] == 1
 
 
-def test_cli_does_not_checkpoint_page_when_price_query_budget_was_hit(
+def test_cli_checkpoints_page_when_price_query_budget_was_hit(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     batch_path = tmp_path / "batch.sqlite"
@@ -183,16 +183,13 @@ def test_cli_does_not_checkpoint_page_when_price_query_budget_was_hit(
         json.dumps([listing(1).model_dump(mode="json")], ensure_ascii=False),
         encoding="utf-8",
     )
-    attempts = 0
 
     def fake_score(rows, *args, **kwargs):
-        nonlocal attempts
-        attempts += 1
         return HuntRun(
             deals=[],
             funnel=Counter(
                 usable=len(rows),
-                sold_lookup_cap=1 if attempts == 1 else 0,
+                sold_lookup_cap=1,
             ),
             source_stats={},
             listings=list(rows),
@@ -215,13 +212,62 @@ def test_cli_does_not_checkpoint_page_when_price_query_budget_was_hit(
     assert main(args) == 0
     status = HuntBatchStore(batch_path).status()
     assert status is not None
+    assert status.next_offset == status.total == 1
+
+
+def test_cli_does_not_checkpoint_page_when_score_cap_leaves_listings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batch_path = tmp_path / "batch.sqlite"
+    source_path = tmp_path / "listings.json"
+    source_path.write_text(
+        json.dumps(
+            [listing(index).model_dump(mode="json") for index in range(2)],
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    attempts = 0
+
+    def fake_score(rows, *args, **kwargs):
+        nonlocal attempts
+        attempts += 1
+        return HuntRun(
+            deals=[],
+            funnel=Counter(
+                usable=len(rows),
+                score_capped=1 if attempts == 1 else 0,
+            ),
+            source_stats={},
+            listings=list(rows),
+        )
+
+    monkeypatch.setattr("bazar_deals.cli.score_listings", fake_score)
+    monkeypatch.setattr(
+        "bazar_deals.cli.prepare_exchange_rates",
+        lambda settings, offline=False: (settings, []),
+    )
+
+    args = [
+        "hunt",
+        "--offline",
+        "--batch-db",
+        str(batch_path),
+        "--batch-page-size",
+        "2",
+        "--listings-in",
+        str(source_path),
+    ]
+    assert main(args) == 0
+    status = HuntBatchStore(batch_path).status()
+    assert status is not None
     assert status.next_offset == 0
 
     source_path.unlink()
     assert main(["hunt", "--offline", "--batch-db", str(batch_path)]) == 0
     status = HuntBatchStore(batch_path).status()
     assert status is not None
-    assert status.next_offset == status.total == 1
+    assert status.next_offset == status.total == 2
 
 
 def test_remote_store_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:

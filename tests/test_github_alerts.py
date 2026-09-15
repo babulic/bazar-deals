@@ -9,10 +9,13 @@ from bazar_deals.github_alerts import (
     ALERT_LABEL,
     ALERT_TOP_N,
     GitHubIssueAlerts,
+    digest_calendar_date,
+    digest_marker,
     format_hunt_comment,
     format_run_comment,
     listing_key,
     select_alert_deals,
+    select_buy_alerts,
 )
 from bazar_deals.scoring import score_deal
 from bazar_deals.soldcomps import _p25_mark
@@ -559,7 +562,7 @@ def test_buy_alerts_are_capped_at_top_n() -> None:
     assert all(deal.action is Action.BUY for deal in selected)
 
 
-def test_select_alert_deals_requires_net_profit_above_alert_floor() -> None:
+def test_select_alert_deals_requires_net_profit_at_least_alert_floor() -> None:
     base = _deal()
     listing = base.item.listing.model_copy(update={"external_id": "floor"})
     item = base.item.model_copy(update={"listing": listing})
@@ -568,11 +571,17 @@ def test_select_alert_deals_requires_net_profit_above_alert_floor() -> None:
     at_floor = skip.model_copy(
         update={"costs": skip.costs.model_copy(update={"net_profit": floor})}
     )
+    below = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": floor - Decimal("0.01")})}
+    )
     over = skip.model_copy(
         update={"costs": skip.costs.model_copy(update={"net_profit": floor + Decimal("0.01")})}
     )
-    assert select_alert_deals([at_floor]) == []
+    assert select_alert_deals([below]) == []
+    assert select_alert_deals([at_floor]) == [at_floor]
     assert select_alert_deals([over]) == [over]
+    buy = _deal()
+    assert select_buy_alerts([at_floor, over, buy]) == [buy]
 
 
 def test_alert_writer_ignores_non_buy_deals() -> None:
@@ -635,10 +644,12 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
     assert "<!-- listing:bazos:1542 -->" in posts[0]
 
 
-def test_post_run_skips_zero_buy_status() -> None:
+def test_post_run_zero_buy_posts_one_cet_digest_without_pagination() -> None:
     from collections import Counter
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
-    from bazar_deals.pipeline import HuntRun
+    from bazar_deals.pipeline import BatchProgress, HuntRun
 
     posts: list[str] = []
 
@@ -651,7 +662,7 @@ def test_post_run_skips_zero_buy_status() -> None:
         if request.method == "GET" and path.endswith("/issues"):
             return httpx.Response(200, json=[{"number": 1, "title": "Deal alerts"}])
         if request.method == "GET" and path.endswith("/comments"):
-            return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[{"body": comment} for comment in posts])
         if request.method == "POST" and path.endswith("/comments"):
             posts.append(json.loads(request.content)["body"])
             return httpx.Response(201, json={"id": 9})
@@ -663,14 +674,40 @@ def test_post_run_skips_zero_buy_status() -> None:
         github_alert_issue=1,
         github_assignee="babulic",
     )
-    run = HuntRun(deals=[], funnel=Counter(buy=0, usable=3), source_stats={}, fetch_notes=["vinted: fetched 0"])
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(buy=0, usable=3),
+        source_stats={},
+        fetch_notes=["vinted: fetched 0"],
+        batch_progress=BatchProgress(
+            batch_id="9216f6b9abcdef",
+            page=7,
+            pages=21,
+            start=480,
+            end=560,
+            total=1626,
+        ),
+    )
+    noon = datetime(2026, 9, 15, 12, 0, tzinfo=ZoneInfo("Europe/Bratislava"))
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
-        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
-    assert posts == []
+        alerts = GitHubIssueAlerts(settings, client=client)
+        assert alerts.post_run(run, now=noon) == 1
+        assert alerts.post_run(run, now=noon) == 0
+    assert len(posts) == 1
+    body = posts[0]
+    assert not body.startswith("@babulic")
+    assert digest_marker(digest_calendar_date(noon)) in body
+    assert "Denný súhrn 2026-09-15" in body
+    assert "strana 7/21" not in body
+    assert "Dávka 9216f6b9" not in body
+    assert "Priebeh:" not in body
+    assert "inzeráty 481" not in body
 
 
-def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
+def test_post_run_skips_near_miss_card_below_alert_floor() -> None:
     from collections import Counter
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from bazar_deals.pipeline import HuntRun
 
@@ -678,8 +715,14 @@ def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.method == "POST" and str(request.url.path).endswith("/comments"):
-            posts.append("posted")
+            posts.append(json.loads(request.content)["body"])
             return httpx.Response(201, json={"id": 9})
+        if request.method == "GET" and str(request.url.path).endswith("/comments"):
+            return httpx.Response(200, json=[{"body": comment} for comment in posts])
+        if "/labels/" in str(request.url.path) and request.method == "GET":
+            return httpx.Response(200, json={"name": "bazar-alert"})
+        if request.method == "PATCH":
+            return httpx.Response(200, json={"number": 1})
         return httpx.Response(200, json=[])
 
     listing = _deal().item.listing.model_copy(
@@ -688,7 +731,11 @@ def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     skip = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Settings().alert_min_net_profit_eur})}
+        update={
+            "costs": skip.costs.model_copy(
+                update={"net_profit": Settings().alert_min_net_profit_eur - Decimal("0.01")}
+            )
+        }
     )
     settings = Settings(
         github_token="t",
@@ -702,13 +749,19 @@ def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
         source_stats={},
         fetch_notes=["aukro: fetched 1"],
     )
+    noon = datetime(2026, 9, 15, 12, 0, tzinfo=ZoneInfo("Europe/Bratislava"))
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
-        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
-    assert posts == []
+        assert GitHubIssueAlerts(settings, client=client).post_run(run, now=noon) == 1
+    assert len(posts) == 1
+    assert "https://pc.bazos.sk/inzerat/nine/" not in posts[0]
+    assert "Denný súhrn" in posts[0]
+    assert not posts[0].startswith("@babulic")
 
 
-def test_post_run_posts_profitable_near_misses_without_mention() -> None:
+def test_post_run_near_miss_goes_to_digest_not_immediate_alert() -> None:
     from collections import Counter
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
 
     from bazar_deals.pipeline import HuntRun
 
@@ -723,7 +776,7 @@ def test_post_run_posts_profitable_near_misses_without_mention() -> None:
         if request.method == "GET" and path.endswith("/issues"):
             return httpx.Response(200, json=[{"number": 1, "title": "Deal alerts"}])
         if request.method == "GET" and path.endswith("/comments"):
-            return httpx.Response(200, json=[])
+            return httpx.Response(200, json=[{"body": comment} for comment in posts])
         if request.method == "POST" and path.endswith("/comments"):
             posts.append(json.loads(request.content)["body"])
             return httpx.Response(201, json={"id": 9})
@@ -746,12 +799,117 @@ def test_post_run_posts_profitable_near_misses_without_mention() -> None:
         source_stats={},
         fetch_notes=["aukro: fetched 1"],
     )
+    noon = datetime(2026, 9, 15, 12, 0, tzinfo=ZoneInfo("Europe/Bratislava"))
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
-        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
+        alerts = GitHubIssueAlerts(settings, client=client)
+        assert alerts.post_run(run, now=noon) == 1
+        assert alerts.post_run(run, now=noon) == 0
     assert len(posts) == 1
     assert not posts[0].startswith("@babulic")
     assert "https://pc.bazos.sk/inzerat/near/" in posts[0]
     assert "**BUY: nie**" in posts[0]
+    assert "Denný súhrn 2026-09-15" in posts[0]
+    assert "strana " not in posts[0]
+
+
+def test_post_run_buy_is_immediate_without_pagination_and_dedupes() -> None:
+    from collections import Counter
+    from bazar_deals.pipeline import BatchProgress, HuntRun
+
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/labels/" in path and request.method == "GET":
+            return httpx.Response(200, json={"name": "bazar-alert"})
+        if request.method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json={"number": 1})
+        if request.method == "GET" and path.endswith("/issues"):
+            return httpx.Response(200, json=[{"number": 1, "title": "Deal alerts"}])
+        if request.method == "GET" and path.endswith("/comments"):
+            return httpx.Response(200, json=[{"body": comment} for comment in posts])
+        if request.method == "POST" and path.endswith("/comments"):
+            posts.append(json.loads(request.content)["body"])
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(404, json={"message": path})
+
+    buy = _deal()
+    settings = Settings(
+        github_token="t",
+        github_repository="babulic/bazar-deals",
+        github_alert_issue=1,
+        github_assignee="babulic",
+    )
+    run = HuntRun(
+        deals=[buy],
+        funnel=Counter(buy=1, scored=1),
+        source_stats={},
+        fetch_notes=["bazos: fetched 80"],
+        batch_progress=BatchProgress(
+            batch_id="9216f6b9abcdef",
+            page=7,
+            pages=21,
+            start=480,
+            end=560,
+            total=1626,
+        ),
+    )
+    with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
+        alerts = GitHubIssueAlerts(settings, client=client)
+        assert alerts.post_run(run) == 1
+        assert alerts.post_run(run) == 0
+    assert len(posts) == 1
+    assert posts[0].startswith("@babulic")
+    assert "**BUY: áno**" in posts[0]
+    assert "strana 7/21" not in posts[0]
+    assert "Dávka " not in posts[0]
+    assert "Priebeh:" not in posts[0]
+
+
+def test_post_run_debug_progress_includes_pagination() -> None:
+    from collections import Counter
+    from bazar_deals.pipeline import BatchProgress, HuntRun
+
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if "/labels/" in path and request.method == "GET":
+            return httpx.Response(200, json={"name": "bazar-alert"})
+        if request.method == "PATCH" and "/issues/" in path:
+            return httpx.Response(200, json={"number": 1})
+        if request.method == "GET" and path.endswith("/comments"):
+            return httpx.Response(200, json=[])
+        if request.method == "POST" and path.endswith("/comments"):
+            posts.append(json.loads(request.content)["body"])
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(200, json=[])
+
+    settings = Settings(
+        github_token="t",
+        github_repository="babulic/bazar-deals",
+        github_alert_issue=1,
+        github_assignee="babulic",
+        hunt_notify_progress=True,
+    )
+    run = HuntRun(
+        deals=[],
+        funnel=Counter(buy=0, usable=80),
+        source_stats={},
+        fetch_notes=["loaded 80 cached listing(s)"],
+        batch_progress=BatchProgress(
+            batch_id="9216f6b9abcdef",
+            page=7,
+            pages=21,
+            start=480,
+            end=560,
+            total=1626,
+        ),
+    )
+    with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
+    assert "strana 7/21" in posts[0]
+    assert "Dávka 9216f6b9" in posts[0]
 
 
 def test_price_book_misses_use_listing_links_prices_and_delta() -> None:

@@ -132,6 +132,8 @@ class Settings(BaseSettings):
     github_alert_issue: int = int(_GITHUB["alert_issue"])
     github_sell_alert_issue: int = int(_GITHUB["sell_alert_issue"])
     github_assignee: str = str(_GITHUB["assignee"])
+    hunt_notify_progress: bool = bool(_GITHUB.get("notify_progress", False))
+    hunt_digest_timezone: str = str(_GITHUB.get("digest_timezone", "Europe/Bratislava"))
     keepa_api_key: str = ""
     comps_db: str = COMPS_DB
     comps_ttl_days: int = COMPS_TTL_DAYS
