@@ -337,9 +337,14 @@ class RemoteHuntBatchStore:
                 },
             )
         except httpx.HTTPStatusError as exc:
-            if exc.response is not None and exc.response.status_code == 409:
+            status_code = exc.response.status_code if exc.response is not None else 0
+            if status_code == 409:
                 raise StaleHuntCheckpoint("hunt batch checkpoint is stale") from exc
+            if status_code in {500, 502, 503, 504}:
+                raise StaleHuntCheckpoint("hunt batch store temporarily unavailable") from exc
             raise
+        except httpx.TransportError as exc:
+            raise StaleHuntCheckpoint("hunt batch store temporarily unavailable") from exc
         status = self._status(response.json())
         if status is None:
             raise RuntimeError("remote hunt store returned no checkpoint status")
