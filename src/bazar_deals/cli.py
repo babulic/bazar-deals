@@ -54,10 +54,7 @@ def _notify_hunt(settings: Settings, run: HuntRun) -> int:
     posted = GitHubIssueAlerts(settings).post_run(run)
     print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     if not posted:
-        emit(
-            "no hunt alert: no listing with expected net profit > "
-            f"{settings.alert_min_net_profit_eur} €"
-        )
+        emit("no new GitHub hunt comment this run")
     return posted
 
 
@@ -112,7 +109,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--notify",
         action="store_true",
-        help="Post hunt BUY cards, or with sell --buyers the buyer digest, to GitHub issues",
+        help=(
+            "Post GitHub issue comments: hunt BUY ≥ alert floor immediately, "
+            "otherwise one 0-BUY digest per CET day; sell --buyers still posts matches"
+        ),
     )
     parser.add_argument(
         "--fetch-only",
@@ -437,10 +437,11 @@ def main(argv: list[str] | None = None) -> int:
     batch_complete = 0
     dispatch_next = 0
     if batch_store is not None and batch_page is not None:
-        incomplete_page = bool(
-            int(run.funnel.get("score_capped", 0) or 0)
-            or int(run.funnel.get("sold_lookup_cap", 0) or 0)
-        )
+        # Retry the same slice only when this page's listings were not all
+        # visited. A live price-book cap leaves some products unvalued but the
+        # page still checkpoints — otherwise GHA re-dispatches the same offset
+        # every few minutes.
+        incomplete_page = int(run.funnel.get("score_capped", 0) or 0) > 0
         if incomplete_page:
             status = batch_store.status()
             assert status is not None
@@ -449,6 +450,13 @@ def main(argv: list[str] | None = None) -> int:
                 "checkpoint unchanged for retry"
             )
         else:
+            skipped = int(run.funnel.get("sold_lookup_cap", 0) or 0)
+            if skipped:
+                emit(
+                    f"hunt batch page {batch_page.page}/{batch_page.pages} "
+                    f"left {skipped} product(s) unvalued (live query cap); "
+                    "checkpointing so the queue can advance"
+                )
             try:
                 status = batch_store.advance(batch_page)
             except StaleHuntCheckpoint:

@@ -38,6 +38,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert settings.min_buy_eur == dec(hunt, "min_buy_eur")
     assert settings.min_net_profit_eur == dec(hunt, "min_net_profit_eur")
     assert settings.alert_min_net_profit_eur == dec(hunt, "alert_min_net_profit_eur")
+    assert settings.hunt_notify_progress is False
+    assert settings.hunt_digest_timezone == "Europe/Bratislava"
+    assert data["github"]["notify_progress"] is False
+    assert data["github"]["digest_timezone"] == "Europe/Bratislava"
     assert settings.max_price_vs_typical == dec(hunt, "max_price_vs_typical")
     assert settings.alert_price_vs_typical == dec(hunt, "alert_price_vs_typical")
     assert settings.max_shipping_eur == dec(hunt, "max_shipping_eur")
