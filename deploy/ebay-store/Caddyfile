@@ -12,5 +12,10 @@ https://46.102.157.230, https://46-102-157-230.sslip.io {
     request_body {
         max_size 20MB
     }
-    reverse_proxy store:8090
+    handle_path /retail-daas/* {
+        reverse_proxy retail-abitrage-data-scanner-1:8100
+    }
+    handle {
+        reverse_proxy store:8090
+    }
 }
