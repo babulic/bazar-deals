@@ -317,6 +317,32 @@ def test_remote_advance_maps_conflict_to_stale_checkpoint(monkeypatch: pytest.Mo
         store.advance(page)
 
 
+def test_remote_advance_maps_gateway_error_to_retryable_checkpoint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/hunt/advance":
+            return httpx.Response(502)
+        return httpx.Response(500)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        "bazar_deals.hunt_batch.httpx.request",
+        lambda method, url, **kwargs: client.request(method, url, **kwargs),
+    )
+    store = RemoteHuntBatchStore("https://store.example", "secret")
+    page = BatchPage(
+        batch_id="a" * 32,
+        offset=0,
+        total=1,
+        page_size=1,
+        listings=[listing(1)],
+        fetch_notes=[],
+    )
+    with pytest.raises(StaleHuntCheckpoint, match="unavailable"):
+        store.advance(page)
+
+
 def test_cli_survives_stale_checkpoint_after_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

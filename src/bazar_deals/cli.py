@@ -460,8 +460,8 @@ def main(argv: list[str] | None = None) -> int:
                     batch_complete = int(not status.pending)
                 else:
                     emit(
-                        "hunt batch cursor changed during scoring; "
-                        "checkpoint unchanged for the next page run"
+                        "hunt batch checkpoint was not saved after the report; "
+                        "next run retries the persisted page"
                     )
             else:
                 batch_complete = int(not status.pending)
