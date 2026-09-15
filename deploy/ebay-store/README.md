@@ -65,10 +65,9 @@ export data into local files or GitHub reports outside this deletion service.
   for at most one hour, and reject missing/invalid signatures. The SHA-1 signature
   algorithm matches [eBay's official SDK](https://github.com/eBay/event-notification-nodejs-sdk/blob/master/lib/constants.js).
 - Every new, verified account-deletion event deletes **all eBay snapshots**.
-  It also strips eBay listings from the current Hunt queue and issues a new
-  batch ID so an in-flight advance cannot checkpoint a mixed page. Non-eBay
-  listings stay queued. If a page is empty after the strip, the next Hunt run
-  materializes a fresh batch.
+  The Hunt page queue is not touched: wiping or rewriting it made in-flight
+  `/api/hunt/advance` calls return 409 and stopped paging. Public hunt ads are
+  not the retained eBay evaluation store.
 - SQLite secure deletion, rollback-journal mode and VACUUM remove payloads from
   application-managed storage. Only keyed hashes of deleted identities/event IDs
   remain, to reject re-imports and repeated deliveries. In-flight batches are
