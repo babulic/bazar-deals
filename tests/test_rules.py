@@ -24,6 +24,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["max_edge_cm"] == 50
     assert data["hunt"]["max_sum_cm"] == 120
     assert data["hunt"]["min_net_profit_eur"] == 20
+    assert data["hunt"]["alert_min_net_profit_eur"] == 9
+    assert Settings().alert_min_net_profit_eur == 9
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
     assert "max_no_comp_alerts" not in data["hunt"]

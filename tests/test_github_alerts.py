@@ -379,9 +379,8 @@ def test_alerts_put_buys_first_and_include_failed_candidates() -> None:
         fetch_notes=["aukro: fetched 2"],
     )
     mixed_body = format_hunt_comment(mixed, mention="babulic", min_profit=30)
-    assert "https://pc.bazos.sk/inzerat/loss-over/" in mixed_body
-    assert "- výsledok: NEPREŠIEL" in mixed_body
-    assert select_alert_deals(mixed.deals) == [buy, loss]
+    assert "https://pc.bazos.sk/inzerat/loss-over/" not in mixed_body
+    assert select_alert_deals(mixed.deals) == [buy]
 
 
 def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
@@ -395,7 +394,7 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     assert skip.action is Action.SKIP
-    assert skip.costs.net_profit > 0
+    assert skip.costs.net_profit > Decimal("9")
     run = HuntRun(
         deals=[skip],
         funnel=Counter(scored=1, buy=0, below_net_profit=1),
@@ -468,7 +467,7 @@ def test_ai_rejected_typical_is_not_a_still_profitable_card() -> None:
     assert "AI zamietlo" in body
 
 
-def test_losing_hunts_show_top_failed_card() -> None:
+def test_losing_hunts_do_not_select_loss_cards() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -489,11 +488,9 @@ def test_losing_hunts_show_top_failed_card() -> None:
     body = format_hunt_comment(run, mention="babulic", min_profit=30)
     assert not body.startswith("@babulic")
     assert "**0 BUY áno**" in body
-    assert "Top 1 vyhodnotených kandidátov" in body
-    assert "https://pc.bazos.sk/inzerat/loss/" in body
-    assert "**BUY: nie**" in body
-    assert "- výsledok: NEPREŠIEL" in body
-    assert select_alert_deals(run.deals) == [skip]
+    assert "Top 1 vyhodnotených kandidátov" not in body
+    assert "https://pc.bazos.sk/inzerat/loss/" not in body
+    assert select_alert_deals(run.deals) == []
 
 
 def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
@@ -559,6 +556,21 @@ def test_buy_alerts_are_capped_at_top_n() -> None:
     assert all(deal.action is Action.BUY for deal in selected)
 
 
+def test_select_alert_deals_requires_net_profit_above_nine() -> None:
+    base = _deal()
+    listing = base.item.listing.model_copy(update={"external_id": "floor"})
+    item = base.item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    nine = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+    )
+    over = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9.01")})}
+    )
+    assert select_alert_deals([nine]) == []
+    assert select_alert_deals([over]) == [over]
+
+
 def test_alert_writer_ignores_non_buy_deals() -> None:
     deal = _deal().model_copy(update={"action": Action.SKIP})
     settings = Settings(github_token="t", github_repository="babulic/bazar-deals")
@@ -619,7 +631,7 @@ def test_one_comment_for_several_deals_then_skip_duplicates() -> None:
     assert "<!-- listing:bazos:1542 -->" in posts[0]
 
 
-def test_post_run_posts_zero_buy_status_without_mention() -> None:
+def test_post_run_skips_zero_buy_status() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -649,11 +661,46 @@ def test_post_run_posts_zero_buy_status_without_mention() -> None:
     )
     run = HuntRun(deals=[], funnel=Counter(buy=0, usable=3), source_stats={}, fetch_notes=["vinted: fetched 0"])
     with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
-        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 1
-    assert len(posts) == 1
-    assert not posts[0].startswith("@babulic")
-    assert "**0 BUY áno**" in posts[0]
-    assert "vinted: fetched 0" in posts[0]
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
+    assert posts == []
+
+
+def test_post_run_skips_when_net_profit_is_not_above_nine() -> None:
+    from collections import Counter
+
+    from bazar_deals.pipeline import HuntRun
+
+    posts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST" and str(request.url.path).endswith("/comments"):
+            posts.append("posted")
+            return httpx.Response(201, json={"id": 9})
+        return httpx.Response(200, json=[])
+
+    listing = _deal().item.listing.model_copy(
+        update={"external_id": "nine", "url": "https://pc.bazos.sk/inzerat/nine/"}
+    )
+    item = _deal().item.model_copy(update={"listing": listing})
+    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    skip = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+    )
+    settings = Settings(
+        github_token="t",
+        github_repository="babulic/bazar-deals",
+        github_alert_issue=1,
+        github_assignee="babulic",
+    )
+    run = HuntRun(
+        deals=[skip],
+        funnel=Counter(buy=0, scored=1),
+        source_stats={},
+        fetch_notes=["aukro: fetched 1"],
+    )
+    with httpx.Client(base_url="https://api.github.com", transport=httpx.MockTransport(handler)) as client:
+        assert GitHubIssueAlerts(settings, client=client).post_run(run) == 0
+    assert posts == []
 
 
 def test_post_run_posts_profitable_near_misses_without_mention() -> None:
