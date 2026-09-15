@@ -1,9 +1,10 @@
 """Private, deletable eBay evaluation snapshots and signed deletion receiver.
 
 This store is deliberately separate from GitHub logs/comments and the comps DB.
-On every verified account-deletion event it purges ALL eBay snapshots, strips
-eBay rows from the Hunt queue, advances an epoch to reject in-flight eBay
-evaluation batches and remembers hashed deleted identities.
+On every verified account-deletion event it purges ALL eBay snapshots, advances
+an epoch to reject in-flight eBay evaluation batches and remembers hashed
+deleted identities. The Hunt page queue is left in place so an in-flight
+advance does not 409.
 """
 from __future__ import annotations
 
@@ -16,7 +17,6 @@ import re
 import sqlite3
 import time
 import threading
-import uuid
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -26,17 +26,6 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from flask import Flask, Response, jsonify, redirect, render_template_string, request
-
-
-def _is_ebay_hunt_listing(item) -> bool:
-    if not isinstance(item, dict):
-        return False
-    market = str(item.get("marketplace", "")).casefold()
-    if market.startswith("ebay"):
-        return True
-    url = str(item.get("url", "")).casefold()
-    host = url.split("/", 3)[2] if "://" in url and url.count("/") >= 2 else url
-    return "ebay." in host
 
 
 class SnapshotStore:
@@ -105,7 +94,6 @@ class SnapshotStore:
                 return
             db.execute("INSERT INTO events VALUES (?)", (event,))
             db.execute("DELETE FROM batches")
-            self._drop_ebay_from_hunt(db)
             db.execute("UPDATE state SET epoch=epoch+1 WHERE id=1")
             for identity in identities:
                 if identity:
@@ -118,42 +106,6 @@ class SnapshotStore:
         with self.connect() as db:
             row = db.execute("SELECT created,payload FROM batches ORDER BY id DESC LIMIT 1").fetchone()
         return {"created": row[0], "records": json.loads(self.cipher.decrypt(row[1].encode()))} if row else {"records": []}
-
-    def _drop_ebay_from_hunt(self, db):
-        """Remove eBay-derived Hunt rows; keep other marketplaces and their cursor."""
-        row = db.execute(
-            "SELECT batch_id, next_offset, total, page_size, payload "
-            "FROM hunt_queue WHERE singleton=1"
-        ).fetchone()
-        if row is None:
-            return
-        payload = json.loads(self.cipher.decrypt(str(row[4]).encode()))
-        listings = payload.get("listings") or []
-        old_offset = int(row[1])
-        kept = []
-        kept_before_cursor = 0
-        for index, item in enumerate(listings):
-            if _is_ebay_hunt_listing(item):
-                continue
-            if index < old_offset:
-                kept_before_cursor += 1
-            kept.append(item)
-        if not kept:
-            db.execute("DELETE FROM hunt_queue")
-            return
-        payload["listings"] = kept
-        db.execute(
-            "UPDATE hunt_queue SET batch_id=?, next_offset=?, total=?, payload=? "
-            "WHERE singleton=1",
-            (
-                uuid.uuid4().hex,
-                min(kept_before_cursor, len(kept)),
-                len(kept),
-                self.cipher.encrypt(
-                    json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode()
-                ).decode(),
-            ),
-        )
 
     def hunt_status(self):
         with self.connect() as db:
