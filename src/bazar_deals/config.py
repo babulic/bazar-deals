@@ -4,6 +4,7 @@ from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE, P25_FACTOR
 
 _HUNT = rules()["hunt"]
 _FEES = rules()["fees"]
@@ -98,6 +99,8 @@ class Settings(BaseSettings):
     keepa_api_key: str = ""
     comps_db: str = ".cache/bazar-comps-v2.sqlite"
     comps_ttl_days: int = int(_HUNT.get("comps_ttl_days", 7))
+    min_sold_sample: int = Field(default=MIN_SOLD_SAMPLE, ge=1, le=20)
+    p25_factor: Decimal = Field(default=P25_FACTOR, gt=0, le=1)
     comps_live_queries: int = Field(default=int(_HUNT.get("max_sold_lookups", 80)), ge=0, le=80)
     hunt_batch_db: str = ".cache/bazar-hunt-batch.sqlite"
     hunt_batch_url: str = ""

@@ -31,6 +31,7 @@ from bazar_deals.identity import (
     with_specs,
 )
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import P25_FACTOR
 from bazar_deals.working import is_damaged_text
 
 _LIVE_SEARCH_SECONDS = 20
@@ -128,17 +129,17 @@ def _lower_quartile(amounts: list[Decimal]) -> Decimal:
     return ordered[index].quantize(Decimal("0.01"))
 
 
-def _p25_factor() -> Decimal:
-    return Decimal(str(rules()["hunt"].get("p25_factor", "0.85")))
+def _p25_factor(factor: Decimal | None = None) -> Decimal:
+    return P25_FACTOR if factor is None else factor
 
 
-def _p25_mark() -> str:
-    return f"P25×{_p25_factor()}"
+def _p25_mark(factor: Decimal | None = None) -> str:
+    return f"P25×{_p25_factor(factor)}"
 
 
-def _comp_label(n: int, source: str = "market") -> str:
+def _comp_label(n: int, source: str = "market", *, factor: Decimal | None = None) -> str:
     if source in {"market", "ask"}:
-        return f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted/ebay (n={n})"
+        return f"trhová rýchlopredajná cena, {_p25_mark(factor)} bazos/aukro/vinted/ebay (n={n})"
     return f"konzervatívna rýchlopredajná cena, ebay.de sold P25 (n={n})"
 
 
@@ -151,10 +152,10 @@ def _url_key(url: object) -> str:
     return str(url).split("?")[0].rstrip("/")
 
 
-def _market_value(peers: list[Listing]) -> Decimal:
+def _market_value(peers: list[Listing], *, factor: Decimal | None = None) -> Decimal:
     if not peers:
         return Decimal("0")
-    return (_lower_quartile([item.price.amount for item in peers]) * _p25_factor()).quantize(
+    return (_lower_quartile([item.price.amount for item in peers]) * _p25_factor(factor)).quantize(
         Decimal("0.01")
     )
 
@@ -175,9 +176,10 @@ class SoldCompClient:
     """Price book of discovered comparable asking prices.
 
     Live hunts search Bazos, Aukro, Vinted and eBay Browse for similar buy-now
-    ads, store P25×0.85 under the product query in SQLite, and reuse that row
-    on the next hunt while it is fresh. Offline fixtures still parse bundled
-    eBay sold HTML so unit tests can check P25 math without the network.
+    ads, store P25 times `hunt.p25_factor` under the product query in SQLite,
+    and reuse that row on the next hunt while it is fresh. Offline fixtures
+    still parse bundled eBay sold HTML so unit tests can check P25 math
+    without the network.
     """
 
     def __init__(
@@ -345,7 +347,7 @@ class SoldCompClient:
         if parsed is None:
             return None
         query, _specs, _full_text, _subject = parsed
-        min_n = int(rules()["hunt"]["min_sold_sample"])
+        min_n = int(self.settings.min_sold_sample)
         cached = self._db_summary(query) or self._db_summary(f"ask:{query}")
         if cached and self._is_fresh(cached.fetched_at) and cached.n >= min_n:
             return SoldComp(
@@ -370,14 +372,14 @@ class SoldCompClient:
         if parsed is None:
             return None
         query, specs, full_text, subject = parsed
-        min_n = int(rules()["hunt"]["min_sold_sample"])
+        min_n = int(self.settings.min_sold_sample)
         kind = _resolve_kind(kind, subject, full_text)
         self_key = _url_key(listing.url)
 
         cached = self._db_summary(query) or self._db_summary(f"ask:{query}")
         if cached and self._is_fresh(cached.fetched_at) and cached.n >= min_n:
             self._note(
-                f"price book: reused Bazos/Aukro/Vinted {_p25_mark()} from comps DB "
+                f"price book: reused Bazos/Aukro/Vinted {_p25_mark(self.settings.p25_factor)} from comps DB "
                 f"({cached.query_key}, n={cached.n})"
             )
             return SoldComp(
@@ -426,7 +428,7 @@ class SoldCompClient:
             return False
         from bazar_deals.scoring import estimate_net_profit
 
-        typical = _market_value(seed_peers)
+        typical = _market_value(seed_peers, factor=self.settings.p25_factor)
         if typical <= 0:
             return False
         return estimate_net_profit(identify(listing), typical, settings=self.settings) >= (
@@ -452,7 +454,7 @@ class SoldCompClient:
         if key in self._miss_keys:
             return
         self._miss_keys.add(key)
-        typical = _market_value(peers) if peers else None
+        typical = _market_value(peers, factor=self.settings.p25_factor) if peers else None
         self.misses.append(
             PriceBookMiss(
                 listing=listing,
@@ -465,16 +467,17 @@ class SoldCompClient:
         )
 
     def _store_market_comp(self, query: str, peers: list[Listing]) -> SoldComp:
-        value = _market_value(peers)
+        factor = self.settings.p25_factor
+        value = _market_value(peers, factor=factor)
         if self._db_path is not None:
             self._store_fetch(query, peers, peers, 200, _utc_now(), source="market")
         self._note(
-            f"price book: Bazos/Aukro/Vinted/eBay {_p25_mark()} stored in comps DB and reused"
+            f"price book: Bazos/Aukro/Vinted/eBay {_p25_mark(factor)} stored in comps DB and reused"
         )
         return SoldComp(
             median=value,
             sample=len(peers),
-            label=_comp_label(len(peers), "market"),
+            label=_comp_label(len(peers), "market", factor=factor),
             reliable_for_buy=True,
         )
 
@@ -812,7 +815,7 @@ class SoldCompClient:
             return
         stamp = _iso(fetched_at)
         if source == "market":
-            value = _market_value(peers)
+            value = _market_value(peers, factor=self.settings.p25_factor)
         else:
             value = _lower_quartile([item.price.amount for item in peers]) if peers else Decimal("0")
         with self._connect() as conn:

@@ -7,7 +7,7 @@ import os
 from collections import Counter
 from pathlib import Path
 
-from bazar_deals.rules import rules
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 
 def enable_hunt_research() -> None:
@@ -77,9 +77,8 @@ def hunt_research_hint(funnel: Counter[str] | dict[str, int]) -> str:
     if usable == 0:
         return "0 usable ads — widen boards and fast-moving SKUs, keep 2 kg / shoebox gates"
     if no_comps >= max(above, weak, 1):
-        min_n = int(rules()["hunt"]["min_sold_sample"])
         return (
-            f"{no_comps} ads without {min_n} same-model comps — "
+            f"{no_comps} ads without {MIN_SOLD_SAMPLE} same-model comps — "
             "expand targeted SKUs and live price-book queries"
         )
     if weak:

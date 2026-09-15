@@ -12,6 +12,7 @@ from bazar_deals.notify import (
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]
@@ -175,7 +176,7 @@ def _format_progress(run: HuntRun, *, min_profit, min_buy=None, max_buy=None) ->
             scored_bits.append(f"{n('scored')} ocenených")
     if n("no_sold_comps"):
         scored_bits.append(
-            f"{n('no_sold_comps')} inzerátov bez {int(hunt.get('min_sold_sample', 3))} "
+            f"{n('no_sold_comps')} inzerátov bez {MIN_SOLD_SAMPLE} "
             "porovnateľných cien rovnakého modelu (nie sú stratové)"
         )
     if n("identity_weak"):

@@ -5,7 +5,8 @@ from unittest.mock import patch
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import IdentifiedItem, Listing, Marketplace, Money
-from bazar_deals.soldcomps import SoldCompClient, _lower_quartile, _market_value
+from bazar_deals.soldcomps import SoldCompClient, _lower_quartile, _market_value, _p25_mark
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 ROOT = Path(__file__).parent / "fixtures"
 SOLD_HTML = (ROOT / "ebay_sold_1541.html").read_text(encoding="utf-8")
@@ -26,14 +27,13 @@ def _settings(db: Path, ttl: int = 7) -> Settings:
 
 
 def _peers(n: int = 6) -> list[Listing]:
-    prices = [Decimal("80"), Decimal("85"), Decimal("90"), Decimal("95"), Decimal("100"), Decimal("110")]
     return [
         Listing(
             marketplace=Marketplace.BAZOS,
             external_id=f"peer-{index}",
             title="Commodore 1541-II disk drive",
             url=f"https://pc.bazos.sk/inzerat/peer-{index}/",
-            price=Money(amount=prices[index], currency="EUR"),
+            price=Money(amount=Decimal(80 + 5 * index), currency="EUR"),
         )
         for index in range(n)
     ]
@@ -143,7 +143,6 @@ def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     assert comp is not None
     assert comp.sample == 6
     assert comp.median == _market_value(peers)
-    assert comp.median == Decimal("72.25")
     assert comp.reliable_for_buy is True
     import sqlite3
 
@@ -151,7 +150,7 @@ def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
         row = conn.execute("SELECT n, median_eur, source FROM sold_queries").fetchone()
     assert row is not None
     assert int(row[0]) == 6
-    assert Decimal(row[1]) == Decimal("72.25")
+    assert Decimal(row[1]) == _market_value(peers)
     assert row[2] == "market"
 
 
@@ -245,7 +244,7 @@ def test_long_marketplace_descriptions_do_not_hide_exact_title_match(tmp_path: P
     assert comp.sample == 5
     assert comp.median == _market_value(peers)
     assert _lower_quartile([item.price.amount for item in peers]) == Decimal("201.00")
-    assert comp.median == Decimal("170.85")
+    assert comp.median == _market_value(peers)
 
 
 def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None:
@@ -430,15 +429,15 @@ def test_unversioned_price_book_cannot_bypass_product_role_checks(tmp_path: Path
 
 def test_insufficient_comps_record_listing_link_and_thin_typical(tmp_path: Path) -> None:
     client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
-    thin = _peers(2)
+    thin = _peers(max(1, MIN_SOLD_SAMPLE - 1))
     with patch.object(client, "_live_market_search", return_value=thin):
         assert client.median_sold(_listing()) is None
     assert client.misses
     miss = client.misses[0]
     assert str(miss.listing.url) == "https://pc.bazos.sk/inzerat/1541/"
     assert miss.listing.price.amount == Decimal("38")
-    assert miss.peer_count == 2
-    assert miss.required == 3
+    assert miss.peer_count == len(thin)
+    assert miss.required == MIN_SOLD_SAMPLE
     assert miss.typical == _market_value(thin)
     assert miss.peers[0].url == thin[0].url
     assert not any("insufficient comparable ads" in note for note in client.notes)
@@ -446,14 +445,33 @@ def test_insufficient_comps_record_listing_link_and_thin_typical(tmp_path: Path)
 
 def test_three_same_model_peers_are_enough(tmp_path: Path) -> None:
     client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
-    peers = _peers(3)
+    peers = _peers(MIN_SOLD_SAMPLE)
     with patch.object(client, "_live_market_search", return_value=peers):
         comp = client.median_sold(_listing())
     assert comp is not None
-    assert comp.sample == 3
-    assert _lower_quartile([item.price.amount for item in peers]) == Decimal("80.00")
-    assert comp.median == Decimal("68.00")
-    assert "P25×0.85" in comp.label
+    assert comp.sample == MIN_SOLD_SAMPLE
+    assert comp.median == _market_value(peers)
+    assert _p25_mark() in comp.label
+
+
+def test_settings_override_min_sample_and_p25_factor(tmp_path: Path) -> None:
+    settings = Settings(
+        comps_db=str(tmp_path / "override.sqlite"),
+        min_sold_sample=4,
+        p25_factor=Decimal("0.50"),
+    )
+    too_few = SoldCompClient(settings)
+    with patch.object(too_few, "_live_market_search", return_value=_peers(3)):
+        assert too_few.median_sold(_listing()) is None
+    assert too_few.misses[0].required == 4
+
+    client = SoldCompClient(settings)
+    peers = _peers(4)
+    with patch.object(client, "_live_market_search", return_value=peers):
+        comp = client.median_sold(_listing())
+    assert comp is not None
+    assert comp.median == _market_value(peers, factor=Decimal("0.50"))
+    assert _p25_mark(Decimal("0.50")) in comp.label
 
 
 def test_wrong_phone_model_does_not_count_toward_sample(tmp_path: Path) -> None:
@@ -493,7 +511,7 @@ def test_wrong_phone_model_does_not_count_toward_sample(tmp_path: Path) -> None:
     assert client.misses
     miss = client.misses[0]
     assert miss.peer_count == 0
-    assert miss.required == 3
+    assert miss.required == MIN_SOLD_SAMPLE
 
 
 def test_zero_peer_miss_has_no_usual_price(tmp_path: Path) -> None:

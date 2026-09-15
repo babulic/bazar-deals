@@ -14,6 +14,8 @@ from bazar_deals.github_alerts import (
     select_alert_deals,
 )
 from bazar_deals.scoring import score_deal
+from bazar_deals.soldcomps import _p25_mark
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 
 def _deal() -> Deal:
@@ -121,7 +123,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "ebay: skipped" not in body
     assert "eBay" not in body
     assert "no_sold_comps=8" not in body
-    assert "8 inzerátov bez 3 porovnateľných cien rovnakého modelu" in body
+    assert f"8 inzerátov bez {MIN_SOLD_SAMPLE} porovnateľných cien rovnakého modelu" in body
     assert "Funnel:" not in body
     assert "Priebeh:" in body
     assert "bazos: fetched 12" in body
@@ -208,7 +210,7 @@ def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
             "olx: fetched 12",
             "ebay.de: fetched 9",
             "ebay.at: fetched 3",
-            "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
+            f"price book: reused Bazos/Aukro/Vinted {_p25_mark()} from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
             "price book: live query budget exhausted (16); remaining products are unvalued",
         ],
     )
@@ -272,7 +274,7 @@ def test_hunt_progress_explains_cap_and_query_units() -> None:
     assert "skúšalo 80" in body
     assert "2156 ostalo mimo" in body
     assert "1 ocenený pod prahom 30 €" in body
-    assert "59 inzerátov bez 3 porovnateľných cien rovnakého modelu" in body
+    assert f"59 inzerátov bez {MIN_SOLD_SAMPLE} porovnateľných cien rovnakého modelu" in body
     assert "39 produktov" in body
     assert "to nie je počet inzerátov" in body
     assert "24 stránok inzerátu sa nenačítalo" in body

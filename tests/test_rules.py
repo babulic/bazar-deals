@@ -1,6 +1,9 @@
+from decimal import Decimal
+
 from bazar_deals.config import Settings
 from bazar_deals.github_alerts import ALERT_LABEL
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE, P25_FACTOR
 
 
 def test_yaml_holds_lists_and_gates() -> None:
@@ -29,8 +32,8 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert data["hunt"]["max_price_vs_typical"] == 0.5
     assert data["hunt"]["alert_price_vs_typical"] == 1.0
     assert "max_no_comp_alerts" not in data["hunt"]
-    assert data["hunt"]["min_sold_sample"] == 3
-    assert data["hunt"]["p25_factor"] == 0.85
+    assert data["hunt"]["min_sold_sample"] == Settings().min_sold_sample == MIN_SOLD_SAMPLE
+    assert Decimal(str(data["hunt"]["p25_factor"])) == Settings().p25_factor == P25_FACTOR
     assert "iphone" in data["hunt"]["target_queries"]
     assert "pixel" in data["hunt"]["target_queries"]
     assert "airpods" in data["hunt"]["target_queries"]
