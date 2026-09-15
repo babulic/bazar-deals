@@ -129,6 +129,8 @@ hunt:
   cheap_buy_eur: 20
   max_shipping_cheap_eur: 11
   min_net_profit_eur: 20
+  # GitHub hunt comments fire only when expected net profit is strictly above this.
+  alert_min_net_profit_eur: 9
   min_margin: 0.25
   eur_usd: 1.08
   user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
@@ -141,8 +143,8 @@ github:
   alert_label: bazar-alert
   alert_issue: 0
   assignee: ""
-  # Max cards in one hunt comment: BUY first, then still-profitable (net > 0)
-  # under the 20 € floor. Losses stay out.
+  # Max cards in one hunt comment: BUY first, then other scored ads whose
+  # expected net profit is strictly above alert_min_net_profit_eur.
   alert_top_n: 5
   sell_alert_issue_title: Sell buyers
   sell_alert_label: bazar-sell

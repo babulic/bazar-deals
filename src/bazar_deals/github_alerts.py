@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from decimal import Decimal
+
 import httpx
 
 from bazar_deals.config import Settings
@@ -24,27 +26,39 @@ def listing_key(deal: Deal) -> str:
     return f"{listing.marketplace.value}:{listing.external_id}"
 
 
-def select_alert_deals(deals: list[Deal], *, limit: int | None = None) -> list[Deal]:
-    """Top evaluated hunt candidates: BUY first, then every failed candidate.
+def alert_profit_floor(min_net_profit=None) -> Decimal:
+    if min_net_profit is not None:
+        return Decimal(str(min_net_profit))
+    return Decimal(str(rules()["hunt"].get("alert_min_net_profit_eur", 9)))
 
-    Failed cards intentionally remain visible. The report must explain what the
-    scorer actually inspected, including losses and AI rejections, rather than
-    turning a 0-BUY page into a status-only alert with no listing links.
+
+def select_alert_deals(
+    deals: list[Deal],
+    *,
+    limit: int | None = None,
+    min_net_profit=None,
+) -> list[Deal]:
+    """Top hunt cards whose expected net profit is strictly above the alert floor.
+
+    BUY cards come first. Other scored ads with net profit above the floor stay
+    visible. Status-only pages and losses at or below 9 € are not alerts.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
-    buys = [deal for deal in deals if deal.action is Action.BUY]
-    failed = [deal for deal in deals if deal.action is not Action.BUY]
+    floor = alert_profit_floor(min_net_profit)
+    eligible = [deal for deal in deals if deal.costs.net_profit > floor]
+    buys = [deal for deal in eligible if deal.action is Action.BUY]
+    others = [deal for deal in eligible if deal.action is not Action.BUY]
     ranked_buys = sorted(
         buys,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    ranked_failed = sorted(
-        failed,
+    ranked_others = sorted(
+        others,
         key=lambda deal: (deal.costs.net_profit, deal.item.confidence),
         reverse=True,
     )
-    return (ranked_buys + ranked_failed)[:cap]
+    return (ranked_buys + ranked_others)[:cap]
 
 
 def format_run_comment(deals: list[Deal], *, mention: str) -> str:
@@ -65,9 +79,10 @@ def format_hunt_comment(
     min_profit,
     min_buy=None,
     max_buy=None,
+    min_alert_profit=None,
 ) -> str:
-    """Hunt report with the top evaluated candidates, whether they passed or not."""
-    shown = select_alert_deals(run.deals)
+    """Hunt report with cards whose expected net profit is above the alert floor."""
+    shown = select_alert_deals(run.deals, min_net_profit=min_alert_profit)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
@@ -332,13 +347,14 @@ class GitHubIssueAlerts:
         return 1
 
     def post_run(self, run: HuntRun) -> int:
-        """Post the hunt report every finished run.
+        """Post a hunt comment only when a listing clears the alert profit floor.
 
-        The top evaluated candidates are shown whether they passed or failed.
-        A 0 BUY hunt still comments the Slovak status so issue #1 is never
-        silent. The assignee is pinged only when there is a BUY.
+        The assignee is pinged only when there is a BUY. 0 BUY pages stay quiet.
         """
         self._require_auth()
+        floor = self.settings.alert_min_net_profit_eur
+        if not select_alert_deals(run.deals, min_net_profit=floor):
+            return 0
         issue = self.ensure_issue()
         body = format_hunt_comment(
             run,
@@ -346,6 +362,7 @@ class GitHubIssueAlerts:
             min_profit=self.settings.min_net_profit_eur,
             min_buy=self.settings.min_buy_eur,
             max_buy=self.settings.max_buy_eur,
+            min_alert_profit=floor,
         )
         self._request(
             "POST",

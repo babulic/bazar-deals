@@ -49,6 +49,17 @@ FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rs
 SOLD_FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ebay_sold_1541.html"
 
 
+def _notify_hunt(settings: Settings, run: HuntRun) -> int:
+    posted = GitHubIssueAlerts(settings).post_run(run)
+    print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
+    if not posted:
+        emit(
+            "no hunt alert: no listing with expected net profit > "
+            f"{settings.alert_min_net_profit_eur} €"
+        )
+    return posted
+
+
 def main(argv: list[str] | None = None) -> int:
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -380,11 +391,10 @@ def main(argv: list[str] | None = None) -> int:
     # 70 minutes; scoring twice never reached --notify, so issue #1 stayed empty.
     if args.notify:
         try:
-            posted = GitHubIssueAlerts(settings).post_run(run)
+            _notify_hunt(settings, run)
         except RuntimeError as exc:
             print(exc)
             return 2
-        print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     looped = 0
     if batch_store is None and should_research_loop(
         buy_count=len(buys),
@@ -413,11 +423,10 @@ def main(argv: list[str] | None = None) -> int:
         looped = 1
         if args.notify:
             try:
-                posted = GitHubIssueAlerts(settings).post_run(run)
+                _notify_hunt(settings, run)
             except RuntimeError as exc:
                 print(exc)
                 return 2
-            print(f"Posted {posted} hunt comment(s) to the Deal alerts issue.")
     elif batch_store is None and should_research_loop(
         buy_count=len(buys),
         already_research=bool(args.research),

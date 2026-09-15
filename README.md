@@ -14,7 +14,7 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted on every finished run (BUY cards, still-profitable near-misses, or a 0 BUY status). `@` ping only on BUY. Sell comments still require a `kúpim` match.
+Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above 9 €. `@` ping only on BUY. Sell comments still require a `kúpim` match.
 
 **0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
