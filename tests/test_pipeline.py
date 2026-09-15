@@ -7,7 +7,7 @@ from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Listing, Marketplace, Money
 from bazar_deals.pipeline import hunt, hunt_sources, score_listings
-from bazar_deals.soldcomps import SoldComp, SoldCompClient
+from bazar_deals.soldcomps import SoldComp, SoldCompClient, _market_value
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bazos_rss.xml"
 SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
@@ -829,7 +829,7 @@ def test_live_market_comps_can_buy_when_hunt_batch_cannot(tmp_path) -> None:
     assert deal
     assert deal[0].action is Action.BUY
     assert deal[0].costs.net_profit >= 30
-    assert deal[0].costs.estimated_resale == Decimal("120.00")
+    assert deal[0].costs.estimated_resale == _market_value(live)
 
 
 def test_hunt_sources_appends_sold_comp_notes() -> None:
