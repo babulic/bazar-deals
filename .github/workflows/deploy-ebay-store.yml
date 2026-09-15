@@ -69,3 +69,14 @@ jobs:
              docker compose -f deploy/ebay-store/compose.yml ps'
       - name: Verify HTTPS health
         run: curl --fail --silent --show-error --retry 8 --retry-delay 3 https://46-102-157-230.sslip.io/health
+      - name: Start Hunt after deployment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          curl --fail-with-body --silent --show-error \
+            --request POST \
+            --header "Accept: application/vnd.github+json" \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/hunt.yml/dispatches" \
+            --data '{"ref":"main","inputs":{"continuation":"false"}}'

@@ -65,9 +65,10 @@ export data into local files or GitHub reports outside this deletion service.
   for at most one hour, and reject missing/invalid signatures. The SHA-1 signature
   algorithm matches [eBay's official SDK](https://github.com/eBay/event-notification-nodejs-sdk/blob/master/lib/constants.js).
 - Every new, verified account-deletion event deletes **all eBay snapshots**.
-  It also deletes the current Hunt queue because that encrypted batch can contain
-  eBay listings. The next Hunt run materializes a fresh batch. This conservative
-  policy avoids partial deletion of aggregate/derived records.
+  It also strips eBay listings from the current Hunt queue and issues a new
+  batch ID so an in-flight advance cannot checkpoint a mixed page. Non-eBay
+  listings stay queued. If a page is empty after the strip, the next Hunt run
+  materializes a fresh batch.
 - SQLite secure deletion, rollback-journal mode and VACUUM remove payloads from
   application-managed storage. Only keyed hashes of deleted identities/event IDs
   remain, to reject re-imports and repeated deliveries. In-flight batches are
@@ -87,8 +88,9 @@ a candidate into an approved BUY.
 The authenticated `/api/hunt/*` endpoints keep one encrypted batch and a
 monotonic offset. A workflow run reads at most 80 listings, posts its report and
 advances only with the matching batch ID and offset. Stale or concurrent advances
-return conflict. The next run starts immediately; marketplace fetch repeats only
-after the previous batch is exhausted.
+return conflict; the Hunt job then leaves the persisted cursor and dispatches the
+next run instead of dying. A two-hour schedule recovers the chain if a dispatch
+is lost. Marketplace fetch repeats only after the previous batch is exhausted.
 
 ## Rollback
 

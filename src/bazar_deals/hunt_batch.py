@@ -41,6 +41,10 @@ ON hunt_batch_items(batch_id, position);
 """
 
 
+class StaleHuntCheckpoint(RuntimeError):
+    """The persisted page no longer matches the store cursor."""
+
+
 @dataclass(frozen=True)
 class BatchStatus:
     batch_id: str
@@ -209,12 +213,23 @@ class HuntBatchStore:
                 "FROM hunt_batch WHERE singleton = 1"
             ).fetchone()
             if current is None:
-                raise RuntimeError("hunt batch disappeared before checkpoint")
+                raise StaleHuntCheckpoint("hunt batch disappeared before checkpoint")
             if (
                 str(current["batch_id"]) != page.batch_id
                 or int(current["next_offset"]) != page.offset
             ):
-                raise RuntimeError("hunt batch checkpoint is stale")
+                current_offset = int(current["next_offset"])
+                if (
+                    str(current["batch_id"]) == page.batch_id
+                    and current_offset >= min(int(current["total"]), page.end)
+                ):
+                    return BatchStatus(
+                        batch_id=page.batch_id,
+                        next_offset=current_offset,
+                        total=int(current["total"]),
+                        page_size=int(current["page_size"]),
+                    )
+                raise StaleHuntCheckpoint("hunt batch checkpoint is stale")
             next_offset = min(int(current["total"]), page.end)
             db.execute(
                 "UPDATE hunt_batch SET next_offset = ? WHERE singleton = 1",
@@ -242,7 +257,7 @@ class RemoteHuntBatchStore:
             method,
             self.base_url + path,
             headers=self.headers,
-            timeout=45,
+            timeout=90,
             **kwargs,
         )
         response.raise_for_status()
@@ -311,15 +326,20 @@ class RemoteHuntBatchStore:
         )
 
     def advance(self, page: BatchPage) -> BatchStatus:
-        response = self._request(
-            "POST",
-            "/api/hunt/advance",
-            json={
-                "batch_id": page.batch_id,
-                "offset": page.offset,
-                "count": len(page.listings),
-            },
-        )
+        try:
+            response = self._request(
+                "POST",
+                "/api/hunt/advance",
+                json={
+                    "batch_id": page.batch_id,
+                    "offset": page.offset,
+                    "count": len(page.listings),
+                },
+            )
+        except httpx.HTTPStatusError as exc:
+            if exc.response is not None and exc.response.status_code == 409:
+                raise StaleHuntCheckpoint("hunt batch checkpoint is stale") from exc
+            raise
         status = self._status(response.json())
         if status is None:
             raise RuntimeError("remote hunt store returned no checkpoint status")
