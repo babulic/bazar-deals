@@ -14,7 +14,7 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25×0.75 of similar **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above 9 €. `@` ping only on BUY. Sell comments still require a `kúpim` match.
+Price-book usual price is P25×0.85 of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above 9 €. `@` ping only on BUY. Sell comments still require a `kúpim` match.
 
 **0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
@@ -24,8 +24,8 @@ Price-book gaps trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
 Live comps are searched **up to 3× max buy** (not only the 15–130 € hunt window).
 The hunt batch is a fallback when that live sample already clears a 20 € net BUY,
-or when live search finds fewer than 5 similar ads. Mixing the bargain-bin batch
-into the live P25 is skipped, because P25×0.75 of 15–130 € ads is often too low
+or when live search finds fewer than 3 same-model ads. Mixing the bargain-bin batch
+into the live P25 is skipped, because P25×0.85 of 15–130 € ads is often too low
 for a 20 € floor. Scoring spends its configured cap on detail HTTP and live lookups,
 not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 20 €)
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
@@ -55,9 +55,9 @@ identify the product from the whole ad, not the headline
 strict identity / variant matching
 (storage, year, part number, lot size, phone model, Pro/Max/Plus/Mini/Ultra)
     ↓
-minimum similar sample (5 ads)
+minimum same-model sample (3 ads)
     ↓
-quick-sale resale value = P25 × 0.75 of similar Bazos/Aukro/Vinted/eBay asking prices
+quick-sale resale value = P25 × 0.85 of same-model Bazos/Aukro/Vinted/eBay asking prices
 stored in `.cache/bazar-comps-v2.sqlite` and reused on the next hunt
     ↓
 subtract:
@@ -122,9 +122,9 @@ the cheapest hunt-target products (iPhone 13 128GB, not "canon") so the budget
 is not spent on whatever showed up first. Live hits (Bazos/Aukro/Vinted/eBay,
 prices up to 3× max buy) are the market sample. The current 15–130 € batch is
 only used when that live sample already clears a 20 € net BUY for the listing,
-or when live search finds fewer than 5 similar ads. Ten ads for the same iPhone
+or when live search finds fewer than 3 same-model ads. Ten ads for the same iPhone
 13 128GB still cost one price-book write. `128 GB` and `128GB` match as the same
-storage token. Ads without 5 comps do not consume the 80-ad scoring cap.
+storage token. Ads without 3 same-model comps do not consume the 80-ad scoring cap.
 
 ### AI identification
 
@@ -154,8 +154,8 @@ to make a deal pass.
 For BUY decisions:
 
 1. Comparable items must match price-critical specifications **and the same commercial object**. A 64 GB phone is not priced from 256 GB peers; a C64 cassette/game is not priced from a C64 computer; a watch strap is not priced from a watch. `GENERIC` is unknown identity, not a wildcard that can inherit hardware prices. Media search queries drop the host platform (`commodore` / `64` / `128`) so the price book does not retrieve computers.
-2. The valuation uses the **lower quartile (P25) × 0.75** of sufficiently similar working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 15–130 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If five same-object peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card.
-3. That P25×0.75 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 5 similar ads.
+2. The valuation uses the **lower quartile (P25) × 0.85** of same-model working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 15–130 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If three same-model peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card.
+3. That P25×0.85 is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than 3 same-model ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
 
@@ -186,7 +186,7 @@ Discovered comparable prices live in:
 .cache/bazar-comps-v2.sqlite
 ```
 
-Tables `sold_queries` (product query → P25×0.75, sample size, source, fetched_at)
+Tables `sold_queries` (product query → P25×0.85, sample size, source, fetched_at)
 and `sold_listings` (the peer ads behind that row). GitHub Actions restores and
 saves this file with `actions/cache`, so the next Hunt page starts from the
 prices already found. `COMPS_TTL_DAYS` (default 7) is the reuse window.
@@ -208,7 +208,7 @@ Environment overrides used by GitHub Actions:
 | `SELLER_RISK_RESERVE_RATE` | `0.05` | General valuation / seller risk reserve |
 | `NO_BOX_HAIRCUT_EUR` | `5` | Resale-value reduction when listing explicitly says no box |
 | `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Price book of discovered comparable prices |
-| `COMPS_TTL_DAYS` | `7` | Reuse stored P25×0.75 without a live search |
+| `COMPS_TTL_DAYS` | `7` | Reuse stored P25×0.85 without a live search |
 | `AI_MAX_IDENTIFICATIONS` | `12` | Cap on AI identifications per hunt |
 
 Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
@@ -224,7 +224,7 @@ listing title, asking price, usual quick-sale price, and the difference vs
 usual. Scored ads **cheaper than usual** that still miss the 20 € floor are
 listed next with the same facts. Overpriced ads (asking above usual, e.g. a
 20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
-could not be valued (`no_sold_comps`, fewer than 5 comparable prices) go
+could not be valued (`no_sold_comps`, fewer than 3 same-model prices) go
 under **Málo porovnateľných inzerátov** only when cheaper than the thin-sample
 usual, or when usual is still unknown. The assignee is mentioned only when at
 least one BUY card is present. `scored` means cheaper than usual with a

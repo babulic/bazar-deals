@@ -143,7 +143,7 @@ def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
     assert comp is not None
     assert comp.sample == 6
     assert comp.median == _market_value(peers)
-    assert comp.median == Decimal("63.75")
+    assert comp.median == Decimal("72.25")
     assert comp.reliable_for_buy is True
     import sqlite3
 
@@ -151,7 +151,7 @@ def test_cache_miss_fetches_conservative_p25(tmp_path: Path) -> None:
         row = conn.execute("SELECT n, median_eur, source FROM sold_queries").fetchone()
     assert row is not None
     assert int(row[0]) == 6
-    assert Decimal(row[1]) == Decimal("63.75")
+    assert Decimal(row[1]) == Decimal("72.25")
     assert row[2] == "market"
 
 
@@ -245,7 +245,7 @@ def test_long_marketplace_descriptions_do_not_hide_exact_title_match(tmp_path: P
     assert comp.sample == 5
     assert comp.median == _market_value(peers)
     assert _lower_quartile([item.price.amount for item in peers]) == Decimal("201.00")
-    assert comp.median == Decimal("150.75")
+    assert comp.median == Decimal("170.85")
 
 
 def test_sold_lookup_key_includes_capacity_from_the_body(tmp_path: Path) -> None:
@@ -438,10 +438,62 @@ def test_insufficient_comps_record_listing_link_and_thin_typical(tmp_path: Path)
     assert str(miss.listing.url) == "https://pc.bazos.sk/inzerat/1541/"
     assert miss.listing.price.amount == Decimal("38")
     assert miss.peer_count == 2
-    assert miss.required == 5
+    assert miss.required == 3
     assert miss.typical == _market_value(thin)
     assert miss.peers[0].url == thin[0].url
     assert not any("insufficient comparable ads" in note for note in client.notes)
+
+
+def test_three_same_model_peers_are_enough(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    peers = _peers(3)
+    with patch.object(client, "_live_market_search", return_value=peers):
+        comp = client.median_sold(_listing())
+    assert comp is not None
+    assert comp.sample == 3
+    assert _lower_quartile([item.price.amount for item in peers]) == Decimal("80.00")
+    assert comp.median == Decimal("68.00")
+    assert "P25×0.85" in comp.label
+
+
+def test_wrong_phone_model_does_not_count_toward_sample(tmp_path: Path) -> None:
+    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    peers = [
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="pro",
+            title="Apple iPhone 13 Pro 128GB",
+            url="https://mobil.bazos.sk/inzerat/pro/",
+            price=Money(amount=Decimal("220"), currency="EUR"),
+        ),
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="storage",
+            title="Apple iPhone 13 256GB",
+            url="https://mobil.bazos.sk/inzerat/storage/",
+            price=Money(amount=Decimal("180"), currency="EUR"),
+        ),
+        Listing(
+            marketplace=Marketplace.BAZOS,
+            external_id="twelve",
+            title="Apple iPhone 12 128GB",
+            url="https://mobil.bazos.sk/inzerat/twelve/",
+            price=Money(amount=Decimal("140"), currency="EUR"),
+        ),
+    ]
+    listing = Listing(
+        marketplace=Marketplace.VINTED,
+        external_id="candidate",
+        title="Apple iPhone 13 128GB",
+        url="https://www.vinted.sk/items/candidate",
+        price=Money(amount=Decimal("80"), currency="EUR"),
+    )
+    with patch.object(client, "_market_hits", return_value=peers):
+        assert client.median_sold(listing) is None
+    assert client.misses
+    miss = client.misses[0]
+    assert miss.peer_count == 0
+    assert miss.required == 3
 
 
 def test_zero_peer_miss_has_no_usual_price(tmp_path: Path) -> None:

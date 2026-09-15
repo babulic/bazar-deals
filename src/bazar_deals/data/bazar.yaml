@@ -37,12 +37,16 @@ hunt:
   max_sum_cm: 120
   max_price_vs_typical: 0.5
   alert_price_vs_typical: 1.0
-  min_sold_sample: 5
+  # Same-model asking ads only (similar_titles + hard specs: storage, Pro/Max,
+  # year, Switch Lite vs OLED). A 13 is not a 13 Pro.
+  min_sold_sample: 3
+  # quick-sale = P25 of those same-model ads × this. Keep P25; do not use median.
+  p25_factor: 0.85
   # Counts unique normalized product queries, not duplicate listings.
   max_sold_lookups: 80
   # Detail-fetching every usable ad does not finish in GitHub Actions.
   # This cap is expensive work (detail HTTP + live comps), not cache hits.
-  # Ads without 5 comps do not consume it.
+  # Ads without 3 same-model comps do not consume it.
   max_score_listings: 80
   # One persisted page per workflow run. In the worst case every listing has a
   # distinct product query, so this must not exceed max_sold_lookups.

@@ -175,7 +175,8 @@ def _format_progress(run: HuntRun, *, min_profit, min_buy=None, max_buy=None) ->
             scored_bits.append(f"{n('scored')} ocenených")
     if n("no_sold_comps"):
         scored_bits.append(
-            f"{n('no_sold_comps')} inzerátov bez 5 porovnateľných cien (nie sú stratové)"
+            f"{n('no_sold_comps')} inzerátov bez {int(hunt.get('min_sold_sample', 3))} "
+            "porovnateľných cien rovnakého modelu (nie sú stratové)"
         )
     if n("identity_weak"):
         scored_bits.append(f"{n('identity_weak')} bez spoľahlivej identity")
