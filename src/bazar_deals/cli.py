@@ -16,7 +16,7 @@ from bazar_deals.fx import prepare_exchange_rates
 from bazar_deals.manual_import import load_manual_offers
 from bazar_deals.domain import Action, Listing, Marketplace, Vertical
 from bazar_deals.github_alerts import GitHubIssueAlerts, select_alert_deals
-from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore
+from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore, StaleHuntCheckpoint
 from bazar_deals.notify import format_deal
 from bazar_deals.pipeline import (
     BatchProgress,
@@ -439,12 +439,36 @@ def main(argv: list[str] | None = None) -> int:
                 "checkpoint unchanged for retry"
             )
         else:
-            status = batch_store.advance(batch_page)
-            batch_complete = int(not status.pending)
-            emit(
-                f"checkpointed hunt batch {status.batch_id[:8]} at "
-                f"{status.next_offset}/{status.total}"
-            )
+            try:
+                status = batch_store.advance(batch_page)
+            except StaleHuntCheckpoint:
+                status = batch_store.status()
+                if status is None or not status.pending:
+                    emit(
+                        "hunt batch was invalidated after the report; "
+                        "next run fetches a fresh batch"
+                    )
+                    batch_complete = 1
+                elif (
+                    status.batch_id == batch_page.batch_id
+                    and status.next_offset >= batch_page.end
+                ):
+                    emit(
+                        f"hunt batch {status.batch_id[:8]} already checkpointed at "
+                        f"{status.next_offset}/{status.total}"
+                    )
+                    batch_complete = int(not status.pending)
+                else:
+                    emit(
+                        "hunt batch cursor changed during scoring; "
+                        "checkpoint unchanged for the next page run"
+                    )
+            else:
+                batch_complete = int(not status.pending)
+                emit(
+                    f"checkpointed hunt batch {status.batch_id[:8]} at "
+                    f"{status.next_offset}/{status.total}"
+                )
         # Continue immediately. A completed batch starts a fresh fetch in the
         # next run; a pending or incomplete batch resumes its persisted page.
         dispatch_next = 1

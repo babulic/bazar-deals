@@ -317,17 +317,17 @@ def test_regular_hunt_does_not_delete_comments():
     import yaml
     workflow = yaml.safe_load(Path('.github/workflows/hunt.yml').read_text())
     assert set(workflow['jobs']) == {'hunt'}
-    assert 'schedule' not in workflow[True]
+    assert workflow[True]['schedule'][0]['cron'] == '0 */2 * * *'
     assert workflow['permissions']['actions'] == 'write'
     assert workflow['jobs']['hunt']['outputs']['batch_complete']
     assert workflow['jobs']['hunt']['outputs']['dispatch_next']
     hunt_yaml = Path('.github/workflows/hunt.yml').read_text()
     assert '--batch-url "$HUNT_BATCH_URL"' in hunt_yaml
     assert 'actions/cache/save@v4' in hunt_yaml
-    assert 'BAZAR_AUTOMATION_ENABLED' in hunt_yaml
-    assert '/actions/workflows/hunt.yml/dispatches' not in hunt_yaml
+    assert '/actions/workflows/hunt.yml/dispatches' in hunt_yaml
+    assert 'BAZAR_AUTOMATION_ENABLED' not in hunt_yaml
+    assert '0 */2 * * *' in hunt_yaml
     assert 'ref: main' in hunt_yaml
-    assert '0 */2 * * *' not in hunt_yaml
     assert 'HUNT_SCORE_SECONDS' not in hunt_yaml
     assert '--listings-in .cache/hunt-ebay.json' in hunt_yaml
     assert "delete-issue-comments" not in str(workflow)
@@ -342,7 +342,7 @@ def test_regular_hunt_does_not_delete_comments():
     assert 'docker compose -f deploy/ebay-store/compose.yml up -d --build' in deploy_yaml
     assert 'caddy reload --config /etc/caddy/Caddyfile' in deploy_yaml
     assert 'https://46-102-157-230.sslip.io/health' in deploy_yaml
-    assert 'BAZAR_AUTOMATION_ENABLED' not in deploy_yaml
+    assert '/actions/workflows/hunt.yml/dispatches' in deploy_yaml
     sell = yaml.safe_load(Path('.github/workflows/sell.yml').read_text())
     assert 'schedule' not in sell[True]
     assert 'push' not in sell[True]

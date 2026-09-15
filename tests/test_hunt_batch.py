@@ -9,7 +9,7 @@ import httpx
 from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import Listing, Marketplace, Money
-from bazar_deals.hunt_batch import HuntBatchStore, RemoteHuntBatchStore
+from bazar_deals.hunt_batch import BatchPage, HuntBatchStore, RemoteHuntBatchStore, StaleHuntCheckpoint
 from bazar_deals.pipeline import HuntRun, filter_usable_listings
 
 
@@ -77,8 +77,18 @@ def test_stale_page_cannot_advance_replaced_batch(tmp_path: Path) -> None:
     assert stale is not None
     store.replace([listing(2)], page_size=1)
 
-    with pytest.raises(RuntimeError, match="stale"):
+    with pytest.raises(StaleHuntCheckpoint, match="stale"):
         store.advance(stale)
+
+
+def test_advance_is_idempotent_when_page_already_checkpointed(tmp_path: Path) -> None:
+    store = HuntBatchStore(tmp_path / "batch.sqlite")
+    store.replace([listing(1), listing(2)], page_size=2)
+    page = store.current_page()
+    assert page is not None
+    first = store.advance(page)
+    replay = store.advance(page)
+    assert replay.next_offset == first.next_offset == 2
 
 
 def test_replace_deduplicates_marketplace_external_id(tmp_path: Path) -> None:
@@ -281,3 +291,58 @@ def test_remote_store_round_trip(monkeypatch: pytest.MonkeyPatch) -> None:
     assert page.listings[0].external_id == "1"
     assert page.fetch_notes == ["bazos: fetched 1"]
     assert not store.advance(page).pending
+
+
+def test_remote_advance_maps_conflict_to_stale_checkpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/hunt/advance":
+            return httpx.Response(409)
+        return httpx.Response(500)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler))
+    monkeypatch.setattr(
+        "bazar_deals.hunt_batch.httpx.request",
+        lambda method, url, **kwargs: client.request(method, url, **kwargs),
+    )
+    store = RemoteHuntBatchStore("https://store.example", "secret")
+    page = BatchPage(
+        batch_id="a" * 32,
+        offset=0,
+        total=1,
+        page_size=1,
+        listings=[listing(1)],
+        fetch_notes=[],
+    )
+    with pytest.raises(StaleHuntCheckpoint, match="stale"):
+        store.advance(page)
+
+
+def test_cli_survives_stale_checkpoint_after_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    batch_path = tmp_path / "batch.sqlite"
+    source_path = tmp_path / "listings.json"
+    source_path.write_text(
+        json.dumps([listing(1).model_dump(mode="json")], ensure_ascii=False),
+        encoding="utf-8",
+    )
+    output = tmp_path / "github-output.txt"
+    monkeypatch.setenv("GITHUB_OUTPUT", str(output))
+    store = HuntBatchStore(batch_path)
+    store.replace([listing(1)], page_size=1)
+
+    def fake_score(rows, *args, **kwargs):
+        store.replace([listing(2)], page_size=1)
+        return HuntRun(deals=[], funnel=Counter(usable=len(rows)), source_stats={}, listings=list(rows))
+
+    monkeypatch.setattr("bazar_deals.cli.score_listings", fake_score)
+    monkeypatch.setattr(
+        "bazar_deals.cli.prepare_exchange_rates",
+        lambda settings, offline=False: (settings, []),
+    )
+
+    assert main(["hunt", "--offline", "--batch-db", str(batch_path)]) == 0
+    assert "dispatch_next=1" in output.read_text(encoding="utf-8")
+    status = HuntBatchStore(batch_path).status()
+    assert status is not None
+    assert status.next_offset == 0

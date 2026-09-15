@@ -134,6 +134,13 @@ def test_hunt_queue_pages_and_advances_atomically(service):
         json={"batch_id": "a" * 32, "offset": 0, "count": 2},
     )
     assert advanced.json["next_offset"] == 2
+    replay = client.post(
+        "/api/hunt/advance",
+        headers=AUTH,
+        json={"batch_id": "a" * 32, "offset": 0, "count": 2},
+    )
+    assert replay.status_code == 200
+    assert replay.json["next_offset"] == 2
     page = client.get("/api/hunt/page", headers=AUTH).json
     assert [row["external_id"] for row in page["listings"]] == ["2"]
     client.post(
@@ -144,13 +151,62 @@ def test_hunt_queue_pages_and_advances_atomically(service):
     assert client.get("/api/hunt/page", headers=AUTH).status_code == 204
 
 
-def test_signed_ebay_deletion_purges_hunt_queue(service):
+def test_signed_ebay_deletion_strips_ebay_and_keeps_other_hunt_listings(service):
+    _app, client, key = service
+    payload = {
+        "batch_id": "a" * 32,
+        "page_size": 2,
+        "listings": [
+            {
+                "marketplace": "ebay",
+                "external_id": "e1",
+                "title": "eBay title-canary",
+                "url": "https://www.ebay.de/itm/1",
+                "price": {"amount": "40", "currency": "EUR"},
+            },
+            {
+                "marketplace": "bazos",
+                "external_id": "b1",
+                "title": "Bazos phone",
+                "url": "https://mobil.bazos.sk/inzerat/1/",
+                "price": {"amount": "40", "currency": "EUR"},
+            },
+            {
+                "marketplace": "ebay",
+                "external_id": "e2",
+                "title": "another ebay",
+                "url": "https://www.ebay.at/itm/2",
+                "price": {"amount": "40", "currency": "EUR"},
+            },
+        ],
+    }
+    assert client.post("/api/hunt/batches", headers=AUTH, json=payload).status_code == 200
+    body, headers = notification(key)
+    assert client.post("/ebay/account-deletion", data=body, headers=headers).status_code == 204
+    status = client.get("/api/hunt/status", headers=AUTH).json
+    assert status["total"] == 1
+    assert status["next_offset"] == 0
+    assert status["batch_id"] != "a" * 32
+    page = client.get("/api/hunt/page", headers=AUTH).json
+    assert [row["external_id"] for row in page["listings"]] == ["b1"]
+    assert client.post(
+        "/api/hunt/advance",
+        headers=AUTH,
+        json={"batch_id": "a" * 32, "offset": 0, "count": 2},
+    ).status_code == 409
+    store = _app.extensions["ebay_store"]
+    assert b"title-canary" not in store.path.read_bytes()
+
+
+def test_signed_ebay_deletion_drops_ebay_only_hunt_queue(service):
     app, client, key = service
     payload = {
         "batch_id": "a" * 32,
         "page_size": 1,
         "listings": [row()],
     }
+    payload["listings"][0]["marketplace"] = "ebay"
+    payload["listings"][0]["url"] = "https://www.ebay.de/itm/123"
     assert client.post("/api/hunt/batches", headers=AUTH, json=payload).status_code == 200
     body, headers = notification(key)
     assert client.post("/ebay/account-deletion", data=body, headers=headers).status_code == 204
