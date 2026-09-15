@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-_PACKAGE_YAML = Path(__file__).resolve().parent / "data" / "bazar.yaml"
+_PACKAGE_YAML = Path(__file__).resolve().parent / "data" / "config.yaml"
 
 
 @lru_cache(maxsize=1)

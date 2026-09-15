@@ -1,4 +1,4 @@
-# All hunt lists, maps, and numeric defaults. This is the only catalog file.
+# All hunt lists, maps, and numeric defaults. This is the only config file.
 # Secrets stay in .env (tokens, API keys).
 
 domain:

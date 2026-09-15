@@ -1,4 +1,4 @@
-"""Hunt numeric limits — values live in data/bazar.yaml."""
+"""Hunt numeric limits — values live in data/config.yaml."""
 
 from decimal import Decimal
 

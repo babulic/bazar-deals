@@ -1,4 +1,4 @@
-"""Only functional, undamaged goods. Phrases live in data/bazar.yaml."""
+"""Only functional, undamaged goods. Phrases live in data/config.yaml."""
 
 from __future__ import annotations
 

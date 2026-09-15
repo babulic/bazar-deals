@@ -144,6 +144,9 @@ def test_hunt_score_seconds_accepts_github_actions_5400(monkeypatch) -> None:
 
 
 def test_catalog_is_only_the_packaged_yaml() -> None:
-    assert _PACKAGE_YAML == Path(__file__).resolve().parents[1] / "src" / "bazar_deals" / "data" / "bazar.yaml"
-    assert not (Path(__file__).resolve().parents[1] / "bazar.yaml").exists()
+    root = Path(__file__).resolve().parents[1]
+    assert _PACKAGE_YAML == root / "src" / "bazar_deals" / "data" / "config.yaml"
+    assert not (root / "bazar.yaml").exists()
+    assert not (root / "src" / "bazar_deals" / "data" / "bazar.yaml").exists()
+    assert rules()["hunt"]["min_net_profit_eur"] == 20
     assert rules()["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"

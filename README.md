@@ -154,7 +154,7 @@ to make a deal pass.
 For BUY decisions:
 
 1. Comparable items must match price-critical specifications **and the same commercial object**. A 64 GB phone is not priced from 256 GB peers; a C64 cassette/game is not priced from a C64 computer; a watch strap is not priced from a watch. `GENERIC` is unknown identity, not a wildcard that can inherit hardware prices. Media search queries drop the host platform (`commodore` / `64` / `128`) so the price book does not retrieve computers.
-2. The valuation uses the **lower quartile (P25) × `hunt.p25_factor`** of same-model working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 15–130 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If `hunt.min_sold_sample` same-model peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card. Both numbers live in `src/bazar_deals/data/bazar.yaml`.
+2. The valuation uses the **lower quartile (P25) × `hunt.p25_factor`** of same-model working asking prices on Bazos, Aukro, Vinted and eBay Browse (SK delivery), not their median and not eBay sold HTML. Live comps may be priced above the 15–130 € buy window (up to 3× max buy) so the usual price is not only the bargain bin. If `hunt.min_sold_sample` same-model peers do not exist, the ad is unpriced — not given a computer-sized typical. An AI veto of that typical is not a still-profitable hunt card. Both numbers live in `src/bazar_deals/data/config.yaml`.
 3. That P25 × `hunt.p25_factor` is stored in the comps SQLite database and **reused on later hunts** while it is fresh. A stale row is used when a live search finds fewer than `hunt.min_sold_sample` same-model ads.
 4. Known listing facts reduce the valuation further. Current rules include battery-health haircuts and a no-box haircut.
 5. A separate risk reserve is deducted before profit is calculated.
@@ -176,7 +176,7 @@ conservative quick-sale resale value
 = expected net profit
 ```
 
-Default BUY floor: **`hunt.min_net_profit_eur`** in `src/bazar_deals/data/bazar.yaml`.
+Default BUY floor: **`hunt.min_net_profit_eur`** in `src/bazar_deals/data/config.yaml`.
 
 ## Price book
 
@@ -195,7 +195,7 @@ The v2 file intentionally does not reuse the older median cache.
 
 ## Main configuration
 
-Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/bazar.yaml`. Environment variables override those catalog keys; do not copy the numbers here.
+Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config.yaml`. Environment variables override those catalog keys; do not copy the numbers here.
 
 | Env | Catalog key | Meaning |
 |---|---|---|
