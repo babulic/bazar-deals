@@ -1,5 +1,5 @@
-# All hunt lists, maps, and numeric defaults.
-# Secrets stay in .env (tokens, API keys). Optional overlay: ./bazar.yaml or BAZAR_CONFIG.
+# All hunt lists, maps, and numeric defaults. This is the only catalog file.
+# Secrets stay in .env (tokens, API keys).
 
 domain:
   marketplaces: [ebay, aukro, bazos, vinted, sbazar, facebook, allegro_pl, allegro_sk, olx]

@@ -1,8 +1,9 @@
 from decimal import Decimal
+from pathlib import Path
 
 from bazar_deals.config import Settings
 from bazar_deals.github_alerts import ALERT_LABEL, ALERT_TOP_N
-from bazar_deals.rules import rules
+from bazar_deals.rules import _PACKAGE_YAML, rules
 from bazar_deals.watchlist import (
     MAX_SCORE_LISTINGS,
     MAX_SCORE_SECONDS,
@@ -140,3 +141,9 @@ def test_hunt_score_seconds_accepts_github_actions_5400(monkeypatch) -> None:
     assert Settings().hunt_score_seconds == 5400
     monkeypatch.setenv("HUNT_SCORE_SECONDS", "99999")
     assert Settings().hunt_score_seconds == MAX_SCORE_SECONDS
+
+
+def test_catalog_is_only_the_packaged_yaml() -> None:
+    assert _PACKAGE_YAML == Path(__file__).resolve().parents[1] / "src" / "bazar_deals" / "data" / "bazar.yaml"
+    assert not (Path(__file__).resolve().parents[1] / "bazar.yaml").exists()
+    assert rules()["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"
