@@ -27,6 +27,8 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from flask import Flask, Response, jsonify, redirect, render_template_string, request
 
+from bazar_deals.watchlist import MAX_BATCH_LISTINGS, MAX_BATCH_NOTE_CHARS, MAX_SOLD_LOOKUPS
+
 
 class SnapshotStore:
     def __init__(self, path: Path, salt: str):
@@ -403,12 +405,12 @@ def create_app(config=None, verifier=None):
             not isinstance(batch_id, str)
             or not re.fullmatch(r"[a-f0-9]{32}", batch_id)
             or type(page_size) is not int
-            or not 1 <= page_size <= 80
+            or not 1 <= page_size <= MAX_SOLD_LOOKUPS
             or not isinstance(listings, list)
-            or len(listings) > 20_000
+            or len(listings) > MAX_BATCH_LISTINGS
             or any(not isinstance(row, dict) for row in listings)
             or not isinstance(notes, list)
-            or any(not isinstance(note, str) or len(note) > 2000 for note in notes)
+            or any(not isinstance(note, str) or len(note) > MAX_BATCH_NOTE_CHARS for note in notes)
         ):
             return "", 400
         try:

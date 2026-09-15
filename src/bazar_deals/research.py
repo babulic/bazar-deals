@@ -7,6 +7,8 @@ import os
 from collections import Counter
 from pathlib import Path
 
+from bazar_deals.rules import rules
+
 
 def enable_hunt_research() -> None:
     os.environ["BAZAR_HUNT_RESEARCH"] = "1"
@@ -72,17 +74,22 @@ def hunt_research_hint(funnel: Counter[str] | dict[str, int]) -> str:
     weak = int(n("identity_weak") or 0)
     above = int(n("above_typical") or 0)
     usable = int(n("usable") or 0)
+    hunt = rules()["hunt"]
     if usable == 0:
         return "0 usable ads — widen boards and fast-moving SKUs, keep 2 kg / shoebox gates"
     if no_comps >= max(above, weak, 1):
         return (
-            f"{no_comps} ads without 5 comps — expand targeted SKUs and live price-book queries"
+            f"{no_comps} ads without {hunt['min_sold_sample']} same-model comps — "
+            "expand targeted SKUs and live price-book queries"
         )
     if weak:
         return f"{weak} weak identities — prefer branded, identifiable fast-movers"
     if above:
         return f"{above} over usual price — hunt different SKUs, not cheaper-looking junk"
-    return "0 BUY — expand sites and assortment toward net profit >= 20 EUR"
+    return (
+        "0 BUY — expand sites and assortment toward net profit >= "
+        f"{hunt['min_net_profit_eur']} EUR"
+    )
 
 
 def sell_research_hint(*, buyers: int, fetched: int) -> str:

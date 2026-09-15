@@ -12,12 +12,13 @@ from bazar_deals.notify import (
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]
-ALERT_TOP_N = int(rules()["github"].get("alert_top_n", 5))
-SELL_ALERT_ISSUE_TITLE = str(rules()["github"].get("sell_alert_issue_title") or "Sell buyers")
-SELL_ALERT_LABEL = str(rules()["github"].get("sell_alert_label") or "bazar-sell")
+ALERT_TOP_N = int(rules()["github"]["alert_top_n"])
+SELL_ALERT_ISSUE_TITLE = str(rules()["github"]["sell_alert_issue_title"])
+SELL_ALERT_LABEL = str(rules()["github"]["sell_alert_label"])
 _API = "https://api.github.com"
 
 
@@ -29,7 +30,7 @@ def listing_key(deal: Deal) -> str:
 def alert_profit_floor(min_net_profit=None) -> Decimal:
     if min_net_profit is not None:
         return Decimal(str(min_net_profit))
-    return Decimal(str(rules()["hunt"].get("alert_min_net_profit_eur", 9)))
+    return Decimal(str(rules()["hunt"]["alert_min_net_profit_eur"]))
 
 
 def select_alert_deals(
@@ -41,7 +42,8 @@ def select_alert_deals(
     """Top hunt cards whose expected net profit is strictly above the alert floor.
 
     BUY cards come first. Other scored ads with net profit above the floor stay
-    visible. Status-only pages and losses at or below 9 € are not alerts.
+    visible. Status-only pages and losses at or below hunt.alert_min_net_profit_eur
+    are not alerts.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     floor = alert_profit_floor(min_net_profit)
@@ -113,9 +115,9 @@ def _format_progress(run: HuntRun, *, min_profit, min_buy=None, max_buy=None) ->
     """Slovak drop-off, only non-zero counts, with units so the numbers add up."""
     n = lambda key: _funnel_n(run, key)
     hunt = rules()["hunt"]
-    score_cap = int(hunt.get("max_score_listings", 80))
-    min_buy = hunt.get("min_buy_eur", 20) if min_buy is None else min_buy
-    max_buy = hunt.get("max_buy_eur", 110) if max_buy is None else max_buy
+    score_cap = int(hunt["max_score_listings"])
+    min_buy = hunt["min_buy_eur"] if min_buy is None else min_buy
+    max_buy = hunt["max_buy_eur"] if max_buy is None else max_buy
     usable = n("usable")
     capped = n("score_capped")
     tried = max(0, usable - capped) if usable else 0
@@ -175,7 +177,8 @@ def _format_progress(run: HuntRun, *, min_profit, min_buy=None, max_buy=None) ->
             scored_bits.append(f"{n('scored')} ocenených")
     if n("no_sold_comps"):
         scored_bits.append(
-            f"{n('no_sold_comps')} inzerátov bez 5 porovnateľných cien (nie sú stratové)"
+            f"{n('no_sold_comps')} inzerátov bez {MIN_SOLD_SAMPLE} "
+            "porovnateľných cien rovnakého modelu (nie sú stratové)"
         )
     if n("identity_weak"):
         scored_bits.append(f"{n('identity_weak')} bez spoľahlivej identity")

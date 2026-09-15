@@ -1,12 +1,23 @@
+from decimal import Decimal
+from pathlib import Path
+
 from bazar_deals.config import Settings
-from bazar_deals.github_alerts import ALERT_LABEL
-from bazar_deals.rules import rules
+from bazar_deals.github_alerts import ALERT_LABEL, ALERT_TOP_N
+from bazar_deals.rules import _PACKAGE_YAML, rules
+from bazar_deals.watchlist import (
+    MAX_SCORE_LISTINGS,
+    MAX_SCORE_SECONDS,
+    MAX_SOLD_LOOKUPS,
+    MIN_BATTERY_HEALTH_PERCENT,
+    MIN_SOLD_SAMPLE,
+    P25_FACTOR,
+)
 
 
 def test_yaml_holds_lists_and_gates() -> None:
     data = rules()
     assert data["github"]["alert_label"] == "bazar-alert"
-    assert data["github"]["alert_top_n"] == 5
+    assert data["github"]["alert_top_n"] == ALERT_TOP_N
     assert data["github"]["sell_alert_label"] == "bazar-sell"
     assert data["github"]["sell_alert_issue_title"] == "Sell buyers"
     assert ALERT_LABEL == "bazar-alert"
@@ -18,18 +29,54 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "alpine loop" not in data["identity"]["kind_markers"]["accessories"]
     assert "airpods" in data["identity"]["kind_markers"]["hardware"]
     assert data["domain"]["item_kinds"][-1] == "generic"
-    assert data["hunt"]["max_buy_eur"] == 130
-    assert data["hunt"]["min_buy_eur"] == 15
-    assert data["hunt"]["max_weight_kg"] == 2
-    assert data["hunt"]["max_edge_cm"] == 50
-    assert data["hunt"]["max_sum_cm"] == 120
-    assert data["hunt"]["min_net_profit_eur"] == 20
-    assert data["hunt"]["alert_min_net_profit_eur"] == 9
-    assert Settings().alert_min_net_profit_eur == 9
-    assert data["hunt"]["max_price_vs_typical"] == 0.5
-    assert data["hunt"]["alert_price_vs_typical"] == 1.0
-    assert "max_no_comp_alerts" not in data["hunt"]
-    assert data["hunt"]["min_sold_sample"] == 5
+    hunt = data["hunt"]
+    fees = data["fees"]
+    ai = data["ai"]
+    settings = Settings()
+    dec = lambda mapping, key: Decimal(str(mapping[key]))
+    assert settings.max_buy_eur == dec(hunt, "max_buy_eur")
+    assert settings.min_buy_eur == dec(hunt, "min_buy_eur")
+    assert settings.min_net_profit_eur == dec(hunt, "min_net_profit_eur")
+    assert settings.alert_min_net_profit_eur == dec(hunt, "alert_min_net_profit_eur")
+    assert settings.max_price_vs_typical == dec(hunt, "max_price_vs_typical")
+    assert settings.alert_price_vs_typical == dec(hunt, "alert_price_vs_typical")
+    assert settings.max_shipping_eur == dec(hunt, "max_shipping_eur")
+    assert settings.cheap_buy_eur == dec(hunt, "cheap_buy_eur")
+    assert settings.max_shipping_cheap_eur == dec(hunt, "max_shipping_cheap_eur")
+    assert settings.default_shipping_eur == dec(hunt, "default_shipping_eur")
+    assert settings.min_margin == dec(hunt, "min_margin")
+    assert settings.comps_ttl_days == hunt["comps_ttl_days"]
+    assert settings.comps_db == hunt["comps_db"]
+    assert settings.fx_cache == hunt["fx_cache"]
+    assert settings.hunt_batch_db == hunt["hunt_batch_db"]
+    assert settings.fx_max_age_days == hunt["fx_max_age_days"]
+    assert settings.comps_live_queries == hunt["max_sold_lookups"] == MAX_SOLD_LOOKUPS
+    assert settings.hunt_batch_page_size == hunt["batch_page_size"]
+    assert settings.min_sold_sample == hunt["min_sold_sample"] == MIN_SOLD_SAMPLE
+    assert settings.p25_factor == dec(hunt, "p25_factor") == P25_FACTOR
+    assert settings.comps_price_multiple == dec(hunt, "comps_price_multiple")
+    assert settings.live_search_seconds == hunt["live_search_seconds"]
+    assert settings.http_timeout_seconds == hunt["http_timeout_seconds"]
+    assert settings.resale_fee_rate == dec(fees, "resale_fee_rate")
+    assert settings.seller_risk_reserve_rate == dec(fees, "seller_risk_reserve_rate")
+    assert settings.fx_fee_rate == dec(fees, "fx_fee_rate")
+    assert settings.no_box_haircut_eur == dec(hunt, "no_box_haircut_eur")
+    assert settings.battery_under_80_haircut_rate == dec(hunt, "battery_under_80_haircut_rate")
+    assert settings.battery_80_84_haircut_rate == dec(hunt, "battery_80_84_haircut_rate")
+    assert settings.battery_85_89_haircut_rate == dec(hunt, "battery_85_89_haircut_rate")
+    assert settings.ai_provider == ai["provider"]
+    assert settings.ai_max_reviews == ai["max_reviews"]
+    assert settings.ai_max_identifications == ai["max_identifications"]
+    assert settings.ai_review_ttl_days == ai["review_ttl_days"]
+    assert settings.ai_min_confidence == ai["min_confidence"]
+    assert settings.ai_timeout_seconds == ai["timeout_seconds"]
+    assert settings.openai_base_url == ai["openai_base_url"]
+    assert settings.openai_model == ai["openai_model"]
+    assert settings.copilot_model == ai["copilot_model"]
+    assert hunt["max_score_listings"] == MAX_SCORE_LISTINGS
+    assert hunt["min_battery_health_percent"] == MIN_BATTERY_HEALTH_PERCENT
+    assert hunt["battery_under_pct"] < hunt["battery_mid_pct"] < hunt["battery_good_pct"]
+    assert "max_no_comp_alerts" not in hunt
     assert "iphone" in data["hunt"]["target_queries"]
     assert "pixel" in data["hunt"]["target_queries"]
     assert "airpods" in data["hunt"]["target_queries"]
@@ -41,19 +88,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert "iphone 14" in data["hunt"]["expand_queries"]
     assert data["central_europe"]["max_queries"] == 28
     assert "cz" in data["catalog"]["bazos_rss"]
-    assert Settings().comps_live_queries == 80
-    assert data["hunt"]["max_score_listings"] == 80
-    assert Settings().hunt_batch_page_size == 80
-    assert Settings().copilot_model == "auto"
     assert "phones" in data["domain"]["item_kinds"]
     assert "clothing" in data["domain"]["item_kinds"]
     assert "minerals" in data["domain"]["item_kinds"]
     assert data["identity"]["kind_priority"].index("jewelry") < data["identity"]["kind_priority"].index("minerals")
-    assert data["hunt"]["max_shipping_eur"] == 15
-    assert data["hunt"]["cheap_buy_eur"] == 20
-    assert data["hunt"]["max_shipping_cheap_eur"] == 11
-    assert data["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"
-    assert data["hunt"]["comps_ttl_days"] == 7
     assert "3213" in data["ebay"]["small_categories"]
     assert data["ebay"]["hunt_marketplace_ids"] == ["EBAY_DE", "EBAY_AT"]
     assert "os" in data["catalog"]["small_bazos_rubs"]
@@ -102,4 +140,13 @@ def test_hunt_score_seconds_accepts_github_actions_5400(monkeypatch) -> None:
     monkeypatch.setenv("HUNT_SCORE_SECONDS", "5400")
     assert Settings().hunt_score_seconds == 5400
     monkeypatch.setenv("HUNT_SCORE_SECONDS", "99999")
-    assert Settings().hunt_score_seconds == 7200
+    assert Settings().hunt_score_seconds == MAX_SCORE_SECONDS
+
+
+def test_catalog_is_only_the_packaged_yaml() -> None:
+    root = Path(__file__).resolve().parents[1]
+    assert _PACKAGE_YAML == root / "src" / "bazar_deals" / "data" / "config.yaml"
+    assert not (root / "bazar.yaml").exists()
+    assert not (root / "src" / "bazar_deals" / "data" / "bazar.yaml").exists()
+    assert rules()["hunt"]["min_net_profit_eur"] == 20
+    assert rules()["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"

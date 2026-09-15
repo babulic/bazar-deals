@@ -17,9 +17,6 @@ from bazar_deals.selling.titles import build_title, localize_locality
 
 _CENT = Decimal("0.01")
 
-# Only worth the curation effort and the higher commission above this price.
-CATAWIKI_FLOOR_EUR = Decimal("75")
-
 
 def _round(value: Decimal) -> Decimal:
     return value.quantize(_CENT, rounding=ROUND_HALF_UP)
@@ -186,7 +183,8 @@ def _notes(
                 f"{german!r}, not {slovak!r}."
             )
 
-    if item.segment == "minerals" and item.price() >= CATAWIKI_FLOOR_EUR:
+    floor = Decimal(str(rules()["selling"]["catawiki_floor_eur"]))
+    if item.segment == "minerals" and item.price() >= floor:
         notes.append("Priced high enough for a curated Catawiki auction.")
 
     watching = item.total_watchers()

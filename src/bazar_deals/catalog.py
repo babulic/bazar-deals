@@ -30,9 +30,9 @@ FASHION_DROP = tuple(
 CHRISTMAS_MARKERS = tuple(_catalog().get("christmas_markers") or ())
 CHRISTMAS_LIGHT_PRODUCTS = tuple(_catalog().get("christmas_light_products") or ())
 CHRISTMAS_LIGHTING_TERMS = tuple(_catalog().get("christmas_lighting_terms") or ())
-MAX_WEIGHT_KG = float(rules()["hunt"].get("max_weight_kg", 2))
-MAX_EDGE_CM = float(rules()["hunt"].get("max_edge_cm", 50))
-MAX_SUM_CM = float(rules()["hunt"].get("max_sum_cm", 120))
+MAX_WEIGHT_KG = float(rules()["hunt"]["max_weight_kg"])
+MAX_EDGE_CM = float(rules()["hunt"]["max_edge_cm"])
+MAX_SUM_CM = float(rules()["hunt"]["max_sum_cm"])
 
 
 def _truthy(name: str) -> bool:

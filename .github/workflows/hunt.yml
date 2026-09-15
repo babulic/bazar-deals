@@ -62,6 +62,9 @@ jobs:
       - run: python -m pip install -e .
       - name: Install Copilot CLI for final AI verification
         run: npm install -g @github/copilot
+      - name: Export hunt page budget from catalog
+        run: |
+          python -c "from pathlib import Path; import os; from bazar_deals.watchlist import BATCH_PAGE_SIZE, MAX_SOLD_LOOKUPS; Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8').write(f'MAX_SCORE_LISTINGS={BATCH_PAGE_SIZE}\nAI_MAX_REVIEWS={BATCH_PAGE_SIZE}\nAI_MAX_IDENTIFICATIONS={BATCH_PAGE_SIZE}\nCOMPS_LIVE_QUERIES={MAX_SOLD_LOOKUPS}\n')"
       - name: Ensure price book DB exists
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
@@ -126,34 +129,18 @@ jobs:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
       - name: Score, 0-BUY loop, and comment
         id: score
-        run: python -u -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --batch-page-size 80 --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
+        run: python -u -m bazar_deals hunt --batch-url "$HUNT_BATCH_URL" --listings-in .cache/hunt-bazos.json --listings-in .cache/hunt-aukro.json --listings-in .cache/hunt-vinted.json --listings-in .cache/hunt-sbazar.json --listings-in .cache/hunt-ebay.json --listings-in .cache/hunt-facebook.json --listings-in .cache/hunt-olx.json --notify
         env:
           PYTHONUNBUFFERED: "1"
           GITHUB_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_ALERT_ISSUE: "1"
           GITHUB_ASSIGNEE: babulic
-          MAX_BUY_EUR: "130"
           EUR_CZK: ${{ vars.EUR_CZK }}
           EUR_PLN: ${{ vars.EUR_PLN }}
-          MIN_BUY_EUR: "15"
-          MIN_NET_PROFIT_EUR: "20"
-          ALERT_MIN_NET_PROFIT_EUR: "9"
-          MAX_SHIPPING_EUR: "15"
-          CHEAP_BUY_EUR: "20"
-          MAX_SHIPPING_CHEAP_EUR: "11"
-          RESALE_FEE_RATE: "0.10"
-          SELLER_RISK_RESERVE_RATE: "0.05"
-          NO_BOX_HAIRCUT_EUR: "5"
           COMPS_DB: .cache/bazar-comps-v2.sqlite
-          COMPS_TTL_DAYS: "7"
-          # Page size and live-query budget match, so no product is skipped
-          # merely because a prior page exhausted this run's query allowance.
-          COMPS_LIVE_QUERIES: "80"
-          MAX_SCORE_LISTINGS: "80"
           HUNT_BATCH_URL: ${{ vars.EBAY_STORE_URL }}
           HUNT_BATCH_TOKEN: ${{ secrets.EBAY_STORE_TOKEN }}
-          HUNT_BATCH_PAGE_SIZE: "80"
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_RETENTION_ENABLED: "true"
@@ -161,13 +148,6 @@ jobs:
           COPILOT_MODEL: auto
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
-          # A page must not silently defer an otherwise eligible card because
-          # an independent AI counter was lower than the page size.
-          AI_MAX_REVIEWS: "80"
-          AI_MAX_IDENTIFICATIONS: "80"
-          AI_TIMEOUT_SECONDS: "90"
-          AI_REVIEW_TTL_DAYS: "14"
-          AI_MIN_CONFIDENCE: "0.75"
       - name: Save price book checkpoint
         uses: actions/cache/save@v4
         with:

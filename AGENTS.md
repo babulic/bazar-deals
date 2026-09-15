@@ -12,5 +12,5 @@
 - GitHub Actions uses Copilot CLI `auto` selection for the required final AI review, which is compatible with Copilot Free. OpenAI remains an optional local provider; do not assume an `OPENAI_API_KEY` is present.
 - `--notify` writes GitHub issue comments and requires `GITHUB_TOKEN`, `GITHUB_REPOSITORY`, and `GITHUB_ALERT_ISSUE`; omit it during ordinary local testing.
 - Conservative sold comps and approved AI price reviews are cached at `.cache/bazar-comps-v2.sqlite` by default (`COMPS_DB`).
-- Catalog and marketplace defaults live in `src/bazar_deals/data/bazar.yaml`; environment overrides go in `.env` (see `.env.example`).
+- Catalog and marketplace defaults live in `src/bazar_deals/data/config.yaml`; environment overrides go in `.env` (see `.env.example`).
 - No separate lint or type-check command is configured.

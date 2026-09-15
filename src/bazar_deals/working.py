@@ -1,4 +1,4 @@
-"""Only functional, undamaged goods. Phrases live in data/bazar.yaml."""
+"""Only functional, undamaged goods. Phrases live in data/config.yaml."""
 
 from __future__ import annotations
 
@@ -7,8 +7,7 @@ import unicodedata
 
 from bazar_deals.domain import Condition, Listing
 from bazar_deals.rules import rules
-
-MIN_BATTERY_HEALTH_PERCENT = 84
+from bazar_deals.watchlist import MIN_BATTERY_HEALTH_PERCENT
 
 
 def _fold(text: str) -> str:

@@ -7,7 +7,7 @@ from bazar_deals.cli import main
 from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Listing, Marketplace, Money
 from bazar_deals.pipeline import hunt, hunt_sources, score_listings
-from bazar_deals.soldcomps import SoldComp, SoldCompClient
+from bazar_deals.soldcomps import SoldComp, SoldCompClient, _market_value, _p25_mark
 
 FIXTURE = Path(__file__).parent / "fixtures" / "bazos_rss.xml"
 SOLD = Path(__file__).parent / "fixtures" / "ebay_sold_1541.html"
@@ -220,7 +220,7 @@ def test_score_listings_caps_detail_work(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -254,7 +254,7 @@ def test_score_listings_caps_on_wall_clock(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -292,7 +292,7 @@ def test_unconfirmed_sbazar_does_not_fill_the_score_cap(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -333,7 +333,7 @@ def test_overpriced_listing_is_not_scored() -> None:
             return SoldComp(
                 median=Decimal("7.28"),
                 sample=17,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=17)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=17)",
                 reliable_for_buy=True,
             )
 
@@ -373,7 +373,7 @@ def test_cached_overpriced_does_not_consume_score_cap(monkeypatch) -> None:
                 return SoldComp(
                     median=Decimal("7.28"),
                     sample=17,
-                    label="cached P25×0.75 (n=17)",
+                    label=f"cached {_p25_mark()} (n=17)",
                     reliable_for_buy=True,
                 )
             return None
@@ -383,7 +383,7 @@ def test_cached_overpriced_does_not_consume_score_cap(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -439,7 +439,7 @@ def test_no_sold_comps_do_not_consume_score_cap(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -493,7 +493,7 @@ def test_cheaper_hunt_target_is_scored_first_when_cap_is_one(monkeypatch) -> Non
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -545,7 +545,7 @@ def test_iphone_is_scored_before_cheaper_c64_game_when_cap_is_one(monkeypatch) -
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -598,7 +598,7 @@ def test_cached_buy_candidate_is_scored_without_live_lookup(monkeypatch) -> None
                 return SoldComp(
                     median=Decimal("120"),
                     sample=8,
-                    label="cached P25×0.75 (n=8)",
+                    label=f"cached {_p25_mark()} (n=8)",
                     reliable_for_buy=True,
                 )
             return None
@@ -608,7 +608,7 @@ def test_cached_buy_candidate_is_scored_without_live_lookup(monkeypatch) -> None
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -658,7 +658,7 @@ def test_unbranded_clothing_does_not_consume_score_cap(monkeypatch) -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -707,7 +707,7 @@ def test_long_description_skips_detail_http() -> None:
             return SoldComp(
                 median=Decimal("120"),
                 sample=8,
-                label="trhová rýchlopredajná cena, P25×0.75 bazos/aukro/vinted (n=8)",
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
                 reliable_for_buy=True,
             )
 
@@ -829,7 +829,7 @@ def test_live_market_comps_can_buy_when_hunt_batch_cannot(tmp_path) -> None:
     assert deal
     assert deal[0].action is Action.BUY
     assert deal[0].costs.net_profit >= 30
-    assert deal[0].costs.estimated_resale == Decimal("120.00")
+    assert deal[0].costs.estimated_resale == _market_value(live)
 
 
 def test_hunt_sources_appends_sold_comp_notes() -> None:
@@ -843,7 +843,7 @@ def test_hunt_sources_appends_sold_comp_notes() -> None:
             return []
 
     class _Sold:
-        notes = ["price book: Bazos/Aukro/Vinted/eBay P25×0.75 stored in comps DB and reused"]
+        notes = [f"price book: Bazos/Aukro/Vinted/eBay {_p25_mark()} stored in comps DB and reused"]
 
         def median_sold(self, listing, **kwargs):
             return None

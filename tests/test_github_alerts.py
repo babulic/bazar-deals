@@ -7,6 +7,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Condition, Deal, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.github_alerts import (
     ALERT_LABEL,
+    ALERT_TOP_N,
     GitHubIssueAlerts,
     format_hunt_comment,
     format_run_comment,
@@ -14,6 +15,8 @@ from bazar_deals.github_alerts import (
     select_alert_deals,
 )
 from bazar_deals.scoring import score_deal
+from bazar_deals.soldcomps import _p25_mark
+from bazar_deals.watchlist import MIN_SOLD_SAMPLE
 
 
 def _deal() -> Deal:
@@ -121,7 +124,7 @@ def test_hunt_status_comment_is_posted_even_without_buys() -> None:
     assert "ebay: skipped" not in body
     assert "eBay" not in body
     assert "no_sold_comps=8" not in body
-    assert "8 inzerátov bez 5 porovnateľných cien" in body
+    assert f"8 inzerátov bez {MIN_SOLD_SAMPLE} porovnateľných cien rovnakého modelu" in body
     assert "Funnel:" not in body
     assert "Priebeh:" in body
     assert "bazos: fetched 12" in body
@@ -208,7 +211,7 @@ def test_hunt_comment_omits_access_and_price_book_diagnostics() -> None:
             "olx: fetched 12",
             "ebay.de: fetched 9",
             "ebay.at: fetched 3",
-            "price book: reused Bazos/Aukro/Vinted P25×0.75 from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
+            f"price book: reused Bazos/Aukro/Vinted {_p25_mark()} from comps DB (product-role-v2:wlvs siltovka znacka nike stav nove, n=17)",
             "price book: live query budget exhausted (16); remaining products are unvalued",
         ],
     )
@@ -272,7 +275,7 @@ def test_hunt_progress_explains_cap_and_query_units() -> None:
     assert "skúšalo 80" in body
     assert "2156 ostalo mimo" in body
     assert "1 ocenený pod prahom 30 €" in body
-    assert "59 inzerátov bez 5 porovnateľných cien" in body
+    assert f"59 inzerátov bez {MIN_SOLD_SAMPLE} porovnateľných cien rovnakého modelu" in body
     assert "39 produktov" in body
     assert "to nie je počet inzerátov" in body
     assert "24 stránok inzerátu sa nenačítalo" in body
@@ -394,7 +397,7 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     assert skip.action is Action.SKIP
-    assert skip.costs.net_profit > Decimal("9")
+    assert skip.costs.net_profit > Settings().alert_min_net_profit_eur
     run = HuntRun(
         deals=[skip],
         funnel=Counter(scored=1, buy=0, below_net_profit=1),
@@ -547,27 +550,28 @@ def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
 
 def test_buy_alerts_are_capped_at_top_n() -> None:
     deals = []
-    for index in range(6):
+    for index in range(ALERT_TOP_N + 1):
         listing = _deal().item.listing.model_copy(update={"external_id": f"buy-{index}"})
         item = _deal().item.model_copy(update={"listing": listing})
         deals.append(score_deal(item, Decimal("120"), Decimal("8")))
     selected = select_alert_deals(deals)
-    assert len(selected) == 5
+    assert len(selected) == ALERT_TOP_N
     assert all(deal.action is Action.BUY for deal in selected)
 
 
-def test_select_alert_deals_requires_net_profit_above_nine() -> None:
+def test_select_alert_deals_requires_net_profit_above_alert_floor() -> None:
     base = _deal()
     listing = base.item.listing.model_copy(update={"external_id": "floor"})
     item = base.item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
-    nine = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+    floor = Settings().alert_min_net_profit_eur
+    at_floor = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": floor})}
     )
     over = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9.01")})}
+        update={"costs": skip.costs.model_copy(update={"net_profit": floor + Decimal("0.01")})}
     )
-    assert select_alert_deals([nine]) == []
+    assert select_alert_deals([at_floor]) == []
     assert select_alert_deals([over]) == [over]
 
 
@@ -665,7 +669,7 @@ def test_post_run_skips_zero_buy_status() -> None:
     assert posts == []
 
 
-def test_post_run_skips_when_net_profit_is_not_above_nine() -> None:
+def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -684,7 +688,7 @@ def test_post_run_skips_when_net_profit_is_not_above_nine() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     skip = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+        update={"costs": skip.costs.model_copy(update={"net_profit": Settings().alert_min_net_profit_eur})}
     )
     settings = Settings(
         github_token="t",
