@@ -524,13 +524,12 @@ def test_zero_peer_miss_has_no_usual_price(tmp_path: Path) -> None:
     assert miss.peers == ()
 
 
-def test_live_market_search_returns_before_hung_workers(tmp_path: Path, monkeypatch) -> None:
+def test_live_market_search_returns_before_hung_workers(tmp_path: Path) -> None:
     import time
 
-    from bazar_deals import soldcomps as sold_mod
-
-    monkeypatch.setattr(sold_mod, "_LIVE_SEARCH_SECONDS", 0.3)
-    client = SoldCompClient(_settings(tmp_path / "comps.sqlite"))
+    client = SoldCompClient(
+        _settings(tmp_path / "comps.sqlite").model_copy(update={"live_search_seconds": 0.3})
+    )
 
     def hang(*_args, **_kwargs):
         time.sleep(2.5)
