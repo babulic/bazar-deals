@@ -6,6 +6,7 @@ from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 from bazar_deals.rules import rules
+from bazar_deals.watchlist import BATTERY_GOOD_PCT, BATTERY_MID_PCT, BATTERY_UNDER_PCT
 from bazar_deals.working import MIN_BATTERY_HEALTH_PERCENT, battery_health
 
 
@@ -32,11 +33,11 @@ def condition_haircut(item: IdentifiedItem, resale: Decimal, settings: Settings)
 
     battery = battery_health(text)
     if battery is not None:
-        if battery < 80:
+        if battery < BATTERY_UNDER_PCT:
             haircut += resale * settings.battery_under_80_haircut_rate
-        elif battery < 85:
+        elif battery < BATTERY_MID_PCT:
             haircut += resale * settings.battery_80_84_haircut_rate
-        elif battery < 90:
+        elif battery < BATTERY_GOOD_PCT:
             haircut += resale * settings.battery_85_89_haircut_rate
 
     no_box_markers = (

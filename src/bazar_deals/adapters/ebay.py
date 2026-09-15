@@ -213,7 +213,7 @@ class EbayBrowseClient(ListingSource):
         purchase_budget: bool = True,
         marketplace_id: str | None = None,
     ) -> dict:
-        hi = self.settings.max_buy_eur * 3
+        hi = self.settings.max_buy_eur * self.settings.comps_price_multiple
         params = {
             "q": query,
             "sort": "newlyListed",

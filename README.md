@@ -14,7 +14,7 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above 9 €. `@` ping only on BUY. Sell comments still require a `kúpim` match.
+Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments are posted only when at least one scored listing has expected net profit strictly above `hunt.alert_min_net_profit_eur`. `@` ping only on BUY. Sell comments still require a `kúpim` match.
 
 **0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
@@ -42,7 +42,7 @@ eBay skips the category newest-dump once SKU search returned hits, and retries a
 
 The old rule `listed price <= 50% of typical price` is no longer used for BUY decisions. It could produce false positives when the market value itself was overestimated.
 
-A listing becomes **BUY only when expected conservative net profit is at least 20 EUR**.
+A listing becomes **BUY only when expected conservative net profit is at least `hunt.min_net_profit_eur`**.
 
 ```text
 newest buy-now listing
@@ -68,7 +68,7 @@ subtract:
   known condition/accessory haircut
   seller/valuation risk reserve
     ↓
-BUY only if expected net profit >= 20 EUR
+BUY only if expected net profit >= hunt.min_net_profit_eur
 ```
 
 ## What is searched
@@ -176,7 +176,7 @@ conservative quick-sale resale value
 = expected net profit
 ```
 
-Default BUY floor: **20 EUR**.
+Default BUY floor: **`hunt.min_net_profit_eur`** in `src/bazar_deals/data/bazar.yaml`.
 
 ## Price book
 
@@ -189,29 +189,30 @@ Discovered comparable prices live in:
 Tables `sold_queries` (product query → P25 × `hunt.p25_factor`, sample size, source, fetched_at)
 and `sold_listings` (the peer ads behind that row). GitHub Actions restores and
 saves this file with `actions/cache`, so the next Hunt page starts from the
-prices already found. `COMPS_TTL_DAYS` (default 7) is the reuse window.
+prices already found. `COMPS_TTL_DAYS` (`hunt.comps_ttl_days`) is the reuse window.
 
 The v2 file intentionally does not reuse the older median cache.
 
 ## Main configuration
 
-Environment overrides used by GitHub Actions:
+Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/bazar.yaml`. Environment variables override those catalog keys; do not copy the numbers here.
 
-| Env | Default | Meaning |
-|---|---:|---|
-| `MIN_NET_PROFIT_EUR` | `20` | Minimum expected clean profit for BUY |
-| `MIN_BUY_EUR` | `20` | Minimum purchase price; cheaper ads have no profit room |
-| `MAX_BUY_EUR` | `110` | Maximum purchase price |
-| `MAX_SHIPPING_EUR` | `15` | Conservative inbound shipping when actual cost is unavailable |
-| `MAX_SHIPPING_CHEAP_EUR` | `11` | Shipping allowance for cheap purchases |
-| `RESALE_FEE_RATE` | `0.10` | Conservative resale fee reserve |
-| `SELLER_RISK_RESERVE_RATE` | `0.05` | General valuation / seller risk reserve |
-| `NO_BOX_HAIRCUT_EUR` | `5` | Resale-value reduction when listing explicitly says no box |
-| `COMPS_DB` | `.cache/bazar-comps-v2.sqlite` | Price book of discovered comparable prices |
-| `COMPS_TTL_DAYS` | `7` | Reuse stored P25 × `hunt.p25_factor` without a live search |
-| `AI_MAX_IDENTIFICATIONS` | `12` | Cap on AI identifications per hunt |
-
-Other catalog, identity and marketplace settings remain in `src/bazar_deals/data/bazar.yaml`.
+| Env | Catalog key | Meaning |
+|---|---|---|
+| `MIN_NET_PROFIT_EUR` | `hunt.min_net_profit_eur` | Minimum expected clean profit for BUY |
+| `ALERT_MIN_NET_PROFIT_EUR` | `hunt.alert_min_net_profit_eur` | GitHub cards fire only strictly above this net |
+| `MIN_BUY_EUR` | `hunt.min_buy_eur` | Minimum purchase price; cheaper ads have no profit room |
+| `MAX_BUY_EUR` | `hunt.max_buy_eur` | Maximum purchase price |
+| `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Conservative inbound shipping when actual cost is unavailable |
+| `MAX_SHIPPING_CHEAP_EUR` | `hunt.max_shipping_cheap_eur` | Shipping allowance for cheap purchases |
+| `RESALE_FEE_RATE` | `fees.resale_fee_rate` | Conservative resale fee reserve |
+| `SELLER_RISK_RESERVE_RATE` | `fees.seller_risk_reserve_rate` | General valuation / seller risk reserve |
+| `NO_BOX_HAIRCUT_EUR` | `hunt.no_box_haircut_eur` | Resale-value reduction when listing explicitly says no box |
+| `MIN_SOLD_SAMPLE` | `hunt.min_sold_sample` | Same-model ads required before a P25 is trusted |
+| `P25_FACTOR` | `hunt.p25_factor` | Quick-sale = lower quartile of those ads × this factor |
+| `COMPS_DB` | `hunt.comps_db` | Price book of discovered comparable prices |
+| `COMPS_TTL_DAYS` | `hunt.comps_ttl_days` | Reuse stored P25 × `hunt.p25_factor` without a live search |
+| `AI_MAX_IDENTIFICATIONS` | `ai.max_identifications` | Cap on AI identifications per hunt |
 
 GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model.
 
@@ -219,9 +220,9 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 The hourly GitHub Actions hunt always comments on the Deal alerts collector
 issue ([issue #1](https://github.com/babulic/bazar-deals/issues/1)). **BUY**
-cards (at most 5) are ranked by expected net profit and include a clickable
+cards (at most `github.alert_top_n`) are ranked by expected net profit and include a clickable
 listing title, asking price, usual quick-sale price, and the difference vs
-usual. Scored ads **cheaper than usual** that still miss the 20 € floor are
+usual. Scored ads **cheaper than usual** that still miss the `hunt.min_net_profit_eur` floor are
 listed next with the same facts. Overpriced ads (asking above usual, e.g. a
 20 € cap vs 7 € usual) are not listed — that is not a near-miss. Ads that
 could not be valued (`no_sold_comps`, fewer than `hunt.min_sold_sample` same-model prices) go

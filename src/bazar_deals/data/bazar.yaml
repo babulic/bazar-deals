@@ -139,8 +139,50 @@ hunt:
   eur_usd: 1.08
   user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
   request_gap_seconds: 2.0
-  comps_db: .cache/bazar-comps.sqlite
+  comps_db: .cache/bazar-comps-v2.sqlite
   comps_ttl_days: 7
+  fx_cache: .cache/ecb-fx.json
+  hunt_batch_db: .cache/bazar-hunt-batch.sqlite
+  fx_max_age_days: 7
+  fx_max_age_days_cap: 30
+  # Live comps may sit above the hunt buy window (up to this × max_buy_eur).
+  comps_price_multiple: 3
+  # Wall-clock for parallel Bazos/Aukro/Vinted/eBay price-book searches.
+  live_search_seconds: 20
+  http_timeout_seconds: 12
+  # Local 0-BUY research pass may score more ads than max_score_listings.
+  research_score_listings: 120
+  # Pydantic/env ceiling for HUNT_SCORE_SECONDS.
+  max_score_seconds: 7200
+  # Pydantic ceiling for MAX_SCORE_LISTINGS.
+  max_score_listings_cap: 200
+  # Pydantic ceiling for MIN_SOLD_SAMPLE.
+  min_sold_sample_cap: 20
+  score_heartbeat_every: 50
+  no_box_haircut_eur: 5
+  # Skip the ad below this stated battery health. Haircut bands use the
+  # thresholds below (under / mid / good) with the matching rates.
+  min_battery_health_percent: 84
+  battery_under_pct: 80
+  battery_mid_pct: 85
+  battery_good_pct: 90
+  battery_under_80_haircut_rate: 0.15
+  battery_80_84_haircut_rate: 0.08
+  battery_85_89_haircut_rate: 0.04
+  # Hunt-queue POST guard on the private store.
+  max_batch_listings: 20000
+  max_batch_note_chars: 2000
+
+ai:
+  provider: auto
+  max_reviews: 8
+  max_identifications: 12
+  review_ttl_days: 14
+  min_confidence: 0.75
+  timeout_seconds: 90
+  openai_base_url: https://api.openai.com/v1
+  openai_model: gpt-5.6-terra
+  copilot_model: auto
 
 github:
   alert_issue_title: Deal alerts
@@ -162,6 +204,10 @@ fees:
     vinted: 0.05
   buy_side: [vinted]
   vinted_fixed_eur: 0.70
+  # Conservative reserves used in Hunt scoring, not live marketplace invoices.
+  resale_fee_rate: 0.10
+  seller_risk_reserve_rate: 0.05
+  fx_fee_rate: 0.02
 
 identity:
   generic_brands:
@@ -1413,6 +1459,8 @@ selling:
   # An eBay listing charging more than this above the real Packeta cost is
   # losing sales to its own postage line.
   overcharge_flag_eur: 3
+  # Minerals at or above this asking price are worth the Catawiki curation fee.
+  catawiki_floor_eur: 75
 
   # Hard title caps. Bazos and eBay are confirmed by mid-word truncation in the
   # live listings; Vinted and Aukro are the longest titles observed there, so

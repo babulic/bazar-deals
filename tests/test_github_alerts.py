@@ -7,6 +7,7 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Action, Condition, Deal, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.github_alerts import (
     ALERT_LABEL,
+    ALERT_TOP_N,
     GitHubIssueAlerts,
     format_hunt_comment,
     format_run_comment,
@@ -396,7 +397,7 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     assert skip.action is Action.SKIP
-    assert skip.costs.net_profit > Decimal("9")
+    assert skip.costs.net_profit > Settings().alert_min_net_profit_eur
     run = HuntRun(
         deals=[skip],
         funnel=Counter(scored=1, buy=0, below_net_profit=1),
@@ -549,27 +550,28 @@ def test_overpriced_scored_ads_and_misses_are_not_listed() -> None:
 
 def test_buy_alerts_are_capped_at_top_n() -> None:
     deals = []
-    for index in range(6):
+    for index in range(ALERT_TOP_N + 1):
         listing = _deal().item.listing.model_copy(update={"external_id": f"buy-{index}"})
         item = _deal().item.model_copy(update={"listing": listing})
         deals.append(score_deal(item, Decimal("120"), Decimal("8")))
     selected = select_alert_deals(deals)
-    assert len(selected) == 5
+    assert len(selected) == ALERT_TOP_N
     assert all(deal.action is Action.BUY for deal in selected)
 
 
-def test_select_alert_deals_requires_net_profit_above_nine() -> None:
+def test_select_alert_deals_requires_net_profit_above_alert_floor() -> None:
     base = _deal()
     listing = base.item.listing.model_copy(update={"external_id": "floor"})
     item = base.item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
-    nine = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+    floor = Settings().alert_min_net_profit_eur
+    at_floor = skip.model_copy(
+        update={"costs": skip.costs.model_copy(update={"net_profit": floor})}
     )
     over = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9.01")})}
+        update={"costs": skip.costs.model_copy(update={"net_profit": floor + Decimal("0.01")})}
     )
-    assert select_alert_deals([nine]) == []
+    assert select_alert_deals([at_floor]) == []
     assert select_alert_deals([over]) == [over]
 
 
@@ -667,7 +669,7 @@ def test_post_run_skips_zero_buy_status() -> None:
     assert posts == []
 
 
-def test_post_run_skips_when_net_profit_is_not_above_nine() -> None:
+def test_post_run_skips_when_net_profit_is_not_above_alert_floor() -> None:
     from collections import Counter
 
     from bazar_deals.pipeline import HuntRun
@@ -686,7 +688,7 @@ def test_post_run_skips_when_net_profit_is_not_above_nine() -> None:
     item = _deal().item.model_copy(update={"listing": listing})
     skip = score_deal(item, Decimal("70"), Decimal("8"))
     skip = skip.model_copy(
-        update={"costs": skip.costs.model_copy(update={"net_profit": Decimal("9")})}
+        update={"costs": skip.costs.model_copy(update={"net_profit": Settings().alert_min_net_profit_eur})}
     )
     settings = Settings(
         github_token="t",

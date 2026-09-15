@@ -34,7 +34,6 @@ from bazar_deals.rules import rules
 from bazar_deals.watchlist import P25_FACTOR
 from bazar_deals.working import is_damaged_text
 
-_LIVE_SEARCH_SECONDS = 20
 _PRICE_BOOK_VERSION = "same-object-v4:"
 
 _SCHEMA = """
@@ -285,9 +284,10 @@ class SoldCompClient:
         # many cheapest product groups as the scoring loop can actually value.
         score_cap = self.settings.max_score_listings
         if score_cap is None:
-            score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+            hunt = rules()["hunt"]
+            score_cap = int(hunt["max_score_listings"])
             if hunt_research_only():
-                score_cap = max(score_cap, 120)
+                score_cap = max(score_cap, int(hunt["research_score_listings"]))
         prepare_cap = max(1, int(score_cap))
         skipped = max(0, len(ranked) - prepare_cap)
         ranked = ranked[:prepare_cap]
@@ -630,7 +630,7 @@ class SoldCompClient:
                 pool.submit(self._vinted_search, query),
                 pool.submit(self._ebay_search, query),
             ]
-            done, pending = wait(futs, timeout=_LIVE_SEARCH_SECONDS)
+            done, pending = wait(futs, timeout=self.settings.live_search_seconds)
             for fut in pending:
                 fut.cancel()
             rows: list[Listing] = []
@@ -673,7 +673,7 @@ class SoldCompClient:
                 "User-Agent": _BROWSER_UA,
                 "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
             },
-            timeout=12.0,
+            timeout=self.settings.http_timeout_seconds,
             follow_redirects=True,
         )
         try:
@@ -720,7 +720,7 @@ class SoldCompClient:
                 "User-Agent": self.settings.bazos_user_agent,
                 "Accept": accept,
             },
-            timeout=12.0,
+            timeout=self.settings.http_timeout_seconds,
             follow_redirects=True,
         )
         if response.status_code >= 400:

@@ -239,9 +239,10 @@ def score_listings(
     # and price lookups are bounded by the persisted page size in scheduled runs.
     # Local one-shot hunts keep the configured fallback cap.
     if settings.max_score_listings is None:
-        score_cap = int(rules()["hunt"].get("max_score_listings", 80))
+        hunt = rules()["hunt"]
+        score_cap = int(hunt["max_score_listings"])
         if hunt_research_only():
-            score_cap = max(score_cap, 120)
+            score_cap = max(score_cap, int(hunt["research_score_listings"]))
     else:
         score_cap = settings.max_score_listings
 
@@ -265,7 +266,7 @@ def score_listings(
                     f"{leftover} listing(s) left"
                 )
                 break
-            if index == 1 or index % 50 == 0 or index == len(queue):
+            if index == 1 or index % int(rules()["hunt"]["score_heartbeat_every"]) == 0 or index == len(queue):
                 set_phase(f"scoring {index}/{len(queue)}")
                 emit(f"scoring {index}/{len(queue)} (valued {work})")
 
@@ -682,7 +683,7 @@ def _buy_likelihood_bucket(
     settings: Settings,
     min_conf: float,
 ) -> int:
-    """0 = cached net >= 20 €, 4 = over usual price, else hunt-target vs rest."""
+    """0 = cached net >= hunt.min_net_profit_eur, 4 = over usual price, else hunt-target vs rest."""
     item = identify(listing)
     cached = None
     if callable(peeker) and item.confidence >= min_conf and item.search_query:
