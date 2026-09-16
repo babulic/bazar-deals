@@ -1,8 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
 from decimal import Decimal
-from zoneinfo import ZoneInfo
 
 import httpx
 
@@ -21,7 +19,6 @@ ALERT_LABEL = rules()["github"]["alert_label"]
 ALERT_TOP_N = int(rules()["github"]["alert_top_n"])
 SELL_ALERT_ISSUE_TITLE = str(rules()["github"]["sell_alert_issue_title"])
 SELL_ALERT_LABEL = str(rules()["github"]["sell_alert_label"])
-DIGEST_TZ_DEFAULT = str(rules()["github"].get("digest_timezone", "Europe/Bratislava"))
 _API = "https://api.github.com"
 
 
@@ -36,20 +33,6 @@ def alert_profit_floor(min_net_profit=None) -> Decimal:
     return Decimal(str(rules()["hunt"]["alert_min_net_profit_eur"]))
 
 
-def digest_calendar_date(
-    now: datetime | None = None,
-    tz_name: str = DIGEST_TZ_DEFAULT,
-) -> date:
-    """Ivan's digest day in Europe/Bratislava (CET/CEST)."""
-    tz = ZoneInfo(tz_name or DIGEST_TZ_DEFAULT)
-    current = now.astimezone(tz) if now is not None else datetime.now(tz)
-    return current.date()
-
-
-def digest_marker(day: date) -> str:
-    return f"<!-- hunt-digest:{day.isoformat()} -->"
-
-
 def select_alert_deals(
     deals: list[Deal],
     *,
@@ -58,8 +41,9 @@ def select_alert_deals(
 ) -> list[Deal]:
     """Top hunt cards whose expected net profit is at least the alert floor.
 
-    BUY cards come first. Other scored ads at or above the floor stay visible
-    on the daily digest. Immediate issue comments use select_buy_alerts.
+    BUY cards come first. Other scored ads at or above the floor are only
+    used when HUNT_NOTIFY_PROGRESS formats a debug comment. Immediate issue
+    comments use select_buy_alerts.
     """
     cap = ALERT_TOP_N if limit is None else max(0, int(limit))
     floor = alert_profit_floor(min_net_profit)
@@ -121,18 +105,12 @@ def format_hunt_comment(
     max_buy=None,
     min_alert_profit=None,
     include_progress: bool = True,
-    digest_date: date | None = None,
-    digest_timezone: str = DIGEST_TZ_DEFAULT,
 ) -> str:
     """Hunt report. Pagination/fetch Priebeh is optional (debug flag)."""
     shown = select_alert_deals(run.deals, min_net_profit=min_alert_profit)
     buy_count = sum(1 for deal in run.deals if deal.action is Action.BUY)
     ping = f"@{mention}\n\n" if mention and buy_count else ""
     markers = "\n".join(f"<!-- listing:{listing_key(deal)} -->" for deal in shown)
-    if digest_date is not None:
-        ping = ""
-        digest_line = digest_marker(digest_date)
-        markers = f"{digest_line}\n{markers}" if markers else digest_line
     status = _format_status(
         run,
         min_profit=min_profit,
@@ -141,9 +119,6 @@ def format_hunt_comment(
         buy_count=buy_count,
         shown=len(shown),
         include_progress=include_progress,
-        digest_date=digest_date,
-        digest_timezone=digest_timezone,
-        min_alert_profit=min_alert_profit,
     )
     sections = [f"{ping}{markers}\n{status}" if markers else f"{ping}{status}"]
     if shown:
@@ -301,21 +276,11 @@ def _format_status(
     buy_count: int,
     shown: int,
     include_progress: bool = True,
-    digest_date: date | None = None,
-    digest_timezone: str = DIGEST_TZ_DEFAULT,
-    min_alert_profit=None,
 ) -> str:
     notes = _status_notes(run)
     scored = _funnel_n(run, "scored")
     above = _funnel_n(run, "above_typical")
-    floor = alert_profit_floor(min_alert_profit)
-    if digest_date is not None:
-        zone = digest_timezone or DIGEST_TZ_DEFAULT
-        headline = (
-            f"**Denný súhrn {digest_date.isoformat()} ({zone})** · **0 BUY áno**. "
-            f"Okamžitý alert len pri kúpe s čistým ziskom ≥ {floor} €."
-        )
-    elif buy_count:
+    if buy_count:
         headline = (
             f"**{buy_count} BUY áno** · Top {shown} vyhodnotených kandidátov "
             f"(prešli aj neprešli), BUY prah {min_profit} € čistého zisku."
@@ -411,16 +376,16 @@ class GitHubIssueAlerts:
         )
         return 1
 
-    def post_run(self, run: HuntRun, *, now: datetime | None = None) -> int:
-        """Immediate BUY ≥ alert floor; otherwise one 0-BUY digest per CET day.
+    def post_run(self, run: HuntRun) -> int:
+        """Immediate BUY ≥ alert floor. Silent on 0 BUY, including empty days.
 
         Pagination/fetch Priebeh is omitted unless hunt_notify_progress is on.
         Duplicate BUY listings already commented on this issue are skipped.
+        Near-miss SKIP cards at or above the floor are not posted.
         """
         self._require_auth()
         floor = self.settings.alert_min_net_profit_eur
         include_progress = bool(self.settings.hunt_notify_progress)
-        tz_name = self.settings.hunt_digest_timezone or DIGEST_TZ_DEFAULT
         buys = select_buy_alerts(run.deals, min_net_profit=floor)
 
         if buys:
@@ -472,30 +437,7 @@ class GitHubIssueAlerts:
             )
             return 1
 
-        day = digest_calendar_date(now, tz_name)
-        issue_hint = self._issue_number
-        if issue_hint and self._digest_posted(issue_hint, day):
-            return 0
-        issue = self.ensure_issue()
-        if self._digest_posted(issue, day):
-            return 0
-        body = format_hunt_comment(
-            run,
-            mention=self._assignee(),
-            min_profit=self.settings.min_net_profit_eur,
-            min_buy=self.settings.min_buy_eur,
-            max_buy=self.settings.max_buy_eur,
-            min_alert_profit=floor,
-            include_progress=False,
-            digest_date=day,
-            digest_timezone=tz_name,
-        )
-        self._request(
-            "POST",
-            f"/repos/{self.repo}/issues/{issue}/comments",
-            json={"body": body},
-        )
-        return 1
+        return 0
 
     def post_buyer_digest(self, body: str, *, has_buyers: bool = True) -> int:
         """Post the sell digest only when a want-ad matched own stock."""
@@ -572,16 +514,6 @@ class GitHubIssueAlerts:
         except httpx.HTTPStatusError as exc:
             if exc.response.status_code != 422:
                 raise
-
-    def _digest_posted(self, issue: int, day: date) -> bool:
-        marker = digest_marker(day)
-        try:
-            bodies = self._comment_bodies(issue)
-        except httpx.HTTPStatusError as exc:
-            if exc.response is not None and exc.response.status_code == 404:
-                return False
-            raise
-        return any(marker in body for body in bodies)
 
     def _seen_keys(self, issue: int) -> set[str]:
         keys: set[str] = set()

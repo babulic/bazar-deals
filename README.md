@@ -14,7 +14,7 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments: immediate `@` ping only for **BUY** with expected net ≥ `hunt.alert_min_net_profit_eur`; otherwise **one daily digest** in `github.digest_timezone` (Europe/Bratislava). Pagination/fetch Priebeh is not an alert unless `HUNT_NOTIFY_PROGRESS=true`. Sell comments still require a `kúpim` match.
+Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments: immediate `@` ping only for **BUY** with expected net ≥ `hunt.alert_min_net_profit_eur`. Empty / 0 BUY days stay silent (no daily digest). Pagination/fetch Priebeh is not an alert unless `HUNT_NOTIFY_PROGRESS=true`. Sell comments still require a `kúpim` match.
 
 **0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
@@ -202,7 +202,6 @@ Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config
 | `MIN_NET_PROFIT_EUR` | `hunt.min_net_profit_eur` | Minimum expected clean profit for BUY |
 | `ALERT_MIN_NET_PROFIT_EUR` | `hunt.alert_min_net_profit_eur` | Immediate BUY GitHub alerts fire at this expected net |
 | `HUNT_NOTIFY_PROGRESS` | `github.notify_progress` | If true, Deal alerts include pagination/fetch Priebeh (default off) |
-| `HUNT_DIGEST_TIMEZONE` | `github.digest_timezone` | Calendar day for the 0-BUY digest (default Europe/Bratislava) |
 | `MIN_BUY_EUR` | `hunt.min_buy_eur` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `hunt.max_buy_eur` | Maximum purchase price |
 | `MAX_SHIPPING_EUR` | `hunt.max_shipping_eur` | Conservative inbound shipping when actual cost is unavailable |
@@ -227,10 +226,8 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
    `hunt.alert_min_net_profit_eur` (default 9 €). Duplicate listing keys already
    on the issue are skipped. The BUY floor for scoring remains
    `hunt.min_net_profit_eur` (20 €), so a BUY is always above the notify floor.
-2. **Otherwise one digest per calendar day** in `github.digest_timezone`
-   (`Europe/Bratislava`). The digest is 0 BUY, may include near-miss cards at or
-   above the 9 € floor, and does **not** ping. Later hunts the same CET day stay
-   quiet unless a BUY appears.
+2. **Otherwise silent**, including empty days. No daily “Denný súhrn … 0 BUY”
+   comment. Near-miss SKIP cards at or above 9 € are not posted.
 3. Pagination/fetch progress (`strana X/Y, inzeráty A–B z N`, Priebeh, Zdroje
    fetch counts) is **not** an alert. Set `HUNT_NOTIFY_PROGRESS=true` (catalog
    `github.notify_progress`) only for debug.
