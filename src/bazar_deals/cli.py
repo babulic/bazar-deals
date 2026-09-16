@@ -110,8 +110,8 @@ def main(argv: list[str] | None = None) -> int:
         "--notify",
         action="store_true",
         help=(
-            "Post GitHub issue comments: hunt BUY ≥ alert floor immediately, "
-            "otherwise one 0-BUY digest per CET day; sell --buyers still posts matches"
+            "Post GitHub issue comments: hunt BUY ≥ alert floor immediately; "
+            "silent on 0 BUY. sell --buyers still posts matches"
         ),
     )
     parser.add_argument(
