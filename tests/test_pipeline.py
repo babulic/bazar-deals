@@ -731,6 +731,57 @@ def test_long_description_skips_detail_http() -> None:
     assert run.funnel["scored"] == 1
 
 
+def test_enrich_exception_does_not_abort_scoring() -> None:
+    class _Boom:
+        marketplace = Marketplace.EBAY.value
+
+        def enrich_listing(self, listing):
+            raise RuntimeError("The read operation timed out")
+
+        def fetch_new(self, vertical=None):
+            return []
+
+    class _Sold:
+        def median_sold(self, listing, **kwargs):
+            return SoldComp(
+                median=Decimal("120"),
+                sample=8,
+                label=f"trhová rýchlopredajná cena, {_p25_mark()} bazos/aukro/vinted (n=8)",
+                reliable_for_buy=True,
+            )
+
+        def seed_asking(self, listings):
+            return None
+
+    boom = Listing(
+        marketplace=Marketplace.EBAY,
+        external_id="timeout",
+        title="Apple iPhone 13 128GB",
+        description="",
+        url="https://www.ebay.de/itm/timeout",
+        price=Money(amount=Decimal("40"), currency="EUR"),
+        buy_now=True,
+        ships_to_slovakia=True,
+        raw={"itemHref": "https://api.ebay.com/buy/browse/v1/item/timeout"},
+    )
+    ok = Listing(
+        marketplace=Marketplace.BAZOS,
+        external_id="ok",
+        title="Apple iPhone 13 128GB",
+        description="Plne funkčný telefón, batéria 91 %, bez poškodenia, krabica.",
+        url="https://mobil.bazos.sk/inzerat/ok/",
+        price=Money(amount=Decimal("40"), currency="EUR"),
+    )
+    run = score_listings(
+        [boom, ok],
+        Settings(),
+        _Sold(),
+        enrichers={Marketplace.EBAY: _Boom()},
+    )
+    assert run.funnel["scored"] == 1
+    assert run.funnel["detail_failed"] + run.funnel["insufficient_detail"] >= 1
+
+
 def test_price_book_from_hunt_batch_scores_and_can_buy(tmp_path) -> None:
     from unittest.mock import patch
 

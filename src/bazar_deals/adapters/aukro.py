@@ -23,6 +23,12 @@ _PUBLIC_SEARCH = str(_AUKRO.get("search_url") or "https://backend.aukro.cz/backe
 _SMALL_CATEGORIES = tuple(int(value) for value in _AUKRO.get("small_categories") or ())
 _PAGE_SIZE = int(_AUKRO.get("page_size") or 30)
 _PAGES = int(_AUKRO.get("pages") or 1)
+_FALLBACK_ITEMS = int(_AUKRO.get("fallback_items_count") or 12)
+_SEARCH_SIZE = int(_AUKRO.get("search_size") or 40)
+_DUMP_PAGES_FALLBACK = int(_AUKRO.get("dump_pages_fallback") or 3)
+_GAP_CAP = float(_AUKRO.get("request_gap_cap_seconds") or 0.5)
+_SEARCH_TIMEOUT = float(_AUKRO.get("search_timeout_seconds") or 12)
+_DUMP_TIMEOUT = float(_AUKRO.get("dump_timeout_seconds") or 30)
 _API = "https://api.aukro.cz"
 _NG_STATE = re.compile(
     r'<script[^>]+id=["\']ng-state["\'][^>]*>(?P<payload>.*?)</script>',
@@ -32,7 +38,7 @@ _NG_STATE = re.compile(
 
 def _search_body(category_id: int | None) -> dict:
     body = {
-        "fallbackItemsCount": 12,
+        "fallbackItemsCount": _FALLBACK_ITEMS,
         "splitGroupKey": "listing",
         "splitGroupValue": "A18",
     }
@@ -62,7 +68,7 @@ class AukroHuntClient(ListingSource):
 
         found: dict[str, Listing] = {}
         targeted: dict[str, Listing] = {}
-        gap = min(0.5, max(0.0, self.settings.bazos_request_gap_seconds))
+        gap = min(_GAP_CAP, max(0.0, self.settings.bazos_request_gap_seconds))
         sku_queries = hunt_fetch_queries()
         for query in sku_queries:
             time.sleep(gap)
@@ -73,7 +79,7 @@ class AukroHuntClient(ListingSource):
                 continue
         if not hunt_research_only() and not sku_queries:
             categories = _SMALL_CATEGORIES or (None,)
-            pages = _PAGES if _SMALL_CATEGORIES else 3
+            pages = _PAGES if _SMALL_CATEGORIES else _DUMP_PAGES_FALLBACK
             for index, category_id in enumerate(categories):
                 if index:
                     time.sleep(gap)
@@ -87,7 +93,7 @@ class AukroHuntClient(ListingSource):
                             "Content-Type": "application/json",
                         },
                         json=_search_body(category_id),
-                        timeout=30.0,
+                        timeout=_DUMP_TIMEOUT,
                         follow_redirects=True,
                     )
                     response.raise_for_status()
@@ -106,7 +112,7 @@ class AukroHuntClient(ListingSource):
             ordered.append(listing)
         return ordered
 
-    def search(self, query: str, *, size: int = 40) -> list[Listing]:
+    def search(self, query: str, *, size: int = _SEARCH_SIZE) -> list[Listing]:
         """Current buy-now offers matching `query`, for the price book."""
         if self.fixture_path or not query.strip():
             return []
@@ -121,9 +127,9 @@ class AukroHuntClient(ListingSource):
             json={
                 **_search_body(None),
                 "text": query.strip(),
-                "fallbackItemsCount": 12,
+                "fallbackItemsCount": _FALLBACK_ITEMS,
             },
-            timeout=12.0,
+            timeout=_SEARCH_TIMEOUT,
             follow_redirects=True,
         )
         response.raise_for_status()

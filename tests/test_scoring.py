@@ -4,7 +4,6 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.scoring import assumed_shipping, score_deal
-from bazar_deals.watchlist import MIN_BATTERY_HEALTH_PERCENT
 from bazar_deals.working import is_working_listing
 
 
@@ -61,13 +60,14 @@ def test_vinted_includes_buyer_protection_and_resale_fee_reserve() -> None:
 
 
 def test_battery_under_threshold_and_no_box_reduce_resale_value() -> None:
-    from bazar_deals.watchlist import BATTERY_UNDER_PCT
+    under = Settings().battery_under_pct
+    minimum = Settings().min_battery_health_percent
 
     listing = Listing(
         marketplace=Marketplace.BAZOS,
         external_id="iphone",
         title="Apple iPhone SE 2020 64 GB",
-        description=f"Batéria {BATTERY_UNDER_PCT - 3} %, bez krabičky, plne funkčný.",
+        description=f"Batéria {under - 3} %, bez krabičky, plne funkčný.",
         url="https://mobil.bazos.sk/inzerat/1/iphone.php",
         price=Money(amount=Decimal("40"), currency="EUR"),
         condition=Condition.USED,
@@ -81,16 +81,17 @@ def test_battery_under_threshold_and_no_box_reduce_resale_value() -> None:
     expected = (Decimal("70") * settings.battery_under_80_haircut_rate) + settings.no_box_haircut_eur
     assert deal.costs.condition_haircut == expected
     assert deal.action.value == "skip"
-    assert f"{BATTERY_UNDER_PCT - 3}% < {MIN_BATTERY_HEALTH_PERCENT}%" in deal.reason
+    assert f"{under - 3}% < {minimum}%" in deal.reason
 
 
 def test_battery_health_below_minimum_is_rejected() -> None:
+    floor = Settings().min_battery_health_percent
     low = identify(
-        _listing("38", description=f"Plne funkčný, batéria {MIN_BATTERY_HEALTH_PERCENT - 1} %."),
+        _listing("38", description=f"Plne funkčný, batéria {floor - 1} %."),
         Vertical.APPLE,
     )
     minimum = identify(
-        _listing("38", description=f"Plne funkčný, batéria {MIN_BATTERY_HEALTH_PERCENT} %."),
+        _listing("38", description=f"Plne funkčný, batéria {floor} %."),
         Vertical.APPLE,
     )
     assert score_deal(low, Decimal("120"), Decimal("8")).action.value == "skip"
@@ -98,11 +99,12 @@ def test_battery_health_below_minimum_is_rejected() -> None:
 
 
 def test_structured_battery_health_below_minimum_is_rejected() -> None:
+    floor = Settings().min_battery_health_percent
     low = _listing("38").model_copy(
-        update={"raw": {"batteryHealth": f"{MIN_BATTERY_HEALTH_PERCENT - 1}%"}}
+        update={"raw": {"batteryHealth": f"{floor - 1}%"}}
     )
     minimum = _listing("38").model_copy(
-        update={"raw": {"batteryHealth": f"{MIN_BATTERY_HEALTH_PERCENT}%"}}
+        update={"raw": {"batteryHealth": f"{floor}%"}}
     )
     assert is_working_listing(low) is False
     assert is_working_listing(minimum) is True

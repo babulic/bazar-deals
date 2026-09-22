@@ -31,7 +31,6 @@ from bazar_deals.identity import (
     with_specs,
 )
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import P25_FACTOR
 from bazar_deals.working import is_damaged_text
 
 _PRICE_BOOK_VERSION = "same-object-v4:"
@@ -129,7 +128,7 @@ def _lower_quartile(amounts: list[Decimal]) -> Decimal:
 
 
 def _p25_factor(factor: Decimal | None = None) -> Decimal:
-    return P25_FACTOR if factor is None else factor
+    return Decimal(str(rules()["hunt"]["p25_factor"])) if factor is None else factor
 
 
 def _p25_mark(factor: Decimal | None = None) -> str:
@@ -622,7 +621,7 @@ class SoldCompClient:
         # Do not `with ThreadPoolExecutor`: shutdown(wait=True) waits out hung
         # HTTP workers even after wait(..., timeout=20). That stalled scoring
         # on the first listing for ~20 minutes in GHA.
-        pool = ThreadPoolExecutor(max_workers=4)
+        pool = ThreadPoolExecutor(max_workers=max(1, int(rules()["hunt"]["live_search_workers"])))
         try:
             futs = [
                 pool.submit(self._bazos_search, query),
@@ -693,7 +692,11 @@ class SoldCompClient:
 
         try:
             client = EbayBrowseClient(self.settings)
-            data = client.search_query(query, limit=50, purchase_budget=False)
+            data = client.search_query(
+                query,
+                limit=int(rules()["ebay"]["comps_limit"]),
+                purchase_budget=False,
+            )
         except (httpx.HTTPError, RuntimeError, ValueError):
             return []
         found: list[Listing] = []

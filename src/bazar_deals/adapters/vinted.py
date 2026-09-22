@@ -20,6 +20,10 @@ _PROD = "https://pro.svc.vinted.com"
 _SANDBOX = "https://pro-public-sandbox.svc.vinted.com"
 _VINTED = rules().get("vinted") or {}
 _CATALOGS = tuple(str(path) for path in _VINTED.get("catalogs") or ())
+_SEARCH_LIMIT = int(_VINTED.get("search_limit") or 48)
+_CATALOG_PER_PAGE = int(_VINTED.get("catalog_per_page") or 96)
+_GAP_CAP = float(_VINTED.get("request_gap_cap_seconds") or 0.4)
+_TIMEOUT = float(_VINTED.get("timeout_seconds") or 30)
 _HOST = "https://www.vinted.sk"
 _CATALOG_API = f"{_HOST}/api/v2/catalog/items"
 _BROWSER_UA = (
@@ -90,14 +94,14 @@ class VintedHuntClient(ListingSource):
         found: list[Listing] = []
         seen: set[str] = set()
         paths = _CATALOGS or (None,)
-        gap = min(0.4, max(0.0, self.settings.bazos_request_gap_seconds))
+        gap = min(_GAP_CAP, max(0.0, self.settings.bazos_request_gap_seconds))
         owned = self._client is None
         client = self._client or httpx.Client(
             headers={
                 "User-Agent": _BROWSER_UA,
                 "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
             },
-            timeout=30.0,
+            timeout=_TIMEOUT,
             follow_redirects=True,
         )
         try:
@@ -106,7 +110,7 @@ class VintedHuntClient(ListingSource):
             for query in sku_queries:
                 time.sleep(gap)
                 try:
-                    for item in self.search(query, limit=48):
+                    for item in self.search(query, limit=_SEARCH_LIMIT):
                         key = item.external_id or str(item.url)
                         if key in seen:
                             continue
@@ -132,7 +136,7 @@ class VintedHuntClient(ListingSource):
             raise RuntimeError(VINTED_BLOCKED)
         return found
 
-    def search(self, query: str, *, limit: int = 48) -> list[Listing]:
+    def search(self, query: str, *, limit: int = _SEARCH_LIMIT) -> list[Listing]:
         """Current catalog hits matching `query`, for the price book."""
         text = query.strip()
         if self.fixture_path or not text:
@@ -143,7 +147,7 @@ class VintedHuntClient(ListingSource):
                 "User-Agent": _BROWSER_UA,
                 "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
             },
-            timeout=30.0,
+            timeout=_TIMEOUT,
             follow_redirects=True,
         )
         try:
@@ -185,7 +189,7 @@ class VintedHuntClient(ListingSource):
                 "Accept-Language": "sk-SK,sk;q=0.9,en;q=0.8",
                 "Accept": "text/html",
             },
-            timeout=30.0,
+            timeout=_TIMEOUT,
             follow_redirects=True,
         )
         try:
@@ -241,7 +245,7 @@ class VintedHuntClient(ListingSource):
             "order": "newest_first",
             "price_from": lo,
             "price_to": hi,
-            "per_page": 96,
+            "per_page": _CATALOG_PER_PAGE,
             "page": 1,
         }
         catalog_id = _catalog_id(path)

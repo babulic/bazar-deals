@@ -27,7 +27,13 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from flask import Flask, Response, jsonify, redirect, render_template_string, request
 
-from bazar_deals.watchlist import MAX_BATCH_LISTINGS, MAX_BATCH_NOTE_CHARS, MAX_SOLD_LOOKUPS
+from bazar_deals.rules import rules
+
+_HUNT = rules()["hunt"]
+_MAX_SOLD_LOOKUPS = int(_HUNT["max_sold_lookups"])
+_MAX_BATCH_LISTINGS = int(_HUNT["max_batch_listings"])
+_MAX_BATCH_NOTE_CHARS = int(_HUNT["max_batch_note_chars"])
+_BATCH_TTL_SECONDS = int(_HUNT["comps_ttl_days"]) * 86400
 
 
 class SnapshotStore:
@@ -70,7 +76,7 @@ class SnapshotStore:
 
     def status(self):
         with self.connect() as db:
-            db.execute("DELETE FROM batches WHERE created < ?", (time.time() - 7 * 86400,))
+            db.execute("DELETE FROM batches WHERE created < ?", (time.time() - _BATCH_TTL_SECONDS,))
             epoch, enabled = db.execute("SELECT epoch, enabled FROM state WHERE id=1").fetchone()
         return {"epoch": epoch, "enabled": bool(enabled)}
 
@@ -85,7 +91,7 @@ class SnapshotStore:
             clean = [r for r in records if r.get("seller") and self.identity(r["seller"]) not in blocked
                      and (not r.get("seller_id") or self.identity(r["seller_id"]) not in blocked)]
             db.execute("INSERT INTO batches(created,payload) VALUES (?,?)", (time.time(), self.cipher.encrypt(json.dumps(clean).encode()).decode()))
-            db.execute("DELETE FROM batches WHERE created < ?", (time.time() - 7 * 86400,))
+            db.execute("DELETE FROM batches WHERE created < ?", (time.time() - _BATCH_TTL_SECONDS,))
             return len(clean)
 
     def purge(self, identities, event_id):
@@ -405,12 +411,12 @@ def create_app(config=None, verifier=None):
             not isinstance(batch_id, str)
             or not re.fullmatch(r"[a-f0-9]{32}", batch_id)
             or type(page_size) is not int
-            or not 1 <= page_size <= MAX_SOLD_LOOKUPS
+            or not 1 <= page_size <= _MAX_SOLD_LOOKUPS
             or not isinstance(listings, list)
-            or len(listings) > MAX_BATCH_LISTINGS
+            or len(listings) > _MAX_BATCH_LISTINGS
             or any(not isinstance(row, dict) for row in listings)
             or not isinstance(notes, list)
-            or any(not isinstance(note, str) or len(note) > MAX_BATCH_NOTE_CHARS for note in notes)
+            or any(not isinstance(note, str) or len(note) > _MAX_BATCH_NOTE_CHARS for note in notes)
         ):
             return "", 400
         try:
