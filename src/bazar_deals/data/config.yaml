@@ -149,7 +149,15 @@ hunt:
   comps_price_multiple: 3
   # Wall-clock for parallel Bazos/Aukro/Vinted/eBay price-book searches.
   live_search_seconds: 20
+  live_search_workers: 4
   http_timeout_seconds: 12
+  # Fetch a detail page when catalog text is shorter than this.
+  enrich_description_min_chars: 40
+  # Phones/hardware/photo without this much body text cannot be valued.
+  insufficient_detail_min_chars: 10
+  # Scoring order when several marketplaces sit in the same page.
+  marketplace_priority: [vinted, aukro, ebay, bazos, sbazar, facebook, olx]
+  high_risk_detail_kinds: [phones, hardware, photo]
   # Local 0-BUY research pass may score more ads than max_score_listings.
   research_score_listings: 120
   # Pydantic/env ceiling for HUNT_SCORE_SECONDS.
@@ -160,6 +168,14 @@ hunt:
   min_sold_sample_cap: 20
   score_heartbeat_every: 50
   no_box_haircut_eur: 5
+  no_box_markers:
+    - bez krabice
+    - bez krabičky
+    - bez krabicky
+    - without box
+    - no box
+    - ohne ovp
+    - ohne originalverpackung
   # Skip the ad below this stated battery health. Haircut bands use the
   # thresholds below (under / mid / good) with the matching rates.
   min_battery_health_percent: 84
@@ -177,6 +193,7 @@ ai:
   provider: auto
   max_reviews: 8
   max_identifications: 12
+  review_retries: 2
   review_ttl_days: 14
   min_confidence: 0.75
   timeout_seconds: 90
@@ -1197,6 +1214,16 @@ catalog:
       - moldavite
       - surový kameň
       - raw stone
+  # Cassette games, straps, tees, bags and perfume never clear 20 € on honest comps.
+  low_yield_kinds: [media, clothing, accessories, books, bags, cosmetics]
+  high_yield_kinds: [phones, hardware, photo, jewelry, minerals, musical, tools]
+  drop_kinds: [accessories, clothing, bags, cosmetics, books, media]
+  # Low-liquidity early digital SLR bodies. Lenses and modern mirrorless stay in.
+  obsolete_dslr_patterns:
+    - '(?:canon\s+)?eos\s*(?:300d|350d|400d|450d|500d|550d|600d|650d|700d|1000d|1100d|1200d)'
+    - 'nikon\s+d(?:40x?|50|60|70|80|90|100|200|300|3000|3100|3200|3300)'
+    - 'sony\s+(?:alpha\s*)?(?:a|α)(?:100|200|230|290|300|330|350|380|390|450|500|550|560|580)'
+    - 'pentax\s+k(?:10d|20d|-m|-x|-r)'
   # Drop fashion at fetch, not only at scoring. Word-boundary, min 4 chars.
   # Do not list "watch" / "cap" / "book" (false hits on Apple Watch, Facebook).
   fashion_drop_markers:
@@ -1403,6 +1430,12 @@ aukro:
   search_url: https://backend.aukro.cz/backend-web/api/offers/searchItemsCommon
   page_size: 24
   pages: 1
+  fallback_items_count: 12
+  search_size: 40
+  dump_pages_fallback: 3
+  request_gap_cap_seconds: 0.5
+  search_timeout_seconds: 12
+  dump_timeout_seconds: 30
   # Fast-moving shoebox categories. Unfiltered newest is a seasonal lighting dump.
   small_categories:
     # Phones, wearables, photo, computers, consoles, minerals, tools.
@@ -1430,6 +1463,10 @@ aukro:
     - 78527    # Ruční nářadí
 
 vinted:
+  search_limit: 48
+  catalog_per_page: 96
+  request_gap_cap_seconds: 0.4
+  timeout_seconds: 30
   # Electronics-only public catalogs. Clothing, bags, footwear, cosmetics, books
   # and trading cards are not hunted.
   catalogs:
@@ -1794,6 +1831,14 @@ ebay:
   # Hourly hunt searches both German and Austrian storefronts. Browse still
   # requires deliveryCountry:SK; ebay.at URLs used to be dropped after a DE-only filter.
   hunt_marketplace_ids: [EBAY_DE, EBAY_AT]
+  hunt_hosts: [ebay.de, ebay.at]
+  retry_budget: 6
+  fetch_limit: 30
+  comps_limit: 50
+  retry_after_default_seconds: 4.0
+  retry_after_min_seconds: 1.0
+  retry_after_max_seconds: 45.0
+  http_timeout_seconds: 20
   token_url: https://api.ebay.com/identity/v1/oauth2/token
   search_url: https://api.ebay.com/buy/browse/v1/item_summary/search
   oauth_scope: https://api.ebay.com/oauth/api_scope
@@ -1827,6 +1872,8 @@ ebay:
 # 28 covers the fetch_queries pack before yaml `all`. No pokemon / clothing.
 central_europe:
   max_queries: 28
+  expand_max_queries: 40
+  allegro_limit: 60
   queries:
     all: [iphone, airpods, apple watch, nintendo switch, galaxy, gopro, kindle, commodore 1541, ametyst, canon, garmin, pixel]
     retro: [commodore 1541, nintendo switch, gameboy]

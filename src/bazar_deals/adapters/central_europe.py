@@ -457,7 +457,7 @@ class CentralEuropeClient(ListingSource):
             queries.append(query)
         cap = int(config["max_queries"])
         if hunt_expand():
-            cap = max(cap, 40)
+            cap = max(cap, int(config.get("expand_max_queries") or cap))
         found = {}
         for query in queries[:cap]:
             try:
@@ -500,7 +500,7 @@ class CentralEuropeClient(ListingSource):
                      "User-Agent": USER_AGENT},
             params={"phrase": query, "marketplaceId": self.marketplace.replace("_", "-"),
                     "shipping.country": "SK", "currency": "EUR", "sellingMode.format": "BUY_NOW",
-                    "sort": "-startTime", "limit": 60},
+                    "sort": "-startTime", "limit": int(rules()["central_europe"].get("allegro_limit") or 60)},
         )
         payload = response.json()
         if not isinstance(payload.get("items"), dict):

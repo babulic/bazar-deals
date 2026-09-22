@@ -4,14 +4,6 @@ from pathlib import Path
 from bazar_deals.config import Settings
 from bazar_deals.github_alerts import ALERT_LABEL, ALERT_TOP_N
 from bazar_deals.rules import _PACKAGE_YAML, rules
-from bazar_deals.watchlist import (
-    MAX_SCORE_LISTINGS,
-    MAX_SCORE_SECONDS,
-    MAX_SOLD_LOOKUPS,
-    MIN_BATTERY_HEALTH_PERCENT,
-    MIN_SOLD_SAMPLE,
-    P25_FACTOR,
-)
 
 
 def test_yaml_holds_lists_and_gates() -> None:
@@ -54,10 +46,10 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert settings.fx_cache == hunt["fx_cache"]
     assert settings.hunt_batch_db == hunt["hunt_batch_db"]
     assert settings.fx_max_age_days == hunt["fx_max_age_days"]
-    assert settings.comps_live_queries == hunt["max_sold_lookups"] == MAX_SOLD_LOOKUPS
+    assert settings.comps_live_queries == hunt["max_sold_lookups"]
     assert settings.hunt_batch_page_size == hunt["batch_page_size"]
-    assert settings.min_sold_sample == hunt["min_sold_sample"] == MIN_SOLD_SAMPLE
-    assert settings.p25_factor == dec(hunt, "p25_factor") == P25_FACTOR
+    assert settings.min_sold_sample == hunt["min_sold_sample"]
+    assert settings.p25_factor == dec(hunt, "p25_factor")
     assert settings.comps_price_multiple == dec(hunt, "comps_price_multiple")
     assert settings.live_search_seconds == hunt["live_search_seconds"]
     assert settings.http_timeout_seconds == hunt["http_timeout_seconds"]
@@ -77,9 +69,23 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert settings.openai_base_url == ai["openai_base_url"]
     assert settings.openai_model == ai["openai_model"]
     assert settings.copilot_model == ai["copilot_model"]
-    assert hunt["max_score_listings"] == MAX_SCORE_LISTINGS
-    assert hunt["min_battery_health_percent"] == MIN_BATTERY_HEALTH_PERCENT
+    assert hunt["max_score_listings"] == 80
+    assert hunt["min_battery_health_percent"] == settings.min_battery_health_percent
     assert hunt["battery_under_pct"] < hunt["battery_mid_pct"] < hunt["battery_good_pct"]
+    assert hunt["live_search_workers"] == 4
+    assert hunt["enrich_description_min_chars"] == 40
+    assert hunt["insufficient_detail_min_chars"] == 10
+    assert hunt["marketplace_priority"][0] == "vinted"
+    assert hunt["high_risk_detail_kinds"] == ["phones", "hardware", "photo"]
+    assert "bez krabičky" in hunt["no_box_markers"]
+    assert ai["review_retries"] == 2
+    assert "phones" in data["catalog"]["high_yield_kinds"]
+    assert "media" in data["catalog"]["drop_kinds"]
+    assert data["ebay"]["fetch_limit"] == 30
+    assert data["ebay"]["comps_limit"] == 50
+    assert data["aukro"]["search_size"] == 40
+    assert data["vinted"]["search_limit"] == 48
+    assert data["central_europe"]["expand_max_queries"] == 40
     assert "max_no_comp_alerts" not in hunt
     assert "iphone" in data["hunt"]["target_queries"]
     assert "pixel" in data["hunt"]["target_queries"]
@@ -144,7 +150,7 @@ def test_hunt_score_seconds_accepts_github_actions_5400(monkeypatch) -> None:
     monkeypatch.setenv("HUNT_SCORE_SECONDS", "5400")
     assert Settings().hunt_score_seconds == 5400
     monkeypatch.setenv("HUNT_SCORE_SECONDS", "99999")
-    assert Settings().hunt_score_seconds == MAX_SCORE_SECONDS
+    assert Settings().hunt_score_seconds == rules()["hunt"]["max_score_seconds"]
 
 
 def test_catalog_is_only_the_packaged_yaml() -> None:
@@ -152,5 +158,15 @@ def test_catalog_is_only_the_packaged_yaml() -> None:
     assert _PACKAGE_YAML == root / "src" / "bazar_deals" / "data" / "config.yaml"
     assert not (root / "bazar.yaml").exists()
     assert not (root / "src" / "bazar_deals" / "data" / "bazar.yaml").exists()
+    assert not (root / "src" / "bazar_deals" / "watchlist.py").exists()
     assert rules()["hunt"]["min_net_profit_eur"] == 20
     assert rules()["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"
+
+
+def test_scheduled_hunt_exports_ai_budget_from_yaml() -> None:
+    hunt_yaml = Path(".github/workflows/hunt.yml").read_text(encoding="utf-8")
+    assert "from bazar_deals.watchlist" not in hunt_yaml
+    assert "from bazar_deals.rules import rules" in hunt_yaml
+    assert "AI_MAX_REVIEWS={ai['max_reviews']}" in hunt_yaml
+    assert "AI_MAX_IDENTIFICATIONS={ai['max_identifications']}" in hunt_yaml
+    assert "MAX_SCORE_LISTINGS={hunt['max_score_listings']}" in hunt_yaml

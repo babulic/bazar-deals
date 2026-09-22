@@ -6,7 +6,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bazar_deals.watchlist import MAX_SOLD_LOOKUPS
+from bazar_deals.rules import rules
 from bazar_deals.adapters.central_europe import CentralEuropeClient, HUNT_SITES, SITES
 from bazar_deals.adapters.aukro import AukroHuntClient
 from bazar_deals.adapters.bazos import BazosRssClient
@@ -150,7 +150,10 @@ def main(argv: list[str] | None = None) -> int:
         "--batch-page-size",
         type=int,
         default=None,
-        help=f"Usable listings scored per persisted batch page (maximum {MAX_SOLD_LOOKUPS}).",
+        help=(
+            "Usable listings scored per persisted batch page "
+            f"(maximum {int(rules()['hunt']['max_sold_lookups'])})."
+        ),
     )
     parser.add_argument(
         "--batch-status",

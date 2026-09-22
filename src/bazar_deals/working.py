@@ -7,7 +7,6 @@ import unicodedata
 
 from bazar_deals.domain import Condition, Listing
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import MIN_BATTERY_HEALTH_PERCENT
 
 
 def _fold(text: str) -> str:
@@ -46,7 +45,7 @@ def is_working_listing(listing: Listing) -> bool:
         return False
     text = f"{listing.title} {listing.description} {_raw_text(listing.raw)}"
     health = battery_health(text)
-    if health is not None and health < MIN_BATTERY_HEALTH_PERCENT:
+    if health is not None and health < int(rules()["hunt"]["min_battery_health_percent"]):
         return False
     return not is_damaged_text(text)
 

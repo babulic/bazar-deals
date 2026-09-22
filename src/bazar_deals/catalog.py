@@ -122,44 +122,26 @@ def matches_hunt_target(text: str) -> bool:
     return False
 
 
+def _kind_set(key: str) -> frozenset[str]:
+    return frozenset(str(item).casefold() for item in (_catalog().get(key) or []))
+
+
 # Cassette games, straps, tees, bags and perfume never clear 20 € on honest comps.
 # Live price-book budget goes to kinds that still can.
-_LOW_YIELD_KINDS = frozenset({
-    "media",
-    "clothing",
-    "accessories",
-    "books",
-    "bags",
-    "cosmetics",
-})
-_HIGH_YIELD_KINDS = frozenset({
-    "phones",
-    "hardware",
-    "photo",
-    "jewelry",
-    "minerals",
-    "musical",
-    "tools",
-})
-_DROP_KINDS = frozenset({
-    "accessories",
-    "clothing",
-    "bags",
-    "cosmetics",
-    "books",
-    "media",
-})
+_LOW_YIELD_KINDS = _kind_set("low_yield_kinds")
+_HIGH_YIELD_KINDS = _kind_set("high_yield_kinds")
+_DROP_KINDS = _kind_set("drop_kinds")
 
 # Low-liquidity early digital SLR bodies explicitly excluded from this hunt.
 # The model token is required, so lenses and modern mirrorless Canon/Nikon gear
 # are unaffected.
 _OBSOLETE_DSLR_RE = re.compile(
     r"\b(?:"
-    r"(?:canon\s+)?eos\s*(?:300d|350d|400d|450d|500d|550d|600d|650d|700d|1000d|1100d|1200d)"
-    r"|nikon\s+d(?:40x?|50|60|70|80|90|100|200|300|3000|3100|3200|3300)"
-    r"|sony\s+(?:alpha\s*)?(?:a|α)(?:100|200|230|290|300|330|350|380|390|450|500|550|560|580)"
-    r"|pentax\s+k(?:10d|20d|-m|-x|-r)"
-    r")\b",
+    + "|".join(
+        f"(?:{pattern})"
+        for pattern in (_catalog().get("obsolete_dslr_patterns") or [])
+    )
+    + r")\b",
     re.IGNORECASE,
 )
 

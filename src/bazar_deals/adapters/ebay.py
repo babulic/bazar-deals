@@ -21,8 +21,14 @@ _SMALL_CATEGORIES = tuple(_EBAY["small_categories"])
 _HUNT_MARKETPLACES = tuple(
     str(item) for item in (_EBAY.get("hunt_marketplace_ids") or [_EBAY["marketplace_id"]])
 )
-_HUNT_HOSTS = ("ebay.de", "ebay.at")
-_EBAY_RETRY_BUDGET = 6
+_HUNT_HOSTS = tuple(str(item) for item in (_EBAY.get("hunt_hosts") or ("ebay.de", "ebay.at")))
+_EBAY_RETRY_BUDGET = int(_EBAY.get("retry_budget") or 6)
+_FETCH_LIMIT = int(_EBAY.get("fetch_limit") or 30)
+_COMPS_LIMIT = int(_EBAY.get("comps_limit") or 50)
+_HTTP_TIMEOUT = float(_EBAY.get("http_timeout_seconds") or 20)
+_RETRY_AFTER_DEFAULT = float(_EBAY.get("retry_after_default_seconds") or 4.0)
+_RETRY_AFTER_MIN = float(_EBAY.get("retry_after_min_seconds") or 1.0)
+_RETRY_AFTER_MAX = float(_EBAY.get("retry_after_max_seconds") or 45.0)
 
 
 def hunt_ebay_marketplace_ids() -> tuple[str, ...]:
@@ -83,7 +89,7 @@ class EbayBrowseClient(ListingSource):
                 if throttled:
                     break
                 try:
-                    data = self.search_query(query, limit=30, marketplace_id=marketplace_id)
+                    data = self.search_query(query, limit=_FETCH_LIMIT, marketplace_id=marketplace_id)
                 except httpx.HTTPStatusError as exc:
                     last_exc = exc
                     if exc.response is not None and exc.response.status_code == 429:
@@ -102,7 +108,7 @@ class EbayBrowseClient(ListingSource):
             if not hunt_research_only() and not throttled and len(seen) == seen_before:
                 for category in _SMALL_CATEGORIES:
                     try:
-                        data = self.search(category, limit=30, marketplace_id=marketplace_id)
+                        data = self.search(category, limit=_FETCH_LIMIT, marketplace_id=marketplace_id)
                     except httpx.HTTPStatusError as exc:
                         last_exc = exc
                         if exc.response is not None and exc.response.status_code == 429:
@@ -153,14 +159,14 @@ class EbayBrowseClient(ListingSource):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
-        headers = self._browse_headers(
-            str(listing.raw.get("ebay_marketplace") or marketplace_id_for_url(listing.url))
-        )
         try:
-            response = httpx.get(href, headers=headers, timeout=20.0)
+            headers = self._browse_headers(
+                str(listing.raw.get("ebay_marketplace") or marketplace_id_for_url(listing.url))
+            )
+            response = httpx.get(href, headers=headers, timeout=_HTTP_TIMEOUT)
             response.raise_for_status()
             data = response.json()
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, RuntimeError, ValueError):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
@@ -192,7 +198,7 @@ class EbayBrowseClient(ListingSource):
         return headers
 
     def search(
-        self, category_id: str, *, limit: int = 50, marketplace_id: str | None = None
+        self, category_id: str, *, limit: int = _COMPS_LIMIT, marketplace_id: str | None = None
     ) -> dict:
         params = {
             "category_ids": category_id,
@@ -209,7 +215,7 @@ class EbayBrowseClient(ListingSource):
         self,
         query: str,
         *,
-        limit: int = 50,
+        limit: int = _COMPS_LIMIT,
         purchase_budget: bool = True,
         marketplace_id: str | None = None,
     ) -> dict:
@@ -233,7 +239,7 @@ class EbayBrowseClient(ListingSource):
                 response = self._client.get(_SEARCH_URL, headers=headers, params=params)
             else:
                 response = httpx.get(
-                    _SEARCH_URL, headers=headers, params=params, timeout=20.0
+                    _SEARCH_URL, headers=headers, params=params, timeout=_HTTP_TIMEOUT
                 )
             if response.status_code == 429 and retries > 0:
                 retries -= 1
@@ -245,7 +251,7 @@ class EbayBrowseClient(ListingSource):
     def _retry_wait(self, seconds: float) -> None:
         if self._client is not None or self.settings.bazos_request_gap_seconds <= 0:
             return
-        time.sleep(max(1.0, min(seconds, 45.0)))
+        time.sleep(max(_RETRY_AFTER_MIN, min(seconds, _RETRY_AFTER_MAX)))
 
     def _access_token(self) -> str:
         if not self.settings.ebay_retention_enabled:
@@ -267,7 +273,7 @@ class EbayBrowseClient(ListingSource):
             response = self._client.post(_TOKEN_URL, auth=auth, data=payload, headers=headers)
         else:
             response = httpx.post(
-                _TOKEN_URL, auth=auth, data=payload, headers=headers, timeout=20.0
+                _TOKEN_URL, auth=auth, data=payload, headers=headers, timeout=_HTTP_TIMEOUT
             )
         if response.status_code >= 400:
             raise RuntimeError(_oauth_reject_message(response))
@@ -310,8 +316,8 @@ def _retry_after_seconds(response: httpx.Response) -> float:
     try:
         wait = float(header)
     except ValueError:
-        wait = 4.0
-    return max(1.0, min(wait, 45.0))
+        wait = _RETRY_AFTER_DEFAULT
+    return max(_RETRY_AFTER_MIN, min(wait, _RETRY_AFTER_MAX))
 
 
 def browse_filter(*, min_price=None, max_price=None) -> str:

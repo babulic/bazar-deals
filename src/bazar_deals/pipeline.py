@@ -30,16 +30,31 @@ from bazar_deals.scoring import assumed_shipping, estimate_net_profit, score_dea
 from bazar_deals.soldcomps import PriceBookMiss, SoldCompClient
 from bazar_deals.working import is_working_listing
 
-_HIGH_RISK_DETAIL_KINDS = {"phones", "hardware", "photo"}
-_MARKETPLACE_PRIORITY = (
-    Marketplace.VINTED,
-    Marketplace.AUKRO,
-    Marketplace.EBAY,
-    Marketplace.BAZOS,
-    Marketplace.SBAZAR,
-    Marketplace.FACEBOOK,
-    Marketplace.OLX,
-)
+
+def _high_risk_detail_kinds() -> set[str]:
+    return {
+        str(item).casefold()
+        for item in (rules()["hunt"].get("high_risk_detail_kinds") or [])
+    }
+
+
+def _marketplace_priority() -> tuple[Marketplace, ...]:
+    found: list[Marketplace] = []
+    for name in rules()["hunt"].get("marketplace_priority") or []:
+        try:
+            found.append(Marketplace(str(name)))
+        except ValueError:
+            continue
+    return tuple(found)
+
+
+def _enrich_description_min_chars() -> int:
+    return int(rules()["hunt"]["enrich_description_min_chars"])
+
+
+def _insufficient_detail_min_chars() -> int:
+    return int(rules()["hunt"]["insufficient_detail_min_chars"])
+
 
 _FUNNEL_KEYS = (
     "fetched",
@@ -296,7 +311,7 @@ def score_listings(
                 not listing.manual_import
                 and enricher is not None
                 and (
-                    len(listing.description.strip()) < 40
+                    len(listing.description.strip()) < _enrich_description_min_chars()
                     or (
                         listing.marketplace is Marketplace.AUKRO
                         and listing.condition.value == "unknown"
@@ -316,7 +331,12 @@ def score_listings(
                 work += 1
 
             if need_enrich:
-                listing = enricher.enrich_listing(listing)
+                try:
+                    listing = enricher.enrich_listing(listing)
+                except (httpx.HTTPError, RuntimeError, ValueError, TimeoutError):
+                    raw = dict(listing.raw)
+                    raw["detail_fetched"] = False
+                    listing = listing.model_copy(update={"raw": raw})
                 if listing.raw.get("detail_fetched") is False and not listing.description.strip():
                     funnel["detail_failed"] += 1
             try:
@@ -348,7 +368,7 @@ def score_listings(
                 continue
 
             item = identify(listing)
-            if item.kind in _HIGH_RISK_DETAIL_KINDS and len(listing.description.strip()) < 10:
+            if item.kind in _high_risk_detail_kinds() and len(listing.description.strip()) < _insufficient_detail_min_chars():
                 funnel["insufficient_detail"] += 1
                 continue
             if item.confidence < min_conf or not item.search_query:
@@ -609,7 +629,7 @@ def _apply_ai_gate(
         reviewed += 1
         review = None
         last_exc: BaseException | None = None
-        for _attempt in range(2):
+        for _attempt in range(max(1, int(rules()["ai"].get("review_retries") or 2))):
             try:
                 review = reviewer.review(deal)
                 last_exc = None
@@ -718,7 +738,7 @@ def _round_robin_deals(deals: list[Deal]) -> list[Deal]:
 
 
 def _round_robin_groups(groups):
-    order = [market for market in _MARKETPLACE_PRIORITY if groups.get(market)]
+    order = [market for market in _marketplace_priority() if groups.get(market)]
     order.extend(market for market in groups if market not in order and groups.get(market))
     out = []
     index = 0
@@ -777,7 +797,7 @@ def _format_funnel(funnel: Counter[str]) -> str:
 
 
 def _format_source_health(source_stats: dict[Marketplace, Counter[str]]) -> str:
-    order = [market for market in _MARKETPLACE_PRIORITY if market in source_stats]
+    order = [market for market in _marketplace_priority() if market in source_stats]
     order.extend(market for market in source_stats if market not in order)
     parts = []
     for market in order:

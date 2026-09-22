@@ -6,8 +6,7 @@ from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import BATTERY_GOOD_PCT, BATTERY_MID_PCT, BATTERY_UNDER_PCT
-from bazar_deals.working import MIN_BATTERY_HEALTH_PERCENT, battery_health
+from bazar_deals.working import battery_health
 
 
 def assumed_shipping(buy: Decimal, settings: Settings | None = None) -> Decimal:
@@ -33,21 +32,15 @@ def condition_haircut(item: IdentifiedItem, resale: Decimal, settings: Settings)
 
     battery = battery_health(text)
     if battery is not None:
-        if battery < BATTERY_UNDER_PCT:
+        if battery < settings.battery_under_pct:
             haircut += resale * settings.battery_under_80_haircut_rate
-        elif battery < BATTERY_MID_PCT:
+        elif battery < settings.battery_mid_pct:
             haircut += resale * settings.battery_80_84_haircut_rate
-        elif battery < BATTERY_GOOD_PCT:
+        elif battery < settings.battery_good_pct:
             haircut += resale * settings.battery_85_89_haircut_rate
 
-    no_box_markers = (
-        "bez krabice",
-        "bez krabičky",
-        "bez krabicky",
-        "without box",
-        "no box",
-        "ohne ovp",
-        "ohne originalverpackung",
+    no_box_markers = tuple(
+        str(item).casefold() for item in (rules()["hunt"].get("no_box_markers") or [])
     )
     if any(marker in text for marker in no_box_markers):
         haircut += settings.no_box_haircut_eur
@@ -110,14 +103,14 @@ def score_deal(
     )
 
     stated_battery = battery_health(f"{listing.title} {listing.description}")
-    if stated_battery is not None and stated_battery < MIN_BATTERY_HEALTH_PERCENT:
+    if stated_battery is not None and stated_battery < settings.min_battery_health_percent:
         return Deal(
             item=item,
             costs=costs,
             action=Action.SKIP,
             reason=(
                 f"battery health {stated_battery}% < "
-                f"{MIN_BATTERY_HEALTH_PERCENT}% minimum"
+                f"{settings.min_battery_health_percent}% minimum"
             ),
         )
 

@@ -64,7 +64,18 @@ jobs:
         run: npm install -g @github/copilot
       - name: Export hunt page budget from catalog
         run: |
-          python -c "from pathlib import Path; import os; from bazar_deals.watchlist import BATCH_PAGE_SIZE, MAX_SOLD_LOOKUPS; Path(os.environ['GITHUB_ENV']).open('a', encoding='utf-8').write(f'MAX_SCORE_LISTINGS={BATCH_PAGE_SIZE}\nAI_MAX_REVIEWS={BATCH_PAGE_SIZE}\nAI_MAX_IDENTIFICATIONS={BATCH_PAGE_SIZE}\nCOMPS_LIVE_QUERIES={MAX_SOLD_LOOKUPS}\n')"
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          from bazar_deals.rules import rules
+          hunt, ai = rules()["hunt"], rules()["ai"]
+          Path(os.environ["GITHUB_ENV"]).open("a", encoding="utf-8").write(
+              f"MAX_SCORE_LISTINGS={hunt['max_score_listings']}\n"
+              f"AI_MAX_REVIEWS={ai['max_reviews']}\n"
+              f"AI_MAX_IDENTIFICATIONS={ai['max_identifications']}\n"
+              f"COMPS_LIVE_QUERIES={hunt['max_sold_lookups']}\n"
+          )
+          PY
       - name: Ensure price book DB exists
         env:
           COMPS_DB: .cache/bazar-comps-v2.sqlite
