@@ -36,8 +36,9 @@ def test_yaml_holds_lists_and_gates() -> None:
     dec = lambda mapping, key: Decimal(str(mapping[key]))
     assert settings.max_buy_eur == dec(hunt, "max_buy_eur")
     assert settings.min_buy_eur == dec(hunt, "min_buy_eur")
-    assert settings.min_net_profit_eur == dec(hunt, "min_net_profit_eur")
-    assert settings.alert_min_net_profit_eur == dec(hunt, "alert_min_net_profit_eur")
+    assert settings.min_net_profit_eur == dec(hunt, "min_net_profit_eur") == Decimal("9")
+    assert "alert_min_net_profit_eur" not in hunt
+    assert "alert_min_net_profit_eur" not in Settings.model_fields
     assert settings.hunt_notify_progress is False
     assert settings.hunt_digest_timezone == "Europe/Bratislava"
     assert data["github"]["notify_progress"] is False
@@ -152,5 +153,6 @@ def test_catalog_is_only_the_packaged_yaml() -> None:
     assert _PACKAGE_YAML == root / "src" / "bazar_deals" / "data" / "config.yaml"
     assert not (root / "bazar.yaml").exists()
     assert not (root / "src" / "bazar_deals" / "data" / "bazar.yaml").exists()
-    assert rules()["hunt"]["min_net_profit_eur"] == 20
+    assert rules()["hunt"]["min_net_profit_eur"] == 9
+    assert "alert_min_net_profit_eur" not in rules()["hunt"]
     assert rules()["hunt"]["comps_db"] == ".cache/bazar-comps-v2.sqlite"

@@ -110,7 +110,7 @@ def main(argv: list[str] | None = None) -> int:
         "--notify",
         action="store_true",
         help=(
-            "Post GitHub issue comments: hunt BUY ≥ alert floor immediately; "
+            "Post GitHub issue comments: hunt BUY at min_net_profit_eur immediately; "
             "silent on 0 BUY. sell --buyers still posts matches"
         ),
     )
@@ -511,7 +511,7 @@ def main(argv: list[str] | None = None) -> int:
             "hint": hunt_research_hint(run.funnel) if not buys else "",
         },
     )
-    shown = select_alert_deals(run.deals)
+    shown = select_alert_deals(run.deals, min_net_profit=settings.min_net_profit_eur)
     if not buys:
         print(f"No deals with expected net profit >= {settings.min_net_profit_eur} EUR.")
         emit(hunt_research_hint(run.funnel))

@@ -35,12 +35,12 @@ def test_unpriced_bazos_suffix_remains_zero() -> None:
     assert amount == 0
 
 
-def test_fixture_is_scored_but_not_buy_when_net_profit_is_under_20() -> None:
+def test_fixture_buy_clears_shared_net_profit_floor() -> None:
     deals = hunt(BazosRssClient(fixture_path=FIXTURE), sold=SoldCompClient(fixture_path=SOLD))
     cheap = [deal for deal in deals if deal.item.listing.price.amount == 38]
     assert cheap
-    assert cheap[0].action is Action.SKIP
-    assert cheap[0].costs.net_profit < 20
+    assert cheap[0].action is Action.BUY
+    assert cheap[0].costs.net_profit >= Settings().min_net_profit_eur
     assert cheap[0].item.canonical_name == "Commodore 1541-II disk drive"
 
 
@@ -50,12 +50,13 @@ def test_fixture_drops_bulky_couch() -> None:
     assert is_bulky("Starý gauč")
 
 
-def test_cli_offline_reports_no_false_buy(capsys) -> None:
+def test_cli_offline_reports_fixture_buy(capsys) -> None:
     assert main(["hunt", "--offline", "--source", "bazos"]) == 0
     out = capsys.readouterr().out
     assert "filter:" in out
-    assert "No deals" in out
-    assert "BUY: áno" not in out
+    assert "https://pc.bazos.sk/inzerat/1541/" in out
+    assert out.count("BUY: áno") == 1
+    assert "No deals" not in out
 
 
 def test_under_min_price_is_dropped() -> None:
