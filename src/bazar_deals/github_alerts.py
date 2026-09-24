@@ -28,9 +28,10 @@ def listing_key(deal: Deal) -> str:
 
 
 def alert_profit_floor(min_net_profit=None) -> Decimal:
+    """Same expected-net floor as BUY scoring (`hunt.min_net_profit_eur`)."""
     if min_net_profit is not None:
         return Decimal(str(min_net_profit))
-    return Decimal(str(rules()["hunt"]["alert_min_net_profit_eur"]))
+    return Decimal(str(rules()["hunt"]["min_net_profit_eur"]))
 
 
 def select_alert_deals(
@@ -377,14 +378,14 @@ class GitHubIssueAlerts:
         return 1
 
     def post_run(self, run: HuntRun) -> int:
-        """Immediate BUY ≥ alert floor. Silent on 0 BUY, including empty days.
+        """Immediate BUY at the shared net-profit floor. Silent on 0 BUY.
 
         Pagination/fetch Priebeh is omitted unless hunt_notify_progress is on.
         Duplicate BUY listings already commented on this issue are skipped.
-        Near-miss SKIP cards at or above the floor are not posted.
+        Near-miss SKIP cards are not posted.
         """
         self._require_auth()
-        floor = self.settings.alert_min_net_profit_eur
+        floor = self.settings.min_net_profit_eur
         include_progress = bool(self.settings.hunt_notify_progress)
         buys = select_buy_alerts(run.deals, min_net_profit=floor)
 

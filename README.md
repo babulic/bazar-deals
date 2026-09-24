@@ -14,20 +14,20 @@ Hunt purchase sources (continuous GitHub Actions paging from `main`):
 
 Buy-now only. Auctions and for-parts / damaged listings are excluded.
 
-Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments: immediate `@` ping only for **BUY** with expected net ≥ `hunt.alert_min_net_profit_eur`. Empty / 0 BUY days stay silent (no daily digest). Pagination/fetch Priebeh is not an alert unless `HUNT_NOTIFY_PROGRESS=true`. Sell comments still require a `kúpim` match.
+Price-book usual price is P25 × `hunt.p25_factor` of the same **model** of **asking** ads on Bazos (SK+CZ), Aukro, Vinted and eBay Browse (SK delivery). Facebook public hits join the hunt mix when readable. Hunt GitHub comments: immediate `@` ping only for **BUY** with expected net ≥ `hunt.min_net_profit_eur` (the same floor scoring uses). Empty / 0 BUY days stay silent (no daily digest). Pagination/fetch Priebeh is not an alert unless `HUNT_NOTIFY_PROGRESS=true`. Sell comments still require a `kúpim` match.
 
-**0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (20 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
+**0 BUY or 0 sell is a miss, not a quiet success.** Hunt materializes every usable 15–130 € listing into an encrypted, deletion-aware batch on the private Alwyzon service and scores one page of at most 80 listings per GitHub Actions run from `main`. The cursor advances only after the report is posted; then the workflow dispatches the next page immediately. It fetches marketplaces again only after the whole batch is exhausted. A two-hour schedule recovers the chain if a dispatch is lost. After 0 kupci **or a retryable fetch error** (eBay HTTP 429 after retries) sell still loops in-process. Facebook/OLX login walls are tried as public HTML first, then as a public search-engine index of item URLs; only if both miss is that a skip, not a reason to loop. Profit gates stay the same (`hunt.min_net_profit_eur`, default 9 € net, 15–130 € buy, 2 kg, shoebox). A false match (pink bracelet WTB vs green tumbled jadeite) is worse than 0.
 
 Scheduled Hunt/Sell set `EBAY_RETENTION_ENABLED=true` so Browse can persist comps and SK-delivery hits. Local `.env` may keep the flag false. The isolated [eBay no-persistence probe](docs/automatic-marketplace-access.md) is only for exemption testing.
 
 Price-book gaps trigger up to `COMPS_LIVE_QUERIES=80` targeted product searches
 per hunt (same cap as `max_sold_lookups`); stale cached prices cannot authorize BUY.
 Live comps are searched **up to 3× max buy** (not only the 15–130 € hunt window).
-The hunt batch is a fallback when that live sample already clears a 20 € net BUY,
+The hunt batch is a fallback when that live sample already clears a `hunt.min_net_profit_eur` net BUY,
 or when live search finds fewer than `hunt.min_sold_sample` same-model ads. Mixing the bargain-bin batch
 into the live P25 is skipped, because P25 × `hunt.p25_factor` of 15–130 € ads is often too low
-for a 20 € floor. Scoring spends its configured cap on detail HTTP and live lookups,
-not on ads that already missed comps. Cached BUY candidates (estimated net ≥ 20 €)
+for that floor. Scoring spends its configured cap on detail HTTP and live lookups,
+not on ads that already missed comps. Cached BUY candidates (estimated net ≥ `hunt.min_net_profit_eur`)
 are valued first, then hunt-target phones/hardware/photo/jewelry/minerals — not
 C64 cassette games, clothing, or watch straps. Live comps are skipped for
 media/clothing/accessories. Marketplace **search** uses `fetch_queries`
@@ -121,7 +121,7 @@ normalized product queries**, not listings. Before scoring, the hunt live-search
 the cheapest hunt-target products (iPhone 13 128GB, not "canon") so the budget
 is not spent on whatever showed up first. Live hits (Bazos/Aukro/Vinted/eBay,
 prices up to 3× max buy) are the market sample. The current 15–130 € batch is
-only used when that live sample already clears a 20 € net BUY for the listing,
+only used when that live sample already clears `hunt.min_net_profit_eur` for the listing,
 or when live search finds fewer than `hunt.min_sold_sample` same-model ads. Ten ads for the same iPhone
 13 128GB still cost one price-book write. `128 GB` and `128GB` match as the same
 storage token. Ads without `hunt.min_sold_sample` comps do not consume the 80-ad scoring cap.
@@ -134,7 +134,7 @@ reads the full text and returns a canonical name, a search query and the specs
 it can quote from the ad.
 
 This decides **what the item is, never what it is worth**. A rescued candidate
-goes through exactly the same price-book valuation, the same >=20 EUR
+goes through exactly the same price-book valuation, the same `hunt.min_net_profit_eur`
 net-profit floor and the same fail-closed AI price review as any other. Results
 are cached in the comps database, so one advertisement costs one Copilot call,
 and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
@@ -199,8 +199,7 @@ Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config
 
 | Env | Catalog key | Meaning |
 |---|---|---|
-| `MIN_NET_PROFIT_EUR` | `hunt.min_net_profit_eur` | Minimum expected clean profit for BUY |
-| `ALERT_MIN_NET_PROFIT_EUR` | `hunt.alert_min_net_profit_eur` | Immediate BUY GitHub alerts fire at this expected net |
+| `MIN_NET_PROFIT_EUR` | `hunt.min_net_profit_eur` | Expected net for BUY and for immediate GitHub pings |
 | `HUNT_NOTIFY_PROGRESS` | `github.notify_progress` | If true, Deal alerts include pagination/fetch Priebeh (default off) |
 | `MIN_BUY_EUR` | `hunt.min_buy_eur` | Minimum purchase price; cheaper ads have no profit room |
 | `MAX_BUY_EUR` | `hunt.max_buy_eur` | Maximum purchase price |
@@ -223,11 +222,10 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 (issue [#1](https://github.com/babulic/bazar-deals/issues/1)). What gets posted:
 
 1. **Immediate** `@` ping only for **BUY** cards with expected net profit ≥
-   `hunt.alert_min_net_profit_eur` (default 9 €). Duplicate listing keys already
-   on the issue are skipped. The BUY floor for scoring remains
-   `hunt.min_net_profit_eur` (20 €), so a BUY is always above the notify floor.
+   `hunt.min_net_profit_eur` (default 9 €). Scoring reads that same key.
+   Duplicate listing keys already on the issue are skipped.
 2. **Otherwise silent**, including empty days. No daily “Denný súhrn … 0 BUY”
-   comment. Near-miss SKIP cards at or above 9 € are not posted.
+   comment. Near-miss SKIP cards are not posted.
 3. Pagination/fetch progress (`strana X/Y, inzeráty A–B z N`, Priebeh, Zdroje
    fetch counts) is **not** an alert. Set `HUNT_NOTIFY_PROGRESS=true` (catalog
    `github.notify_progress`) only for debug.

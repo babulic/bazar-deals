@@ -39,10 +39,13 @@ def test_estimate_net_profit_matches_score_deal() -> None:
 def test_buy_just_above_the_net_profit_floor() -> None:
     settings = Settings()
     item = identify(_listing("38"), Vertical.RETRO)
-    deal = score_deal(item, Decimal("89"), Decimal("8"), settings=settings)
+    deal = score_deal(item, Decimal("70"), Decimal("8"), settings=settings)
     assert deal.action.value == "buy"
     assert deal.costs.net_profit >= settings.min_net_profit_eur
     assert deal.costs.net_profit < settings.min_net_profit_eur + Decimal("10")
+    below = score_deal(item, Decimal("64"), Decimal("8"), settings=settings)
+    assert below.action.value == "skip"
+    assert below.costs.net_profit < settings.min_net_profit_eur
 
 
 def test_vinted_includes_buyer_protection_and_resale_fee_reserve() -> None:

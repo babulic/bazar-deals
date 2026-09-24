@@ -96,7 +96,6 @@ class Settings(BaseSettings):
     fx_max_age_days: int = Field(default=FX_MAX_AGE_DAYS, ge=0, le=FX_MAX_AGE_DAYS_CAP)
     fx_fee_rate: Decimal = Field(default=FX_FEE_RATE, ge=0, lt=1)
     min_net_profit_eur: Decimal = MIN_NET_PROFIT_EUR
-    alert_min_net_profit_eur: Decimal = Decimal(str(_HUNT["alert_min_net_profit_eur"]))
     min_margin: Decimal = Decimal(str(_HUNT["min_margin"]))
     default_shipping_eur: Decimal = Decimal(str(_HUNT["default_shipping_eur"]))
     max_shipping_eur: Decimal = Decimal(str(_HUNT["max_shipping_eur"]))

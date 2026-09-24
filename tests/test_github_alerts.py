@@ -10,6 +10,7 @@ from bazar_deals.github_alerts import (
     ALERT_TOP_N,
     GitHubIssueAlerts,
     format_hunt_comment,
+    alert_profit_floor,
     format_run_comment,
     listing_key,
     select_alert_deals,
@@ -354,7 +355,9 @@ def test_alerts_put_buys_first_and_include_failed_candidates() -> None:
             }
         )
         item = _deal().item.model_copy(update={"listing": listing, "confidence": 0.5 + index / 20})
-        ranked.append(score_deal(item, Decimal(str(70 + index)), Decimal("8")))
+        ranked.append(
+            score_deal(item, Decimal(str(70 + index)), Decimal("8"), min_net_profit=Decimal("100"))
+        )
     buy = _deal()
     run = HuntRun(
         deals=[*ranked, buy],
@@ -396,9 +399,12 @@ def test_profitable_under_threshold_ads_get_cards_without_a_ping() -> None:
         update={"external_id": "near", "url": "https://pc.bazos.sk/inzerat/near/"}
     )
     item = _deal().item.model_copy(update={"listing": listing})
-    skip = score_deal(item, Decimal("70"), Decimal("8"))
-    assert skip.action is Action.SKIP
-    assert skip.costs.net_profit > Settings().alert_min_net_profit_eur
+    natural = score_deal(item, Decimal("70"), Decimal("8"))
+    assert natural.action is Action.BUY
+    assert natural.costs.net_profit >= Settings().min_net_profit_eur
+    skip = natural.model_copy(
+        update={"action": Action.SKIP, "reason": "AI rejected candidate"}
+    )
     run = HuntRun(
         deals=[skip],
         funnel=Counter(scored=1, buy=0, below_net_profit=1),
@@ -564,8 +570,11 @@ def test_select_alert_deals_requires_net_profit_at_least_alert_floor() -> None:
     base = _deal()
     listing = base.item.listing.model_copy(update={"external_id": "floor"})
     item = base.item.model_copy(update={"listing": listing})
-    skip = score_deal(item, Decimal("70"), Decimal("8"))
-    floor = Settings().alert_min_net_profit_eur
+    skip = score_deal(item, Decimal("70"), Decimal("8"), min_net_profit=Decimal("100"))
+    assert skip.action is Action.SKIP
+    floor = Settings().min_net_profit_eur
+    assert alert_profit_floor() == floor
+    assert alert_profit_floor(floor) == floor
     at_floor = skip.model_copy(
         update={"costs": skip.costs.model_copy(update={"net_profit": floor})}
     )
@@ -704,7 +713,7 @@ def test_post_run_skips_near_miss_card_below_alert_floor() -> None:
     skip = skip.model_copy(
         update={
             "costs": skip.costs.model_copy(
-                update={"net_profit": Settings().alert_min_net_profit_eur - Decimal("0.01")}
+                update={"net_profit": Settings().min_net_profit_eur - Decimal("0.01")}
             )
         }
     )
@@ -743,9 +752,9 @@ def test_post_run_near_miss_above_alert_floor_is_silent() -> None:
         update={"external_id": "near", "url": "https://pc.bazos.sk/inzerat/near/"}
     )
     item = _deal().item.model_copy(update={"listing": listing})
-    skip = score_deal(item, Decimal("70"), Decimal("8"))
+    skip = score_deal(item, Decimal("70"), Decimal("8"), min_net_profit=Decimal("100"))
     assert skip.action is Action.SKIP
-    assert skip.costs.net_profit >= Settings().alert_min_net_profit_eur
+    assert skip.costs.net_profit >= Settings().min_net_profit_eur
     settings = Settings(
         github_token="t",
         github_repository="babulic/bazar-deals",

@@ -249,7 +249,7 @@ class SoldCompClient:
 
         The 15–130 € hunt batch is a bargain bin. Spending the live query budget
         on those SKUs first (not on whatever showed up first in round-robin)
-        is what can still produce a P25 high enough for a 20 € net BUY.
+        is what can still produce a P25 high enough for a net-floor BUY.
         """
         if self._fixture_html is not None:
             return
@@ -401,7 +401,7 @@ class SoldCompClient:
             source_title=listing.title,
         )
         # Hunt fetch is capped at 15–130 €. P25 of that bargain bin is often
-        # too low for a 20 € net BUY. Skip the live search only when the seed
+        # too low for the net-profit floor. Skip the live search only when the seed
         # sample already clears the floor for this listing.
         if self._seed_covers_buy(listing, seed_peers, min_n):
             return self._store_market_comp(query, seed_peers)
@@ -436,7 +436,7 @@ class SoldCompClient:
         )
 
     def _should_live_search(self, kind, listing: Listing) -> bool:
-        """Spend the live query budget on SKUs that can still clear 20 € net."""
+        """Spend the live query budget on SKUs that can still clear the net floor."""
         from bazar_deals.catalog import is_high_yield_kind
 
         key = kind.value if hasattr(kind, "value") else str(kind or "")
@@ -589,7 +589,7 @@ class SoldCompClient:
         """Live marketplace hits only. Hunt-batch ads are seed fallback, not mixed in.
 
         Mixing the 15–130 € bargain bin into the live sample pulls P25 down so a
-        20 € net BUY becomes mathematically impossible.
+        net-floor BUY becomes mathematically impossible.
         """
         if query in self._market_cache:
             return self._market_cache[query]

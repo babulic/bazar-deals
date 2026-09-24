@@ -31,5 +31,6 @@ def test_listings_in_scores_cached_json(tmp_path: Path, capsys) -> None:
     assert main(["hunt", "--offline", "--listings-in", str(cached)]) == 0
     text = capsys.readouterr().out
     assert "filter:" in text
-    assert "No deals" in text
+    assert "BUY: áno" in text
+    assert "https://pc.bazos.sk/inzerat/1541/" in text
     assert "Lacnejšie ako obvyklá" not in text

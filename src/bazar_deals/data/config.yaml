@@ -83,7 +83,7 @@ hunt:
     - kindle
     - galaxy s21
   # Marketplace search: high-turnover SKUs that still sit in 15–130 € and can
-  # clear 20 € net. EU refurbished volume is iPhone 11/12/13, then AirPods,
+  # clear min_net_profit_eur. EU refurbished volume is iPhone 11/12/13, then AirPods,
   # Apple Watch, Switch Lite, Galaxy S21/S22. Clothing is never searched.
   # Bare `commodore` / `c64` stay in target_queries only.
   fetch_queries:
@@ -132,9 +132,8 @@ hunt:
   max_shipping_eur: 15
   cheap_buy_eur: 20
   max_shipping_cheap_eur: 11
-  min_net_profit_eur: 20
-  # Immediate GitHub BUY alerts fire at this expected net. Silent on 0 BUY.
-  alert_min_net_profit_eur: 9
+  # Shared by BUY scoring and immediate GitHub pings. Silent on 0 BUY.
+  min_net_profit_eur: 9
   min_margin: 0.25
   eur_usd: 1.08
   user_agent: "bazar-deals/0.1 (+https://github.com/babulic/bazar-deals)"
@@ -190,7 +189,7 @@ github:
   alert_issue: 0
   assignee: ""
   # Max cards in one hunt comment: BUY first, then other scored ads whose
-  # expected net profit is at least alert_min_net_profit_eur.
+  # expected net profit is at least hunt.min_net_profit_eur.
   alert_top_n: 5
   # Pagination / fetch Priebeh on the Deal alerts issue. Default off.
   notify_progress: false
