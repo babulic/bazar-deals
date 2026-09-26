@@ -135,17 +135,20 @@ it can quote from the ad.
 
 This decides **what the item is, never what it is worth**. A rescued candidate
 goes through exactly the same price-book valuation, the same `hunt.min_net_profit_eur`
-net-profit floor and the same fail-closed AI price review as any other. Results
+net-profit floor and the same AI price review as any other. Results
 are cached in the comps database, so one advertisement costs one Copilot call,
 and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
 
 The funnel reports `identity_ai_rescued` and `identity_ai_failed` alongside
 `identity_weak`, so the value of the AI step is visible per run.
 
-The fail-closed **price** review (also Copilot Free with `COPILOT_MODEL=auto`)
-receives the same whole-advertisement text plus the extracted spec profile. It
-may only lower the deterministic P25 or veto the alert; it cannot raise a value
-to make a deal pass.
+The **price** review (Copilot Free with `COPILOT_MODEL=auto`, then OpenAI when
+`OPENAI_API_KEY` is set and Copilot is quota-limited or unavailable) receives
+the same whole-advertisement text plus the extracted spec profile. A completed
+review may only lower the deterministic P25 or veto the alert; it cannot raise
+a value to make a deal pass. If review fails or is unavailable, a deterministic
+BUY (net ≥ `hunt.min_net_profit_eur`) is still posted, and the comment includes
+`AI review N/A`.
 
 ## Conservative valuation
 
@@ -214,7 +217,7 @@ Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config
 | `COMPS_TTL_DAYS` | `hunt.comps_ttl_days` | Reuse stored P25 × `hunt.p25_factor` without a live search |
 | `AI_MAX_IDENTIFICATIONS` | `ai.max_identifications` | Cap on AI identifications per hunt |
 
-GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model.
+GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model. If that call fails because Copilot is quota-limited or unavailable, the same review is retried with OpenAI when the `OPENAI_API_KEY` Actions secret is set. A deterministic BUY is still alerted when both are unavailable.
 
 ## Alerts
 
@@ -223,7 +226,9 @@ GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible w
 
 1. **Immediate** `@` ping only for **BUY** cards with expected net profit ≥
    `hunt.min_net_profit_eur` (default 9 €). Scoring reads that same key.
-   Duplicate listing keys already on the issue are skipped.
+   Duplicate listing keys already on the issue are skipped. If AI review fails
+   or is unavailable, that BUY is still posted and the comment includes
+   `AI review N/A`. A completed review can still veto or lower the price.
 2. **Otherwise silent**, including empty days. No daily “Denný súhrn … 0 BUY”
    comment. Near-miss SKIP cards are not posted.
 3. Pagination/fetch progress (`strana X/Y, inzeráty A–B z N`, Priebeh, Zdroje

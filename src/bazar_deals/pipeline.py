@@ -11,7 +11,7 @@ import httpx
 from bazar_deals.adapters.base import ListingSource
 from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.ai_identity import AIIdentityClient
-from bazar_deals.ai_review import AIReviewClient
+from bazar_deals.ai_review import AIReviewClient, ai_review_na_reason
 from bazar_deals.catalog import hunt_research_only, is_drop_kind, is_high_yield_kind, matches_hunt_target, reject_physical
 from bazar_deals.config import Settings
 from bazar_deals.domain import (
@@ -551,7 +551,7 @@ def _rescue_identity(
 
     This only establishes identity. The valuation still comes from the
     stored price book and every rescued candidate must clear the same
-    net-profit floor and the same fail-closed price review as any other.
+    net-profit floor and the same price review as any other.
     """
     if identifier is None:
         return None
@@ -596,12 +596,15 @@ def _apply_ai_gate(
         timed_out = deadline is not None and time.monotonic() >= deadline
         if timed_out or reviewed >= max(0, int(settings.ai_max_reviews)):
             funnel["ai_review_cap"] += 1
-            reason = (
-                "AI review time cap reached; fail closed"
-                if timed_out
-                else "AI review cap reached; fail closed"
-            )
-            if settings.ai_review_required or deal.action is not Action.BUY:
+            if deal.action is Action.BUY and settings.ai_review_required:
+                detail = "time cap reached" if timed_out else "review cap reached"
+                replacements[key] = deal.model_copy(update={"reason": ai_review_na_reason(detail)})
+            elif settings.ai_review_required or deal.action is not Action.BUY:
+                reason = (
+                    "AI review time cap reached; fail closed"
+                    if timed_out
+                    else "AI review cap reached; fail closed"
+                )
                 replacements[key] = deal.model_copy(
                     update={"action": Action.SKIP, "reason": reason}
                 )
@@ -618,7 +621,11 @@ def _apply_ai_gate(
                 last_exc = exc
         if review is None:
             funnel["ai_unavailable"] += 1
-            if settings.ai_review_required or deal.action is not Action.BUY:
+            if deal.action is Action.BUY and settings.ai_review_required:
+                replacements[key] = deal.model_copy(
+                    update={"reason": ai_review_na_reason(last_exc or "unavailable")}
+                )
+            elif settings.ai_review_required or deal.action is not Action.BUY:
                 replacements[key] = deal.model_copy(
                     update={
                         "action": Action.SKIP,

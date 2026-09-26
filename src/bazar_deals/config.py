@@ -67,8 +67,10 @@ class Settings(BaseSettings):
     vinted_access_key: str = ""
     vinted_signing_key: str = ""
 
-    # AI review: scheduled GitHub Actions uses Copilot CLI with GITHUB_TOKEN,
-    # while OPENAI_API_KEY remains an optional local/alternate provider.
+    # AI review: scheduled GitHub Actions tries Copilot CLI first. If Copilot
+    # is quota-limited or unavailable and OPENAI_API_KEY is set, the same
+    # review falls back to OpenAI. A deterministic BUY is still alerted when
+    # review does not complete.
     ai_provider: str = AI_PROVIDER  # auto | copilot | openai
     # Copilot Free/Student allow auto selection only. Paid seats may override
     # this with a specific model through COPILOT_MODEL.

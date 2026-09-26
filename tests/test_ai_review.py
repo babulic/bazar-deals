@@ -284,19 +284,194 @@ def test_ai_review_prompt_includes_body_specs_and_marketplace_fields(tmp_path) -
     assert "shortDescription: iPhone 13 128GB" in prompt
 
 
-def test_ai_gate_fails_closed_when_score_deadline_passed() -> None:
+def test_ai_gate_keeps_buy_when_score_deadline_passed() -> None:
     class _Reviewer:
         def review(self, deal):
             raise AssertionError("should not review after the hunt score deadline")
 
     funnel = Counter()
+    settings = Settings(ai_review_enabled=True, ai_review_required=True)
     result = _apply_ai_gate(
         [_deal()],
-        Settings(ai_review_enabled=True, ai_review_required=True),
+        settings,
         _Reviewer(),
         funnel,
         deadline=0.0,
     )[0]
-    assert result.action.value == "skip"
+    assert result.action.value == "buy"
+    assert "AI review N/A" in result.reason
     assert "time cap" in result.reason
     assert funnel["ai_review_cap"] == 1
+
+    near = _deal().model_copy(
+        update={"action": Action.SKIP, "reason": "expected net profit 1 EUR < 9 EUR"}
+    )
+    skipped = _apply_ai_gate([near], settings, _Reviewer(), Counter(), deadline=0.0)[0]
+    assert skipped.action.value == "skip"
+    assert "time cap" in skipped.reason
+    assert "AI review N/A" not in skipped.reason
+
+
+def _approved_openai_payload() -> dict:
+    return {
+        "output": [
+            {
+                "type": "message",
+                "content": [
+                    {
+                        "type": "output_text",
+                        "text": json.dumps(
+                            {
+                                "approved": True,
+                                "complete_product": True,
+                                "canonical_name": "Apple iPhone 13 128GB",
+                                "kind": "phones",
+                                "quick_sale_price_eur": 120,
+                                "confidence": 0.91,
+                                "reason": "Exact model verified after Copilot quota.",
+                                "source_urls": ["https://www.ebay.de/example-sold"],
+                            }
+                        ),
+                        "annotations": [],
+                    }
+                ],
+            }
+        ]
+    }
+
+
+def test_unavailable_ai_keeps_buy_and_warns_in_alert() -> None:
+    from bazar_deals.github_alerts import format_hunt_comment, select_buy_alerts
+    from bazar_deals.pipeline import HuntRun
+
+    class _Reviewer:
+        def review(self, deal):
+            raise RuntimeError("Copilot AI review failed: exceeded your monthly quota")
+
+    deal = _deal()
+    assert deal.action is Action.BUY
+    funnel = Counter()
+    settings = Settings(
+        ai_review_enabled=True,
+        ai_review_required=True,
+        min_net_profit_eur=Decimal("9"),
+    )
+    result = _apply_ai_gate([deal], settings, _Reviewer(), funnel)[0]
+    assert result.action is Action.BUY
+    assert result.ai_review is None
+    assert funnel["ai_unavailable"] == 1
+    assert "AI review N/A" in result.reason
+    assert "sk-" not in result.reason
+
+    run = HuntRun(deals=[result], funnel=funnel, source_stats={})
+    assert select_buy_alerts(run.deals, min_net_profit=Decimal("9")) == [result]
+    body = format_hunt_comment(
+        run,
+        mention="babulic",
+        min_profit=Decimal("9"),
+        min_alert_profit=Decimal("9"),
+        include_progress=False,
+    )
+    assert "AI review N/A" in body
+    assert "- varovanie: AI review N/A" in body
+    assert "BUY: áno" in body
+
+
+def test_successful_ai_review_still_has_no_na_warning() -> None:
+    class _Reviewer:
+        def review(self, deal):
+            return AIReview(
+                approved=True,
+                complete_product=True,
+                canonical_name="Apple iPhone 13 128GB",
+                kind="phones",
+                quick_sale_price_eur=Decimal("120"),
+                confidence=0.95,
+                reason="Verified from sold comps.",
+                source_urls=["https://www.ebay.de/example"],
+                model="copilot:auto",
+            )
+
+    funnel = Counter()
+    result = _apply_ai_gate(
+        [_deal()],
+        Settings(ai_review_enabled=True, ai_review_required=True, min_net_profit_eur=Decimal("9")),
+        _Reviewer(),
+        funnel,
+    )[0]
+    assert result.action is Action.BUY
+    assert result.ai_review is not None
+    assert funnel["ai_reviewed"] == 1
+    assert "AI review N/A" not in result.reason
+
+
+def test_copilot_quota_falls_back_to_openai(tmp_path, monkeypatch) -> None:
+    calls = {"copilot": 0, "openai": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["openai"] += 1
+        return httpx.Response(200, json=_approved_openai_payload())
+
+    def boom(self, prompt: str) -> str:
+        calls["copilot"] += 1
+        raise RuntimeError("Copilot AI review failed: You have exceeded your monthly quota")
+
+    monkeypatch.setattr(
+        "bazar_deals.ai_review.shutil.which",
+        lambda name: "/usr/bin/copilot" if name == "copilot" else None,
+    )
+    monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
+    settings = Settings(
+        ai_provider="copilot",
+        openai_api_key="test-key",
+        openai_model="gpt-5.6-terra",
+        ai_review_enabled=True,
+        ai_review_required=True,
+        comps_db=str(tmp_path / "comps.sqlite"),
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        review = AIReviewClient(settings, client=client).review(_deal())
+
+    assert calls["copilot"] == 1
+    assert calls["openai"] == 1
+    assert review.approved is True
+    assert review.model == "gpt-5.6-terra"
+    assert review.quick_sale_price_eur == Decimal("120.00")
+
+
+def test_copilot_non_quota_failure_does_not_call_openai(tmp_path, monkeypatch) -> None:
+    calls = {"openai": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["openai"] += 1
+        return httpx.Response(200, json=_approved_openai_payload())
+
+    def boom(self, prompt: str) -> str:
+        raise RuntimeError("Copilot AI review failed: prompt rejected by policy")
+
+    monkeypatch.setattr(
+        "bazar_deals.ai_review.shutil.which",
+        lambda name: "/usr/bin/copilot" if name == "copilot" else None,
+    )
+    monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
+    settings = Settings(
+        ai_provider="copilot",
+        openai_api_key="test-key",
+        comps_db=str(tmp_path / "comps.sqlite"),
+    )
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        try:
+            AIReviewClient(settings, client=client).review(_deal())
+        except RuntimeError as exc:
+            assert "prompt rejected" in str(exc)
+        else:
+            raise AssertionError("non-quota Copilot failure should not be swallowed")
+    assert calls["openai"] == 0
+
+
+def test_ai_review_na_reason_redacts_key_shaped_text() -> None:
+    from bazar_deals.ai_review import ai_review_na_reason
+
+    reason = ai_review_na_reason("OpenAI fallback failed: invalid key sk-abcDEF1234567890")
+    assert reason.startswith("AI review N/A:")
+    assert "sk-abc" not in reason
