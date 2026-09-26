@@ -75,6 +75,47 @@ def _decimal(value: object) -> Decimal | None:
     return out if out > 0 else None
 
 
+AI_REVIEW_NA = "AI review N/A"
+
+_SECRETISH = re.compile(r"(sk-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+)", re.IGNORECASE)
+
+_COPILOT_UNAVAILABLE = (
+    "quota",
+    "rate limit",
+    "ratelimit",
+    "rate-limit",
+    "too many requests",
+    "unavailable",
+    "not available",
+    "not installed",
+    "timed out",
+    "timeout",
+    "empty output",
+    "exceeded your",
+    "monthly limit",
+    "capacity",
+    "overloaded",
+    "no ai review provider",
+)
+
+
+def copilot_quota_or_unavailable(message: str) -> bool:
+    """True when Copilot did not produce a review because of quota or outage."""
+    text = (message or "").casefold()
+    return any(marker in text for marker in _COPILOT_UNAVAILABLE)
+
+
+def ai_review_na_reason(detail: object) -> str:
+    """Public BUY-alert reason. Strips credential-shaped fragments."""
+    text = _SECRETISH.sub("…", str(detail or "unavailable"))
+    text = " ".join(text.split())
+    if len(text) > 300:
+        text = text[:300].rstrip() + "…"
+    if not text:
+        return AI_REVIEW_NA
+    return f"{AI_REVIEW_NA}: {text}"
+
+
 def _json_payload(text: str) -> dict:
     cleaned = (text or "").strip()
     if cleaned.startswith("```"):
@@ -115,11 +156,15 @@ def _response_text_and_urls(data: dict) -> tuple[str, list[str]]:
 
 
 class AIReviewClient:
-    """Final, fail-closed review of deterministic BUY candidates.
+    """Final review of deterministic BUY candidates.
 
-    The AI can correct identity, lower the deterministic sold-P25 valuation, or
-    veto an alert. It can never raise the valuation. Approved web-verified price
-    corrections are persisted in the same SQLite file as sold comps.
+    A completed review can correct identity, lower the deterministic sold-P25
+    valuation, or veto an alert. It can never raise the valuation. If Copilot
+    fails because of quota or unavailability and ``OPENAI_API_KEY`` is set, the
+    same prompt is retried with OpenAI. If review still does not complete, a
+    deterministic BUY stays a BUY and the alert says ``AI review N/A``.
+    Approved web-verified price corrections are persisted in the same SQLite
+    file as sold comps.
     """
 
     def __init__(
@@ -184,15 +229,43 @@ class AIReviewClient:
     def complete(self, prompt: str) -> tuple[str, list[str], str]:
         """Run one prompt through whichever provider is configured.
 
-        Returns the raw text, any web citations the provider attached, and a
-        label for the model that answered.
+        Copilot is tried first when that is the selected provider. A quota or
+        unavailability failure retries the same prompt with OpenAI when
+        ``OPENAI_API_KEY`` is set. Returns the raw text, any web citations the
+        provider attached, and a label for the model that answered.
         """
-        if self._provider() == "openai":
-            response = self._post_openai(prompt)
-            text, urls = _response_text_and_urls(response)
-            return text, urls, self.settings.openai_model
+        try:
+            provider = self._provider()
+        except RuntimeError as exc:
+            if not self._openai_fallback_ok(exc):
+                raise
+            return self._complete_openai(prompt)
+        if provider == "openai":
+            return self._complete_openai(prompt)
+        try:
+            text = self._run_copilot(prompt)
+        except RuntimeError as exc:
+            if not self._openai_fallback_ok(exc):
+                raise
+            try:
+                return self._complete_openai(prompt)
+            except (RuntimeError, ValueError, httpx.HTTPError) as fallback_exc:
+                raise RuntimeError(f"{exc}; OpenAI fallback failed: {fallback_exc}") from fallback_exc
         model = self.settings.copilot_model or "auto"
-        return self._run_copilot(prompt), [], f"copilot:{model}"
+        return text, [], f"copilot:{model}"
+
+    def _complete_openai(self, prompt: str) -> tuple[str, list[str], str]:
+        response = self._post_openai(prompt)
+        text, urls = _response_text_and_urls(response)
+        return text, urls, self.settings.openai_model
+
+    def _openai_fallback_ok(self, exc: BaseException) -> bool:
+        if not (self.settings.openai_api_key or "").strip():
+            return False
+        requested = (self.settings.ai_provider or "auto").strip().casefold()
+        if requested == "openai":
+            return False
+        return copilot_quota_or_unavailable(str(exc))
 
     def _provider(self) -> str:
         requested = (self.settings.ai_provider or "auto").strip().casefold()

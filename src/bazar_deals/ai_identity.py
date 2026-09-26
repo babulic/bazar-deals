@@ -81,7 +81,7 @@ class AIIdentityClient:
 
     This decides *what* the thing is, never what it is worth. The valuation
     still comes from completed sales, and a candidate must still clear the
-    net-profit floor and the fail-closed AI price review before it can be a BUY.
+    net-profit floor and the same AI price review before it can be a BUY.
     """
 
     def __init__(

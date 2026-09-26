@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
+from bazar_deals.ai_review import AI_REVIEW_NA
 from bazar_deals.domain import Action, Deal, Vertical
 from bazar_deals.soldcomps import PriceBookMiss
 
@@ -58,6 +59,8 @@ def format_deal(deal: Deal) -> str:
             f"AI web cena: {ai_price}; confidence {ai.confidence:.2f}\n"
             f"AI dôvod: {ai.reason}\n"
         )
+    if AI_REVIEW_NA in (deal.reason or ""):
+        ai_lines = f"{AI_REVIEW_NA}\n{ai_lines}"
     return (
         f"Titulok inzerátu: {listing.title}\n"
         f"Identifikovaný tovar: {item.canonical_name}\n"
@@ -86,10 +89,16 @@ def format_github_deal(deal: Deal) -> str:
     rows: list[tuple[str, str]] = [
         ("BUY", _buy_flag(deal)),
         ("výsledok", "PREŠIEL — BUY" if deal.action is Action.BUY else "NEPREŠIEL"),
-        ("titulok inzerátu", _md_link(title, url)),
-        ("identifikovaný tovar", item.canonical_name or "—"),
-        ("typ tovaru", kind),
     ]
+    if AI_REVIEW_NA in (deal.reason or ""):
+        rows.append(("varovanie", AI_REVIEW_NA))
+    rows.extend(
+        [
+            ("titulok inzerátu", _md_link(title, url)),
+            ("identifikovaný tovar", item.canonical_name or "—"),
+            ("typ tovaru", kind),
+        ]
+    )
     if item.brand:
         rows.append(("značka", item.brand))
     if item.model:
