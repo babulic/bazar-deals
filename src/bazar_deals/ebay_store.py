@@ -27,7 +27,12 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa
 from flask import Flask, Response, jsonify, redirect, render_template_string, request
 
-from bazar_deals.watchlist import MAX_BATCH_LISTINGS, MAX_BATCH_NOTE_CHARS, MAX_SOLD_LOOKUPS
+from bazar_deals.rules import rules
+
+_HUNT = rules()["hunt"]
+MAX_BATCH_LISTINGS = int(_HUNT["max_batch_listings"])
+MAX_BATCH_NOTE_CHARS = int(_HUNT["max_batch_note_chars"])
+MAX_SOLD_LOOKUPS = int(_HUNT["max_sold_lookups"])
 
 
 class SnapshotStore:

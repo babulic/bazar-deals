@@ -6,7 +6,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from bazar_deals.watchlist import MAX_SOLD_LOOKUPS
 from bazar_deals.adapters.central_europe import CentralEuropeClient, HUNT_SITES, SITES
 from bazar_deals.adapters.aukro import AukroHuntClient
 from bazar_deals.adapters.bazos import BazosRssClient
@@ -29,6 +28,7 @@ from bazar_deals.pipeline import (
     score_listings,
 )
 from bazar_deals.progress import emit
+from bazar_deals.rules import rules
 from bazar_deals.research import (
     enable_hunt_research,
     hunt_research_hint,
@@ -45,6 +45,8 @@ from bazar_deals.selling.inventory import known_segments, load_inventory, save_i
 from bazar_deals.selling.plan import build_plan
 from bazar_deals.selling.report import format_json, format_markdown
 from bazar_deals.soldcomps import SoldCompClient
+
+MAX_SOLD_LOOKUPS = int(rules()["hunt"]["max_sold_lookups"])
 
 FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "bazos_rss.xml"
 SOLD_FIXTURE = Path(__file__).resolve().parents[2] / "tests" / "fixtures" / "ebay_sold_1541.html"

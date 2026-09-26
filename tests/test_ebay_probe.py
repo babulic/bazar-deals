@@ -280,3 +280,46 @@ def test_fetch_new_skips_category_dump_when_sku_search_hits(monkeypatch):
     assert seen.count("iphone se") == 2
     assert "181376" not in seen
     assert found
+
+
+def test_enrich_listing_swallows_oauth_timeout(monkeypatch) -> None:
+    from decimal import Decimal
+
+    from bazar_deals.domain import Listing, Marketplace, Money
+
+    listing = Listing(
+        marketplace=Marketplace.EBAY,
+        external_id="1",
+        title="Apple iPhone 13 128GB",
+        description="",
+        url="https://www.ebay.de/itm/1",
+        price=Money(amount=Decimal("40"), currency="EUR"),
+        raw={"itemHref": "https://api.ebay.com/buy/browse/v1/item/v1|1|0"},
+    )
+    client = EbayBrowseClient(settings().model_copy(update={"ebay_retention_enabled": True}))
+
+    def timeout(*args, **kwargs):
+        raise httpx.ReadTimeout("The read operation timed out")
+
+    monkeypatch.setattr(client, "_browse_headers", timeout)
+    out = client.enrich_listing(listing)
+    assert out.raw.get("detail_fetched") is False
+
+
+def test_enrich_listing_swallows_oauth_reject() -> None:
+    from decimal import Decimal
+
+    from bazar_deals.domain import Listing, Marketplace, Money
+
+    listing = Listing(
+        marketplace=Marketplace.EBAY,
+        external_id="1",
+        title="Apple iPhone 13 128GB",
+        description="",
+        url="https://www.ebay.de/itm/1",
+        price=Money(amount=Decimal("40"), currency="EUR"),
+        raw={"itemHref": "https://api.ebay.com/buy/browse/v1/item/v1|1|0"},
+    )
+    client = EbayBrowseClient(settings())
+    out = client.enrich_listing(listing)
+    assert out.raw.get("detail_fetched") is False

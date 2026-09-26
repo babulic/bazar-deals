@@ -6,8 +6,12 @@ from bazar_deals.adapters.central_europe import SITES
 from bazar_deals.config import Settings
 from bazar_deals.domain import Action, CostBreakdown, Deal, IdentifiedItem, Marketplace
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import BATTERY_GOOD_PCT, BATTERY_MID_PCT, BATTERY_UNDER_PCT
 from bazar_deals.working import MIN_BATTERY_HEALTH_PERCENT, battery_health
+
+_HUNT = rules()["hunt"]
+BATTERY_UNDER_PCT = int(_HUNT["battery_under_pct"])
+BATTERY_MID_PCT = int(_HUNT["battery_mid_pct"])
+BATTERY_GOOD_PCT = int(_HUNT["battery_good_pct"])
 
 
 def assumed_shipping(buy: Decimal, settings: Settings | None = None) -> Decimal:

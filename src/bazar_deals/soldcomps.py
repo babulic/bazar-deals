@@ -31,7 +31,6 @@ from bazar_deals.identity import (
     with_specs,
 )
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import P25_FACTOR
 from bazar_deals.working import is_damaged_text
 
 _PRICE_BOOK_VERSION = "same-object-v4:"
@@ -129,7 +128,9 @@ def _lower_quartile(amounts: list[Decimal]) -> Decimal:
 
 
 def _p25_factor(factor: Decimal | None = None) -> Decimal:
-    return P25_FACTOR if factor is None else factor
+    if factor is not None:
+        return factor
+    return Decimal(str(rules()["hunt"]["p25_factor"]))
 
 
 def _p25_mark(factor: Decimal | None = None) -> str:

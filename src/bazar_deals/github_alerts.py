@@ -12,7 +12,8 @@ from bazar_deals.notify import (
 )
 from bazar_deals.pipeline import HuntRun, is_alert_noise
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import MIN_SOLD_SAMPLE
+
+MIN_SOLD_SAMPLE = int(rules()["hunt"]["min_sold_sample"])
 
 ALERT_ISSUE_TITLE = rules()["github"]["alert_issue_title"]
 ALERT_LABEL = rules()["github"]["alert_label"]

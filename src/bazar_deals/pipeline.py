@@ -316,7 +316,16 @@ def score_listings(
                 work += 1
 
             if need_enrich:
-                listing = enricher.enrich_listing(listing)
+                try:
+                    listing = enricher.enrich_listing(listing)
+                except Exception as exc:
+                    emit(
+                        "enrich skipped "
+                        f"{listing.marketplace.value}:{listing.external_id}: {type(exc).__name__}"
+                    )
+                    raw = dict(listing.raw)
+                    raw["detail_fetched"] = False
+                    listing = listing.model_copy(update={"raw": raw})
                 if listing.raw.get("detail_fetched") is False and not listing.description.strip():
                     funnel["detail_failed"] += 1
             try:
