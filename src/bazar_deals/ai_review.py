@@ -13,8 +13,6 @@ from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterator
 
-import httpx
-
 from bazar_deals.config import Settings
 from bazar_deals.domain import AIReview, Deal, IdentifiedItem
 from bazar_deals.identity import listing_text
@@ -79,30 +77,7 @@ AI_REVIEW_NA = "AI review N/A"
 
 _SECRETISH = re.compile(r"(sk-[A-Za-z0-9_\-]{8,}|Bearer\s+\S+)", re.IGNORECASE)
 
-_COPILOT_UNAVAILABLE = (
-    "quota",
-    "rate limit",
-    "ratelimit",
-    "rate-limit",
-    "too many requests",
-    "unavailable",
-    "not available",
-    "not installed",
-    "timed out",
-    "timeout",
-    "empty output",
-    "exceeded your",
-    "monthly limit",
-    "capacity",
-    "overloaded",
-    "no ai review provider",
-)
-
-
-def copilot_quota_or_unavailable(message: str) -> bool:
-    """True when Copilot did not produce a review because of quota or outage."""
-    text = (message or "").casefold()
-    return any(marker in text for marker in _COPILOT_UNAVAILABLE)
+_PAID_PROVIDERS = frozenset({"openai", "grok", "xai"})
 
 
 def ai_review_na_reason(detail: object) -> str:
@@ -131,63 +106,24 @@ def _json_payload(text: str) -> dict:
     return data
 
 
-def _citation_urls(data: dict) -> list[str]:
-    found: list[str] = []
-    for item in data.get("citations") or []:
-        if isinstance(item, str) and item.startswith(("http://", "https://")):
-            found.append(item)
-        elif isinstance(item, dict):
-            url = item.get("url")
-            if isinstance(url, str) and url.startswith(("http://", "https://")):
-                found.append(url)
-    return found
-
-
-def _response_text_and_urls(data: dict) -> tuple[str, list[str]]:
-    direct = data.get("output_text") if isinstance(data.get("output_text"), str) else ""
-    texts: list[str] = [direct] if direct else []
-    urls: list[str] = []
-    for output in data.get("output") or []:
-        if not isinstance(output, dict):
-            continue
-        for content in output.get("content") or []:
-            if not isinstance(content, dict):
-                continue
-            text = content.get("text")
-            if isinstance(text, str) and text:
-                texts.append(text)
-            for annotation in content.get("annotations") or []:
-                if not isinstance(annotation, dict):
-                    continue
-                url = annotation.get("url")
-                if not url and isinstance(annotation.get("url_citation"), dict):
-                    url = annotation["url_citation"].get("url")
-                if isinstance(url, str) and url.startswith(("http://", "https://")):
-                    urls.append(url)
-    return "\n".join(texts).strip(), list(dict.fromkeys(urls))
-
-
 class AIReviewClient:
     """Final review of deterministic BUY candidates.
 
     A completed review can correct identity, lower the deterministic sold-P25
-    valuation, or veto an alert. It can never raise the valuation. If Copilot
-    fails because of quota or unavailability and ``XAI_API_KEY`` is set, the
-    same prompt is retried with Grok 4.7 at reasoning effort medium. OpenAI is
-    not called. If review still does not complete, a deterministic BUY stays a
-    BUY and the alert says ``AI review N/A``. Approved web-verified price
-    corrections are persisted in the same SQLite file as sold comps.
+    valuation, or veto an alert. It can never raise the valuation. Copilot CLI
+    is the only reviewer. Paid APIs are not called. If Copilot does not
+    complete a review, a deterministic BUY stays a BUY and the alert says
+    ``AI review N/A``. Approved web-verified price corrections are persisted
+    in the same SQLite file as sold comps.
     """
 
     def __init__(
         self,
         settings: Settings | None = None,
         *,
-        client: httpx.Client | None = None,
         db_path: str | Path | None = None,
     ) -> None:
         self.settings = settings or Settings()
-        self._client = client
         self._db_path = Path(db_path) if db_path is not None else Path(self.settings.comps_db)
         self._init_db()
 
@@ -239,72 +175,27 @@ class AIReviewClient:
         return review
 
     def complete(self, prompt: str) -> tuple[str, list[str], str]:
-        """Run one prompt through whichever provider is configured.
+        """Run one prompt through Copilot CLI.
 
-        Copilot is tried first when that is the selected provider. A quota or
-        unavailability failure retries the same prompt with Grok 4.7 Medium
-        when ``XAI_API_KEY`` is set. OpenAI is not a fallback. Returns the raw
-        text, any web citations the provider attached, and a label for the
-        model that answered.
+        Paid APIs are not called, including when Copilot is quota-limited or
+        missing. Returns the raw text and a label for the Copilot model.
+        Web evidence is read from the JSON the model returns.
         """
-        try:
-            provider = self._provider()
-        except RuntimeError as exc:
-            if not self._grok_fallback_ok(exc):
-                raise
-            return self._complete_grok(prompt)
-        if provider == "grok":
-            return self._complete_grok(prompt)
-        try:
-            text = self._run_copilot(prompt)
-        except RuntimeError as exc:
-            if not self._grok_fallback_ok(exc):
-                raise
-            try:
-                return self._complete_grok(prompt)
-            except (RuntimeError, ValueError, httpx.HTTPError) as fallback_exc:
-                raise RuntimeError(f"{exc}; Grok fallback failed: {fallback_exc}") from fallback_exc
-        model = self.settings.copilot_model or "auto"
+        self._require_copilot()
+        text = self._run_copilot(prompt)
+        model = (self.settings.copilot_model or "auto").strip() or "auto"
         return text, [], f"copilot:{model}"
 
-    def _complete_grok(self, prompt: str) -> tuple[str, list[str], str]:
-        response = self._post_grok(prompt)
-        text, urls = _response_text_and_urls(response)
-        urls = list(dict.fromkeys([*urls, *_citation_urls(response)]))
-        effort = (self.settings.grok_reasoning_effort or "medium").strip() or "medium"
-        model = (self.settings.grok_model or "grok-4.7").strip() or "grok-4.7"
-        return text, urls, f"{model}:{effort}"
-
-    def _grok_fallback_ok(self, exc: BaseException) -> bool:
-        if not (self.settings.xai_api_key or "").strip():
-            return False
+    def _require_copilot(self) -> None:
         requested = (self.settings.ai_provider or "auto").strip().casefold()
-        if requested in {"grok", "openai"}:
-            return False
-        return copilot_quota_or_unavailable(str(exc))
-
-    def _provider(self) -> str:
-        requested = (self.settings.ai_provider or "auto").strip().casefold()
-        if requested == "openai":
+        if requested in _PAID_PROVIDERS:
             raise RuntimeError(
-                "AI_PROVIDER=openai is disabled while OpenAI credit is 0; "
-                "use copilot or grok with XAI_API_KEY"
+                f"AI_PROVIDER={requested} is disabled; paid AI APIs are not used"
             )
-        if requested not in {"auto", "grok", "copilot"}:
+        if requested not in {"auto", "copilot"}:
             raise RuntimeError(f"Unknown AI_PROVIDER={self.settings.ai_provider!r}")
-        if requested == "grok":
-            if not (self.settings.xai_api_key or "").strip():
-                raise RuntimeError("AI_PROVIDER=grok but XAI_API_KEY is missing")
-            return "grok"
-        if requested == "copilot":
-            if shutil.which("copilot") is None:
-                raise RuntimeError("AI_PROVIDER=copilot but Copilot CLI is not installed")
-            return "copilot"
-        if shutil.which("copilot") is not None:
-            return "copilot"
-        if (self.settings.xai_api_key or "").strip():
-            return "grok"
-        raise RuntimeError("No AI review provider is available")
+        if shutil.which("copilot") is None:
+            raise RuntimeError("Copilot CLI is not installed")
 
     def _prompt(self, deal: Deal) -> str:
         item = deal.item
@@ -418,36 +309,6 @@ cannot be verified. source_urls must contain the actual pages you used.
         if not result.stdout.strip():
             raise RuntimeError("Copilot AI review returned empty output")
         return result.stdout.strip()
-
-    def _post_grok(self, prompt: str) -> dict:
-        url = self.settings.grok_base_url.rstrip("/") + "/responses"
-        headers = {
-            "Authorization": f"Bearer {self.settings.xai_api_key}",
-            "Content-Type": "application/json",
-        }
-        effort = (self.settings.grok_reasoning_effort or "medium").strip() or "medium"
-        payload = {
-            "model": (self.settings.grok_model or "grok-4.7").strip() or "grok-4.7",
-            "reasoning": {"effort": effort},
-            "tools": [{"type": "web_search"}],
-            "input": prompt,
-            "max_output_tokens": 1200,
-            "store": False,
-        }
-        if self._client is not None:
-            response = self._client.post(url, headers=headers, json=payload)
-        else:
-            response = httpx.post(
-                url,
-                headers=headers,
-                json=payload,
-                timeout=self.settings.ai_timeout_seconds,
-            )
-        response.raise_for_status()
-        data = response.json()
-        if not isinstance(data, dict):
-            raise RuntimeError("xAI Responses API returned a non-object response")
-        return data
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

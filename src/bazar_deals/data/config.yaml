@@ -179,15 +179,8 @@ ai:
   review_ttl_days: 14
   min_confidence: 0.75
   timeout_seconds: 90
-  # Kept for catalog compatibility. Hunt does not call OpenAI while that
-  # account has 0 credit and is specially billed.
-  openai_base_url: https://api.openai.com/v1
-  openai_model: gpt-5.6-terra
+  # Copilot CLI is the only reviewer. Paid APIs are not a fallback.
   copilot_model: auto
-  # Copilot quota/unavailable fallback. Public xAI id plus reasoning effort.
-  grok_base_url: https://api.x.ai/v1
-  grok_model: grok-4.7
-  grok_reasoning_effort: medium
 
 github:
   alert_issue_title: Deal alerts

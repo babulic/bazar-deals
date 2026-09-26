@@ -142,13 +142,12 @@ and `AI_MAX_IDENTIFICATIONS` caps how many are spent per hunt.
 The funnel reports `identity_ai_rescued` and `identity_ai_failed` alongside
 `identity_weak`, so the value of the AI step is visible per run.
 
-The **price** review (Copilot Free with `COPILOT_MODEL=auto`, then Grok 4.7
-Medium when `XAI_API_KEY` is set and Copilot is quota-limited or unavailable) receives
+The **price** review (Copilot Free with `COPILOT_MODEL=auto`) receives
 the same whole-advertisement text plus the extracted spec profile. A completed
 review may only lower the deterministic P25 or veto the alert; it cannot raise
-a value to make a deal pass. If review fails or is unavailable, a deterministic
-BUY (net ≥ `hunt.min_net_profit_eur`) is still posted, and the comment includes
-`AI review N/A`.
+a value to make a deal pass. If Copilot is quota-limited or unavailable, the
+hunt continues without AI review. A deterministic BUY (net ≥ `hunt.min_net_profit_eur`)
+is still posted, and the comment includes `AI review N/A`. Paid AI APIs are not called.
 
 ## Conservative valuation
 
@@ -217,7 +216,7 @@ Numeric Hunt, fee, AI, and battery defaults live in `src/bazar_deals/data/config
 | `COMPS_TTL_DAYS` | `hunt.comps_ttl_days` | Reuse stored P25 × `hunt.p25_factor` without a live search |
 | `AI_MAX_IDENTIFICATIONS` | `ai.max_identifications` | Cap on AI identifications per hunt |
 
-GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model. If that call fails because Copilot is quota-limited or unavailable, the same review is retried with Grok 4.7 Medium (`grok-4.7`, reasoning effort `medium`) when the `XAI_API_KEY` Actions secret is set. OpenAI is not called. A deterministic BUY is still alerted when review does not complete.
+GitHub Actions uses Copilot CLI with `COPILOT_MODEL=auto`, which is compatible with Copilot Free/Student. Paid Copilot seats can override this with a specifically available model. If that call fails because Copilot is quota-limited or unavailable, review is skipped and a deterministic BUY is still alerted. Paid AI APIs are not called.
 
 ## Alerts
 

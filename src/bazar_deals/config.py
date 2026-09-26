@@ -38,21 +38,12 @@ class Settings(BaseSettings):
     vinted_access_key: str = ""
     vinted_signing_key: str = ""
 
-    # AI review: scheduled GitHub Actions tries Copilot CLI first. If Copilot
-    # is quota-limited or unavailable and XAI_API_KEY is set, the same review
-    # falls back to Grok 4.7 with reasoning effort medium. OpenAI is not used.
-    # A deterministic BUY is still alerted when review does not complete.
-    ai_provider: str = str(_AI["provider"])  # auto | copilot | grok
+    # AI review uses Copilot CLI only. Paid APIs are not called. A
+    # deterministic BUY is still alerted when Copilot does not complete.
+    ai_provider: str = str(_AI["provider"])  # auto | copilot
     # Copilot Free/Student allow auto selection only. Paid seats may override
     # this with a specific model through COPILOT_MODEL.
     copilot_model: str = str(_AI["copilot_model"])
-    openai_api_key: str = Field(default="", repr=False)
-    openai_base_url: str = str(_AI["openai_base_url"])
-    openai_model: str = str(_AI["openai_model"])
-    xai_api_key: str = Field(default="", repr=False)
-    grok_base_url: str = str(_AI["grok_base_url"])
-    grok_model: str = str(_AI["grok_model"])
-    grok_reasoning_effort: str = str(_AI["grok_reasoning_effort"])
     ai_review_enabled: bool = False
     ai_review_required: bool = False
     ai_max_reviews: int = int(_AI["max_reviews"])
