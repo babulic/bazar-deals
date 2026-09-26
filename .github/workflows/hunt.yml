@@ -157,9 +157,6 @@ jobs:
           EBAY_RETENTION_ENABLED: "true"
           AI_PROVIDER: copilot
           COPILOT_MODEL: auto
-          # Empty when the XAI_API_KEY Actions secret is unset. Copilot stays
-          # primary; Grok 4.7 Medium is only the quota/unavailable fallback.
-          XAI_API_KEY: ${{ secrets.XAI_API_KEY }}
           AI_REVIEW_ENABLED: "true"
           AI_REVIEW_REQUIRED: "true"
       - name: Save price book checkpoint

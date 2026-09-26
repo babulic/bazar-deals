@@ -67,12 +67,11 @@ def test_yaml_holds_lists_and_gates() -> None:
     assert settings.ai_review_ttl_days == ai["review_ttl_days"]
     assert settings.ai_min_confidence == ai["min_confidence"]
     assert settings.ai_timeout_seconds == ai["timeout_seconds"]
-    assert settings.openai_base_url == ai["openai_base_url"]
-    assert settings.openai_model == ai["openai_model"]
     assert settings.copilot_model == ai["copilot_model"]
-    assert settings.grok_base_url == ai["grok_base_url"] == "https://api.x.ai/v1"
-    assert settings.grok_model == ai["grok_model"] == "grok-4.7"
-    assert settings.grok_reasoning_effort == ai["grok_reasoning_effort"] == "medium"
+    assert "openai_base_url" not in ai
+    assert "grok_model" not in ai
+    assert "openai_api_key" not in Settings.model_fields
+    assert "xai_api_key" not in Settings.model_fields
     assert hunt["max_score_listings"] == 80
     assert hunt["min_battery_health_percent"] == 84
     assert hunt["battery_under_pct"] < hunt["battery_mid_pct"] < hunt["battery_good_pct"]
@@ -162,4 +161,4 @@ def test_scheduled_hunt_exports_ai_budget_from_yaml() -> None:
     assert "AI_MAX_IDENTIFICATIONS={ai['max_identifications']}" in hunt_yaml
     assert "MAX_SCORE_LISTINGS={hunt['max_score_listings']}" in hunt_yaml
     assert "OPENAI_API_KEY" not in hunt_yaml
-    assert "XAI_API_KEY: ${{ secrets.XAI_API_KEY }}" in hunt_yaml
+    assert "XAI_API_KEY" not in hunt_yaml

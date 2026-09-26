@@ -40,57 +40,45 @@ def _deal():
     return score_deal(item, Decimal("120"), Decimal("8"))
 
 
-def test_ai_review_web_result_is_persisted_and_reused(tmp_path) -> None:
+def _stub_copilot(monkeypatch, responder) -> None:
+    monkeypatch.setattr(
+        "bazar_deals.ai_review.shutil.which",
+        lambda name: "/usr/bin/copilot" if name == "copilot" else None,
+    )
+    monkeypatch.setattr(AIReviewClient, "_run_copilot", responder)
+
+
+def test_ai_review_web_result_is_persisted_and_reused(tmp_path, monkeypatch) -> None:
     calls = {"count": 0}
 
-    def handler(request: httpx.Request) -> httpx.Response:
+    def fake_copilot(self, prompt: str) -> str:
         calls["count"] += 1
-        payload = {
-            "approved": True,
-            "complete_product": True,
-            "canonical_name": "Apple iPhone 13 128GB",
-            "kind": "phones",
-            "quick_sale_price_eur": 105,
-            "confidence": 0.91,
-            "reason": "Exact model and capacity verified from current resale evidence.",
-            "source_urls": [],
-        }
-        return httpx.Response(
-            200,
-            json={
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": json.dumps(payload),
-                                "annotations": [
-                                    {"type": "url_citation", "url": "https://www.ebay.de/example-sold"}
-                                ],
-                            }
-                        ],
-                    }
-                ]
-            },
+        return json.dumps(
+            {
+                "approved": True,
+                "complete_product": True,
+                "canonical_name": "Apple iPhone 13 128GB",
+                "kind": "phones",
+                "quick_sale_price_eur": 105,
+                "confidence": 0.91,
+                "reason": "Exact model and capacity verified from current resale evidence.",
+                "source_urls": ["https://www.ebay.de/example-sold"],
+            }
         )
 
+    _stub_copilot(monkeypatch, fake_copilot)
     settings = Settings(
-        ai_provider="grok",
-        xai_api_key="test-key",
-        grok_model="grok-4.7",
-        grok_reasoning_effort="medium",
+        ai_provider="copilot",
         ai_review_enabled=True,
         ai_review_required=True,
         comps_db=str(tmp_path / "comps.sqlite"),
     )
-    transport = httpx.MockTransport(handler)
-    with httpx.Client(transport=transport) as client:
-        reviewer = AIReviewClient(settings, client=client)
-        first = reviewer.review(_deal())
-        second = reviewer.review(_deal())
+    reviewer = AIReviewClient(settings)
+    first = reviewer.review(_deal())
+    second = reviewer.review(_deal())
 
     assert first.approved is True
+    assert first.model == "copilot:auto"
     assert first.quick_sale_price_eur == Decimal("105.00")
     assert first.source_urls == ["https://www.ebay.de/example-sold"]
     assert first.cached is False
@@ -98,46 +86,29 @@ def test_ai_review_web_result_is_persisted_and_reused(tmp_path) -> None:
     assert calls["count"] == 1
 
 
-def test_ai_review_cannot_approve_without_web_price_evidence(tmp_path) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={
-                "output": [
-                    {
-                        "type": "message",
-                        "content": [
-                            {
-                                "type": "output_text",
-                                "text": json.dumps(
-                                    {
-                                        "approved": True,
-                                        "complete_product": True,
-                                        "canonical_name": "Apple iPhone 13 128GB",
-                                        "kind": "phones",
-                                        "quick_sale_price_eur": 110,
-                                        "confidence": 0.95,
-                                        "reason": "No sources supplied.",
-                                        "source_urls": [],
-                                    }
-                                ),
-                                "annotations": [],
-                            }
-                        ],
-                    }
-                ]
-            },
+def test_ai_review_cannot_approve_without_web_price_evidence(tmp_path, monkeypatch) -> None:
+    def fake_copilot(self, prompt: str) -> str:
+        return json.dumps(
+            {
+                "approved": True,
+                "complete_product": True,
+                "canonical_name": "Apple iPhone 13 128GB",
+                "kind": "phones",
+                "quick_sale_price_eur": 110,
+                "confidence": 0.95,
+                "reason": "No sources supplied.",
+                "source_urls": [],
+            }
         )
 
+    _stub_copilot(monkeypatch, fake_copilot)
     settings = Settings(
-        ai_provider="grok",
-        xai_api_key="test-key",
+        ai_provider="copilot",
         ai_review_enabled=True,
         ai_review_required=True,
         comps_db=str(tmp_path / "comps.sqlite"),
     )
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        review = AIReviewClient(settings, client=client).review(_deal())
+    review = AIReviewClient(settings).review(_deal())
     assert review.approved is False
 
 
@@ -161,7 +132,6 @@ def test_ai_can_only_lower_price_and_veto_after_recalculation() -> None:
     settings = Settings(
         ai_review_enabled=True,
         ai_review_required=True,
-        openai_api_key="test-key",
         min_net_profit_eur=Decimal("30"),
     )
     result = _apply_ai_gate([deal], settings, _Reviewer(), Counter())[0]
@@ -228,7 +198,6 @@ def test_ai_gate_retries_once_when_review_raises() -> None:
     settings = Settings(
         ai_review_enabled=True,
         ai_review_required=True,
-        openai_api_key="test-key",
         min_net_profit_eur=Decimal("30"),
     )
     result = _apply_ai_gate([_deal()], settings, reviewer, funnel)[0]
@@ -315,34 +284,6 @@ def test_ai_gate_keeps_buy_when_score_deadline_passed() -> None:
     assert "AI review N/A" not in skipped.reason
 
 
-def _approved_grok_payload() -> dict:
-    return {
-        "output": [
-            {
-                "type": "message",
-                "content": [
-                    {
-                        "type": "output_text",
-                        "text": json.dumps(
-                            {
-                                "approved": True,
-                                "complete_product": True,
-                                "canonical_name": "Apple iPhone 13 128GB",
-                                "kind": "phones",
-                                "quick_sale_price_eur": 120,
-                                "confidence": 0.91,
-                                "reason": "Exact model verified after Copilot quota.",
-                                "source_urls": ["https://www.ebay.de/example-sold"],
-                            }
-                        ),
-                        "annotations": [],
-                    }
-                ],
-            }
-        ]
-    }
-
-
 def test_unavailable_ai_keeps_buy_and_warns_in_alert() -> None:
     from bazar_deals.github_alerts import format_hunt_comment, select_buy_alerts
     from bazar_deals.pipeline import HuntRun
@@ -408,83 +349,102 @@ def test_successful_ai_review_still_has_no_na_warning() -> None:
     assert "AI review N/A" not in result.reason
 
 
-def test_copilot_quota_falls_back_to_grok(tmp_path, monkeypatch) -> None:
-    calls = {"copilot": 0, "grok": 0, "hosts": []}
+def _forbid_paid_http(monkeypatch) -> list[str]:
+    """Record every HTTP attempt and fail if a paid AI host is contacted."""
+    calls: list[str] = []
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls["grok"] += 1
-        calls["hosts"].append(request.url.host)
-        body = json.loads(request.content.decode())
-        assert body["model"] == "grok-4.7"
-        assert body["reasoning"] == {"effort": "medium"}
-        assert body["tools"] == [{"type": "web_search"}]
-        assert "api.openai.com" not in str(request.url)
-        return httpx.Response(200, json=_approved_grok_payload())
+    def reject(url, *args, **kwargs):
+        target = str(url)
+        calls.append(target)
+        raise AssertionError(f"unexpected HTTP call to {target}")
+
+    def request(self, method, url, *args, **kwargs):
+        target = f"{method} {url}"
+        calls.append(target)
+        host = str(url)
+        if "api.openai.com" in host or "api.x.ai" in host:
+            raise AssertionError(f"paid AI API called: {target}")
+        raise AssertionError(f"unexpected HTTP call: {target}")
+
+    monkeypatch.setattr(httpx, "post", reject)
+    monkeypatch.setattr(httpx, "get", reject)
+    monkeypatch.setattr(httpx.Client, "request", request)
+    return calls
+
+
+def test_copilot_failure_does_not_call_paid_apis_and_alerts_na(tmp_path, monkeypatch) -> None:
+    from bazar_deals.github_alerts import format_hunt_comment, select_buy_alerts
+    from bazar_deals.pipeline import HuntRun
+
+    calls = _forbid_paid_http(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-should-not-be-used-1234567890")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-should-not-be-used")
+    monkeypatch.setattr(
+        "bazar_deals.ai_review.subprocess.run",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("subprocess should stay on Copilot")),
+    )
 
     def boom(self, prompt: str) -> str:
-        calls["copilot"] += 1
         raise RuntimeError("Copilot AI review failed: You have exceeded your monthly quota")
 
-    monkeypatch.setattr(
-        "bazar_deals.ai_review.shutil.which",
-        lambda name: "/usr/bin/copilot" if name == "copilot" else None,
-    )
-    monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
+    _stub_copilot(monkeypatch, boom)
+    assert "openai_api_key" not in Settings.model_fields
+    assert "xai_api_key" not in Settings.model_fields
+    assert "grok_model" not in Settings.model_fields
     settings = Settings(
-        ai_provider="copilot",
-        openai_api_key="must-not-be-used",
-        xai_api_key="test-key",
-        grok_model="grok-4.7",
-        grok_reasoning_effort="medium",
+        ai_provider="auto",
         ai_review_enabled=True,
         ai_review_required=True,
+        min_net_profit_eur=Decimal("9"),
         comps_db=str(tmp_path / "comps.sqlite"),
     )
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
-        review = AIReviewClient(settings, client=client).review(_deal())
+    deal = _deal()
+    assert deal.action is Action.BUY
+    funnel = Counter()
+    result = _apply_ai_gate([deal], settings, AIReviewClient(settings), funnel)[0]
+    assert result.action is Action.BUY
+    assert result.ai_review is None
+    assert funnel["ai_unavailable"] == 1
+    assert "AI review N/A" in result.reason
+    assert calls == []
 
-    assert calls["copilot"] == 1
-    assert calls["grok"] == 1
-    assert calls["hosts"] == ["api.x.ai"]
-    assert review.approved is True
-    assert review.model == "grok-4.7:medium"
-    assert review.quick_sale_price_eur == Decimal("120.00")
-
-
-def test_copilot_non_quota_failure_does_not_call_grok(tmp_path, monkeypatch) -> None:
-    calls = {"grok": 0}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        calls["grok"] += 1
-        return httpx.Response(200, json=_approved_grok_payload())
-
-    def boom(self, prompt: str) -> str:
-        raise RuntimeError("Copilot AI review failed: prompt rejected by policy")
-
-    monkeypatch.setattr(
-        "bazar_deals.ai_review.shutil.which",
-        lambda name: "/usr/bin/copilot" if name == "copilot" else None,
+    run = HuntRun(deals=[result], funnel=funnel, source_stats={})
+    assert select_buy_alerts(run.deals, min_net_profit=Decimal("9")) == [result]
+    body = format_hunt_comment(
+        run,
+        mention="babulic",
+        min_profit=Decimal("9"),
+        min_alert_profit=Decimal("9"),
+        include_progress=False,
     )
-    monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
-    settings = Settings(
-        ai_provider="copilot",
-        openai_api_key="must-not-be-used",
-        xai_api_key="test-key",
-        comps_db=str(tmp_path / "comps.sqlite"),
-    )
-    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+    assert "AI review N/A" in body
+    assert "- varovanie: AI review N/A" in body
+    assert "BUY: áno" in body
+    assert "SKIP" not in body
+
+
+def test_paid_provider_names_do_not_call_http(tmp_path, monkeypatch) -> None:
+    calls = _forbid_paid_http(monkeypatch)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test-should-not-be-used-1234567890")
+    monkeypatch.setenv("XAI_API_KEY", "xai-test-should-not-be-used")
+    _stub_copilot(monkeypatch, lambda self, prompt: (_ for _ in ()).throw(AssertionError("copilot")))
+    for provider in ("openai", "grok", "xai"):
+        settings = Settings(
+            ai_provider=provider,
+            comps_db=str(tmp_path / f"{provider}.sqlite"),
+        )
         try:
-            AIReviewClient(settings, client=client).review(_deal())
+            AIReviewClient(settings).review(_deal())
         except RuntimeError as exc:
-            assert "prompt rejected" in str(exc)
+            assert "paid AI APIs are not used" in str(exc)
         else:
-            raise AssertionError("non-quota Copilot failure should not be swallowed")
-    assert calls["grok"] == 0
+            raise AssertionError(f"AI_PROVIDER={provider} should be rejected")
+    assert calls == []
 
 
 def test_ai_review_na_reason_redacts_key_shaped_text() -> None:
     from bazar_deals.ai_review import ai_review_na_reason
 
-    reason = ai_review_na_reason("Grok fallback failed: invalid key sk-abcDEF1234567890")
+    reason = ai_review_na_reason("Copilot AI review failed: invalid key sk-abcDEF1234567890")
     assert reason.startswith("AI review N/A:")
     assert "sk-abc" not in reason
