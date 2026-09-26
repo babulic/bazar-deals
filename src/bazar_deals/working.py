@@ -7,7 +7,8 @@ import unicodedata
 
 from bazar_deals.domain import Condition, Listing
 from bazar_deals.rules import rules
-from bazar_deals.watchlist import MIN_BATTERY_HEALTH_PERCENT
+
+MIN_BATTERY_HEALTH_PERCENT = int(rules()["hunt"]["min_battery_health_percent"])
 
 
 def _fold(text: str) -> str:

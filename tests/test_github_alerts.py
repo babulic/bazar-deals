@@ -17,8 +17,10 @@ from bazar_deals.github_alerts import (
     select_buy_alerts,
 )
 from bazar_deals.scoring import score_deal
+from bazar_deals.rules import rules
 from bazar_deals.soldcomps import _p25_mark
-from bazar_deals.watchlist import MIN_SOLD_SAMPLE
+
+MIN_SOLD_SAMPLE = int(rules()["hunt"]["min_sold_sample"])
 
 
 def _deal() -> Deal:

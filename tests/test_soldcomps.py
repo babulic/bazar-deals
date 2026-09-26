@@ -5,8 +5,10 @@ from unittest.mock import patch
 
 from bazar_deals.config import Settings
 from bazar_deals.domain import IdentifiedItem, Listing, Marketplace, Money
+from bazar_deals.rules import rules
 from bazar_deals.soldcomps import SoldCompClient, _lower_quartile, _market_value, _p25_mark
-from bazar_deals.watchlist import MIN_SOLD_SAMPLE
+
+MIN_SOLD_SAMPLE = int(rules()["hunt"]["min_sold_sample"])
 
 ROOT = Path(__file__).parent / "fixtures"
 SOLD_HTML = (ROOT / "ebay_sold_1541.html").read_text(encoding="utf-8")

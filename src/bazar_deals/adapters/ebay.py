@@ -153,14 +153,14 @@ class EbayBrowseClient(ListingSource):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})
-        headers = self._browse_headers(
-            str(listing.raw.get("ebay_marketplace") or marketplace_id_for_url(listing.url))
-        )
         try:
+            headers = self._browse_headers(
+                str(listing.raw.get("ebay_marketplace") or marketplace_id_for_url(listing.url))
+            )
             response = httpx.get(href, headers=headers, timeout=20.0)
             response.raise_for_status()
             data = response.json()
-        except (httpx.HTTPError, ValueError):
+        except (httpx.HTTPError, RuntimeError, ValueError, TimeoutError):
             raw = dict(listing.raw)
             raw["detail_fetched"] = False
             return listing.model_copy(update={"raw": raw})

@@ -76,8 +76,10 @@ def test_ai_review_web_result_is_persisted_and_reused(tmp_path) -> None:
         )
 
     settings = Settings(
-        openai_api_key="test-key",
-        openai_model="gpt-5.6-terra",
+        ai_provider="grok",
+        xai_api_key="test-key",
+        grok_model="grok-4.7",
+        grok_reasoning_effort="medium",
         ai_review_enabled=True,
         ai_review_required=True,
         comps_db=str(tmp_path / "comps.sqlite"),
@@ -128,7 +130,8 @@ def test_ai_review_cannot_approve_without_web_price_evidence(tmp_path) -> None:
         )
 
     settings = Settings(
-        openai_api_key="test-key",
+        ai_provider="grok",
+        xai_api_key="test-key",
         ai_review_enabled=True,
         ai_review_required=True,
         comps_db=str(tmp_path / "comps.sqlite"),
@@ -312,7 +315,7 @@ def test_ai_gate_keeps_buy_when_score_deadline_passed() -> None:
     assert "AI review N/A" not in skipped.reason
 
 
-def _approved_openai_payload() -> dict:
+def _approved_grok_payload() -> dict:
     return {
         "output": [
             {
@@ -405,12 +408,18 @@ def test_successful_ai_review_still_has_no_na_warning() -> None:
     assert "AI review N/A" not in result.reason
 
 
-def test_copilot_quota_falls_back_to_openai(tmp_path, monkeypatch) -> None:
-    calls = {"copilot": 0, "openai": 0}
+def test_copilot_quota_falls_back_to_grok(tmp_path, monkeypatch) -> None:
+    calls = {"copilot": 0, "grok": 0, "hosts": []}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls["openai"] += 1
-        return httpx.Response(200, json=_approved_openai_payload())
+        calls["grok"] += 1
+        calls["hosts"].append(request.url.host)
+        body = json.loads(request.content.decode())
+        assert body["model"] == "grok-4.7"
+        assert body["reasoning"] == {"effort": "medium"}
+        assert body["tools"] == [{"type": "web_search"}]
+        assert "api.openai.com" not in str(request.url)
+        return httpx.Response(200, json=_approved_grok_payload())
 
     def boom(self, prompt: str) -> str:
         calls["copilot"] += 1
@@ -423,8 +432,10 @@ def test_copilot_quota_falls_back_to_openai(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
     settings = Settings(
         ai_provider="copilot",
-        openai_api_key="test-key",
-        openai_model="gpt-5.6-terra",
+        openai_api_key="must-not-be-used",
+        xai_api_key="test-key",
+        grok_model="grok-4.7",
+        grok_reasoning_effort="medium",
         ai_review_enabled=True,
         ai_review_required=True,
         comps_db=str(tmp_path / "comps.sqlite"),
@@ -433,18 +444,19 @@ def test_copilot_quota_falls_back_to_openai(tmp_path, monkeypatch) -> None:
         review = AIReviewClient(settings, client=client).review(_deal())
 
     assert calls["copilot"] == 1
-    assert calls["openai"] == 1
+    assert calls["grok"] == 1
+    assert calls["hosts"] == ["api.x.ai"]
     assert review.approved is True
-    assert review.model == "gpt-5.6-terra"
+    assert review.model == "grok-4.7:medium"
     assert review.quick_sale_price_eur == Decimal("120.00")
 
 
-def test_copilot_non_quota_failure_does_not_call_openai(tmp_path, monkeypatch) -> None:
-    calls = {"openai": 0}
+def test_copilot_non_quota_failure_does_not_call_grok(tmp_path, monkeypatch) -> None:
+    calls = {"grok": 0}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls["openai"] += 1
-        return httpx.Response(200, json=_approved_openai_payload())
+        calls["grok"] += 1
+        return httpx.Response(200, json=_approved_grok_payload())
 
     def boom(self, prompt: str) -> str:
         raise RuntimeError("Copilot AI review failed: prompt rejected by policy")
@@ -456,7 +468,8 @@ def test_copilot_non_quota_failure_does_not_call_openai(tmp_path, monkeypatch) -
     monkeypatch.setattr(AIReviewClient, "_run_copilot", boom)
     settings = Settings(
         ai_provider="copilot",
-        openai_api_key="test-key",
+        openai_api_key="must-not-be-used",
+        xai_api_key="test-key",
         comps_db=str(tmp_path / "comps.sqlite"),
     )
     with httpx.Client(transport=httpx.MockTransport(handler)) as client:
@@ -466,12 +479,12 @@ def test_copilot_non_quota_failure_does_not_call_openai(tmp_path, monkeypatch) -
             assert "prompt rejected" in str(exc)
         else:
             raise AssertionError("non-quota Copilot failure should not be swallowed")
-    assert calls["openai"] == 0
+    assert calls["grok"] == 0
 
 
 def test_ai_review_na_reason_redacts_key_shaped_text() -> None:
     from bazar_deals.ai_review import ai_review_na_reason
 
-    reason = ai_review_na_reason("OpenAI fallback failed: invalid key sk-abcDEF1234567890")
+    reason = ai_review_na_reason("Grok fallback failed: invalid key sk-abcDEF1234567890")
     assert reason.startswith("AI review N/A:")
     assert "sk-abc" not in reason

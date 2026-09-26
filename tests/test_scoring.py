@@ -4,8 +4,8 @@ from bazar_deals.config import Settings
 from bazar_deals.domain import Condition, IdentifiedItem, Listing, Marketplace, Money, Vertical
 from bazar_deals.identity import identify
 from bazar_deals.scoring import assumed_shipping, score_deal
-from bazar_deals.watchlist import MIN_BATTERY_HEALTH_PERCENT
-from bazar_deals.working import is_working_listing
+from bazar_deals.rules import rules
+from bazar_deals.working import MIN_BATTERY_HEALTH_PERCENT, is_working_listing
 
 
 def _listing(price: str = "38", *, description: str = "") -> Listing:
@@ -64,7 +64,7 @@ def test_vinted_includes_buyer_protection_and_resale_fee_reserve() -> None:
 
 
 def test_battery_under_threshold_and_no_box_reduce_resale_value() -> None:
-    from bazar_deals.watchlist import BATTERY_UNDER_PCT
+    BATTERY_UNDER_PCT = int(rules()["hunt"]["battery_under_pct"])
 
     listing = Listing(
         marketplace=Marketplace.BAZOS,
