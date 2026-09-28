@@ -1,0 +1,65 @@
+name: Inspect bazar-deals VPS capacity
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: inspect-bazar-deals-vps
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Configure pinned SSH access
+        env:
+          CONDENS_SSH_PRIVATE_KEY: ${{ secrets.CONDENS_SSH_PRIVATE_KEY }}
+          CONDENS_SSH_USER: ${{ secrets.CONDENS_SSH_USER }}
+        run: |
+          : "${CONDENS_SSH_PRIVATE_KEY:?missing CONDENS_SSH_PRIVATE_KEY}"
+          : "${CONDENS_SSH_USER:?missing CONDENS_SSH_USER}"
+          install -m 700 -d ~/.ssh
+          python - <<'PY'
+          import os
+          import textwrap
+          from pathlib import Path
+
+          value = os.environ["CONDENS_SSH_PRIVATE_KEY"].strip()
+          header = "-----BEGIN OPENSSH PRIVATE KEY-----"
+          footer = "-----END OPENSSH PRIVATE KEY-----"
+          if not value.startswith(header) or not value.endswith(footer):
+              raise SystemExit("invalid OpenSSH key envelope")
+          body = "".join(value[len(header):-len(footer)].split())
+          target = Path.home() / ".ssh" / "condens"
+          target.write_text(
+              header + "\n" + "\n".join(textwrap.wrap(body, 70)) + "\n" + footer + "\n",
+              encoding="ascii",
+          )
+          target.chmod(0o600)
+          PY
+          printf '%s\n' \
+            '46.102.157.230 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIBxLpy7QeOJdsskTztHiHYPEJgb9ZUhsynBtvY+sBcbO' \
+            > ~/.ssh/known_hosts
+      - name: Report bazar-deals capacity
+        env:
+          CONDENS_SSH_USER: ${{ secrets.CONDENS_SSH_USER }}
+        run: |
+          ssh -i ~/.ssh/condens -o BatchMode=yes "${CONDENS_SSH_USER}@46.102.157.230" <<'EOF'
+          set -eu
+          echo 'Filesystem bytes:'
+          df -B1 / | tail -n +2
+          echo 'Project total:'
+          du -sb /opt/bazar-deals 2>/dev/null || true
+          echo 'Project components:'
+          du -sb /opt/bazar-deals/data /opt/bazar-deals/caddy-data /opt/bazar-deals/caddy-config 2>/dev/null || true
+          echo 'Project compose state:'
+          docker compose -f /opt/bazar-deals/deploy/ebay-store/compose.yml ps -a || true
+          echo 'Project compose images:'
+          docker compose -f /opt/bazar-deals/deploy/ebay-store/compose.yml images || true
+          echo 'All running containers (for preservation check):'
+          docker ps --format '{{.Names}} {{.Image}} {{.Size}}'
+          EOF
