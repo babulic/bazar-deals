@@ -56,14 +56,15 @@ jobs:
           test -d "$project"
           test -f "$compose"
           test "$(realpath "$project")" = "$project"
+          sudo -n true
 
           echo 'Before removal:'
-          du -sh "$project"
+          du -sh "$project" 2>&1 || true
           docker compose -f "$compose" ps -a || true
           docker ps --format '{{.Names}} {{.Image}}' | grep -F 'polymarket-tracker' || true
 
           docker compose -f "$compose" down --rmi local
-          rm -rf -- "$project"
+          sudo -n rm -rf -- "$project"
 
           test ! -e "$project"
           test -z "$(docker ps -a --filter name=ebay-store --format '{{.Names}}')"
